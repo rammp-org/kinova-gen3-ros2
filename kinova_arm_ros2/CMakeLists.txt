@@ -6,11 +6,12 @@ find_package(rclcpp_action REQUIRED)
 find_package(kinova_arm_interfaces REQUIRED)
 find_package(kinova_lowlevel CONFIG REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(message_mapping rclcpp kinova_arm_interfaces)
+ament_target_dependencies(message_mapping rclcpp kinova_arm_interfaces trajectory_msgs)
 target_link_libraries(message_mapping kinova_lowlevel::kinova_lowlevel)
 
 add_library(goal_router src/goal_router.cpp)

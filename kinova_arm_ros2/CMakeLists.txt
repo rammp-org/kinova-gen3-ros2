@@ -5,6 +5,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(kinova_arm_interfaces REQUIRED)
 find_package(kinova_lowlevel CONFIG REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
@@ -14,7 +15,7 @@ target_link_libraries(message_mapping kinova_lowlevel::kinova_lowlevel)
 
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces)
+ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces sensor_msgs)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
 add_executable(kinova_arm_node src/bringup_node.cpp)

@@ -5,6 +5,7 @@
 #include <mutex>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "kinova_arm_interfaces/action/execute_joint_trajectory.hpp"
 #include "kinova_arm_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/ports.h"
@@ -22,8 +23,8 @@ class Ros2Backend : public kinova::interface::ActionServerPort,
   // ActionServerPort (called by the supervisor sampler thread):
   void publish_feedback(const kinova::interface::GoalId&, const kinova::interface::TrajectoryFeedback&) override;
   void settle(const kinova::interface::GoalId&, const kinova::interface::TrajectoryResult&) override;
-  // StreamPort (JointState stream is a fast-follow plan — no-op in v1):
-  void publish_state(const kinova::interface::ArmState&) override {}
+  // StreamPort (called by the supervisor pump thread):
+  void publish_state(const kinova::interface::ArmState&) override;
 
  private:
   rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID&, std::shared_ptr<const Action::Goal>);
@@ -32,6 +33,7 @@ class Ros2Backend : public kinova::interface::ActionServerPort,
 
   rclcpp::Node::SharedPtr node_;
   rclcpp_action::Server<Action>::SharedPtr server_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_pub_;
   kinova::interface::CommandSink* sink_ = nullptr;
   std::mutex m_;
   std::map<kinova::interface::GoalId, std::shared_ptr<GoalHandle>> handles_;   // GoalId == GoalUUID

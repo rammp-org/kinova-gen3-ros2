@@ -12,6 +12,8 @@ Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
       std::bind(&Ros2Backend::handle_goal, this, _1, _2),
       std::bind(&Ros2Backend::handle_cancel, this, _1),
       std::bind(&Ros2Backend::handle_accepted, this, _1));
+  state_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
+      "joint_states", rclcpp::SensorDataQoS());
 }
 
 rclcpp_action::GoalResponse Ros2Backend::handle_goal(
@@ -64,5 +66,21 @@ void Ros2Backend::settle(const GoalId& id, const TrajectoryResult& r) {
   if (gh->is_canceling())                      gh->canceled(msg);
   else if (r.error_code == result_code::kSuccessful) gh->succeed(msg);
   else                                         gh->abort(msg);
+}
+
+// v1 free-running JointState stream (from the supervisor pump thread, ~100 Hz).
+void Ros2Backend::publish_state(const ArmState& s) {
+  sensor_msgs::msg::JointState msg;
+  msg.header.stamp = node_->now();
+  msg.name = {"joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6", "joint_7"};
+  msg.position.resize(kinova::kNumJoints);
+  msg.velocity.resize(kinova::kNumJoints);
+  msg.effort.resize(kinova::kNumJoints);
+  for (int i = 0; i < kinova::kNumJoints; ++i) {
+    msg.position[i] = s.q[i];
+    msg.velocity[i] = s.qd[i];
+    msg.effort[i] = s.tau[i];
+  }
+  state_pub_->publish(msg);
 }
 }  // namespace kinova_arm_ros2

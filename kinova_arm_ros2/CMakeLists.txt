@@ -41,8 +41,10 @@ ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interface
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
 add_executable(kinova_arm_node src/bringup_node.cpp)
-ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces)
-target_link_libraries(kinova_arm_node ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
+ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
+target_link_libraries(kinova_arm_node
+  ros2_backend goto_ee_pose_server goal_router curobo_plan_client message_mapping
+  kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)

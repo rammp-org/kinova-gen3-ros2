@@ -66,6 +66,8 @@ Node name: **`kinova_arm_node`**.
 |---|---|
 | `execute_joint_trajectory` | `kinova_arm_interfaces/action/ExecuteJointTrajectory` |
 | `go_to_ee_pose` | `kinova_arm_interfaces/action/GoToEEPose` |
+| `go_to_joint_config` | `kinova_arm_interfaces/action/GoToJointConfig` |
+| `go_to_preset` | `kinova_arm_interfaces/action/GoToPreset` |
 
 Goal:
 
@@ -92,9 +94,17 @@ length is not exactly 7. (The mapping layer separately zero-fills / truncates as
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
 
-`go_to_ee_pose` plans an end-effector pose goal via the external cuRobo node and
-executes it through the same Supervisor — see
-[`docs/guide-goto-ee-pose.md`](docs/guide-goto-ee-pose.md) for usage.
+`go_to_ee_pose`, `go_to_joint_config` and `go_to_preset` describe a *goal* rather
+than a trajectory: each plans a collision-free path via the external cuRobo node
+and executes it through the same Supervisor. They share one lifecycle, so their
+Result/Feedback and their cancel behaviour are identical — see
+[`docs/guide-goto-actions.md`](docs/guide-goto-actions.md) for all three
+(`go_to_ee_pose` alone is also covered in
+[`docs/guide-goto-ee-pose.md`](docs/guide-goto-ee-pose.md)).
+
+Both joint-space actions plan through cuRobo's `plan_to_joints`; `go_to_preset`
+just resolves a name to 7 joint angles first, from the `preset_names` /
+`presets.<name>` parameters.
 
 ### Published topics
 

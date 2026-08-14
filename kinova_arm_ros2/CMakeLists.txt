@@ -17,6 +17,17 @@ target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
+add_executable(kinova_arm_node src/bringup_node.cpp)
+ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces)
+target_link_libraries(kinova_arm_node ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
+target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)   # sim build; Task 7 flips this
+# kinova_lowlevel links pinocchio (shared libs under the cmeel prefix) with no
+# RPATH of its own (static lib); without this the installed node can't find
+# libpinocchio_*.so at runtime even though it links/builds fine.
+set_target_properties(kinova_arm_node PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+install(TARGETS kinova_arm_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY ../models DESTINATION share/${PROJECT_NAME} OPTIONAL)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(message_mapping_test test/message_mapping_test.cpp)

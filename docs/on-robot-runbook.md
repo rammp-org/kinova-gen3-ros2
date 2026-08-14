@@ -79,3 +79,12 @@ drain. Stop on anything unexpected — e-stop, then investigate.
 
 ### Runs
 - (append results here)
+- **2026-08-12 (attended, e-stop):** First run surfaced a core bug — a well-tracking
+  j6 +0.10 move false-aborted (`PATH_TOLERANCE_VIOLATED`) at ~71% because the
+  supervisor sampler injected q=0 into the divergence guard on a rare failed
+  feedback-snapshot read. Fixed in the core (reuse last-good q; commit `dd3e57e`).
+  After the fix, re-verified on the arm:
+  - j6 +0.40 rad over 2.0s → SUCCEEDED, rest on target (1.6423→2.0423).
+  - coordinated two-joint (j5 +0.40, j6 −0.40) over 2.5s → SUCCEEDED, both on target
+    (j5 0.960→1.360, j6 2.042→1.642). Multi-joint client: `--joint 5,6 --delta 0.4,-0.4`
+    (note: put a positive delta first — argparse treats a leading `-` value as a flag).

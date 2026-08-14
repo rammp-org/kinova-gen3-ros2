@@ -35,8 +35,11 @@ class C(Node):
             self.code = None; return
 
         start = list(self.current_q)
-        goal = list(start); goal[self.args.joint] += self.args.delta
-        print(f'measured start: joint{self.args.joint}={start[self.args.joint]:+.4f} rad -> target {goal[self.args.joint]:+.4f}')
+        goal = list(start)
+        for j, d in self.args.moves:
+            goal[j] += d
+        print('measured start -> target: ' + '  '.join(
+            f'j{j}:{start[j]:+.4f}->{goal[j]:+.4f}' for j, _ in self.args.moves))
 
         g = ExecuteJointTrajectory.Goal()
         g.control_mode = 1 if self.args.mode == 'impedance' else 0
@@ -58,17 +61,24 @@ class C(Node):
         print(f'result error_code={self.code} status={self.status}')
 
     def on_fb(self, fb):
-        print(f'fb frac={fb.feedback.fraction_complete:.2f} measured_j{self.args.joint}={fb.feedback.actual.positions[self.args.joint]:+.4f}')
+        meas = '  '.join(f'j{j}={fb.feedback.actual.positions[j]:+.4f}' for j, _ in self.args.moves)
+        print(f'fb frac={fb.feedback.fraction_complete:.2f} measured {meas}')
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--mode', default='position'); ap.add_argument('--delta', type=float, default=0.05)
+    ap.add_argument('--mode', default='position')
+    ap.add_argument('--delta', default='0.05')          # comma-list, one per --joint
     ap.add_argument('--dur', type=float, default=0.4); ap.add_argument('--path-tol', type=float, default=-1.0)
-    ap.add_argument('--joint', type=int, default=6)
+    ap.add_argument('--joint', default='6')             # comma-list of joint indices 0..6
     ap.add_argument('--expect', type=int, required=True)
     a = ap.parse_args()
-    if not (0 <= a.joint <= 6):
-        print(f'ERROR: --joint must be in [0,6], got {a.joint}'); sys.exit(2)
+    joints = [int(x) for x in a.joint.split(',')]
+    deltas = [float(x) for x in a.delta.split(',')]
+    if len(joints) != len(deltas):
+        print(f'ERROR: --joint ({len(joints)}) and --delta ({len(deltas)}) count mismatch'); sys.exit(2)
+    if any(not (0 <= j <= 6) for j in joints):
+        print(f'ERROR: every --joint must be in [0,6], got {joints}'); sys.exit(2)
+    a.moves = list(zip(joints, deltas))                 # [(joint, delta), ...]
     rclpy.init(); c = C(a); c.run(); rclpy.shutdown()
     ok = (c.code == a.expect)
     print('PASS' if ok else f'FAIL (got {c.code}, expected {a.expect})')

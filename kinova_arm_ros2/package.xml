@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>kinova_arm_ros2</name>
+  <version>0.1.0</version>
+  <description>ROS2 frontend node for the Kinova low-level driver</description>
+  <maintainer email="swapnil.pande98@gmail.com">Swapnil Pande</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>kinova_arm_interfaces</depend>
+  <depend>kinova_lowlevel</depend>
+  <depend>sensor_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

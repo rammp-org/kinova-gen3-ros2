@@ -1,0 +1,9 @@
+# kinova_arm.repos — colcon workspace source list.
+# NOTE (2026-08): abra has no GitHub key, so the dev loop rsyncs the core in via
+# scripts/abra_colcon.sh instead of vcs-importing this. This file documents the
+# intended source. Pinned to main now that Plan 2 (ports + Supervisor) is merged (PR #11).
+repositories:
+  kinova-gen3-driver:
+    type: git
+    url: git@github.com:rammp-org/kinova-gen3-driver.git
+    version: main

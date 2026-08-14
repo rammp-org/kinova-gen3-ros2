@@ -12,7 +12,7 @@ static JointVec tol_to_vec(const std::vector<control_msgs::msg::JointTolerance>&
 TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal& g) {
   TrajectoryGoal tg;
   for (const auto& p : g.trajectory.points) {
-    JointWaypoint w;
+    JointWaypoint w{JointVec::Zero(), 0.0};
     for (int i = 0; i < kNumJoints && i < static_cast<int>(p.positions.size()); ++i) w.q[i] = p.positions[i];
     w.t_s = static_cast<double>(p.time_from_start.sec) + static_cast<double>(p.time_from_start.nanosec) * 1e-9;
     tg.trajectory.points.push_back(w);

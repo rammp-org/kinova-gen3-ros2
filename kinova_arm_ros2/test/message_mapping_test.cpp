@@ -43,6 +43,36 @@ TEST(MessageMapping, GoalImpedanceGainsAndPathTol) {
   EXPECT_NEAR(tg.path_tolerance[0], 0.2, 1e-12);
 }
 
+TEST(MessageMapping, GoalWithFewerThanSevenPositionsZeroFillsRemainder) {
+  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  trajectory_msgs::msg::JointTrajectoryPoint p;
+  p.positions = {0.1, 0.2, 0.3, 0.4, 0.5};   // 5 < 7
+  p.time_from_start.sec = 1;
+  g.trajectory.points = { p };
+  auto tg = to_trajectory_goal(g);
+  ASSERT_EQ(tg.trajectory.points.size(), 1u);
+  const auto& q = tg.trajectory.points[0].q;
+  EXPECT_NEAR(q[0], 0.1, 1e-12);
+  EXPECT_NEAR(q[1], 0.2, 1e-12);
+  EXPECT_NEAR(q[2], 0.3, 1e-12);
+  EXPECT_NEAR(q[3], 0.4, 1e-12);
+  EXPECT_NEAR(q[4], 0.5, 1e-12);
+  EXPECT_EQ(q[5], 0.0);   // not provided -> must be defined 0.0, not garbage
+  EXPECT_EQ(q[6], 0.0);
+}
+
+TEST(MessageMapping, GoalWithMoreThanSevenPositionsTakesFirstSeven) {
+  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  trajectory_msgs::msg::JointTrajectoryPoint p;
+  p.positions = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};   // 9 > 7
+  p.time_from_start.sec = 1;
+  g.trajectory.points = { p };
+  auto tg = to_trajectory_goal(g);
+  ASSERT_EQ(tg.trajectory.points.size(), 1u);
+  const auto& q = tg.trajectory.points[0].q;
+  for (int i = 0; i < 7; ++i) EXPECT_NEAR(q[i], static_cast<double>(i + 1), 1e-12);
+}
+
 TEST(MessageMapping, ResultCarriesErrorCode) {
   kinova::interface::TrajectoryResult r; r.error_code = -4; r.error_string = "path tol";
   r.final_error = kinova::JointVec::Constant(0.01);

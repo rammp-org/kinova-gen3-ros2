@@ -1,0 +1,16 @@
+# Goal — move to a named joint configuration from the node's preset registry
+# (params preset_names + presets.<name>); cuRobo plans collision-free.
+string preset_name         # must resolve in the registry (rejected otherwise)
+string sender_id           # arbitration hook, mirrors ExecuteJointTrajectory
+---
+# Result
+int32   error_code   # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4,
+                     # PREEMPTED=-6, PLANNING_FAILED=-7
+string  error_string
+trajectory_msgs/JointTrajectoryPoint final_error   # joint-space final error
+---
+# Feedback
+string  phase              # "planning" | "executing"
+string  planner_state      # cuRobo feedback 'state', relayed while planning
+float32 fraction_complete  # execution progress (0 while planning)
+trajectory_msgs/JointTrajectoryPoint actual   # live measured q during execution

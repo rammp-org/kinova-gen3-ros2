@@ -116,3 +116,74 @@ TEST(MessageMapping, GotoExecutingFeedback) {
   ASSERT_EQ(m.actual.positions.size(), 7u);
   EXPECT_NEAR(m.actual.positions[0], 0.2, 1e-12);
 }
+
+// --- issue #13: the planner's velocity/acceleration profile must survive the
+// --- mapping, since the driver picks its interpolation order from these flags.
+namespace {
+// A point with positions plus an optionally-sized velocity/acceleration profile.
+trajectory_msgs::msg::JointTrajectoryPoint prof_pt(double v, double t, size_t n_vel, size_t n_acc) {
+  trajectory_msgs::msg::JointTrajectoryPoint p = pt(v, t);
+  p.velocities.assign(n_vel, v * 2.0);
+  p.accelerations.assign(n_acc, v * 3.0);
+  return p;
+}
+}  // namespace
+
+TEST(MessageMapping, PositionsOnlyLeavesInterpolationLinear) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points = { pt(0.0, 0.0), pt(0.5, 2.0) };      // no velocities/accelerations
+  auto tg = to_trajectory_goal(traj);
+  EXPECT_FALSE(tg.trajectory.has_velocities);
+  EXPECT_FALSE(tg.trajectory.has_accelerations);
+}
+
+TEST(MessageMapping, CarriesFullVelocityAndAccelerationProfile) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points = { prof_pt(0.0, 0.0, 7, 7), prof_pt(0.5, 2.0, 7, 7) };
+  auto tg = to_trajectory_goal(traj);
+  ASSERT_EQ(tg.trajectory.points.size(), 2u);
+  EXPECT_TRUE(tg.trajectory.has_velocities);
+  EXPECT_TRUE(tg.trajectory.has_accelerations);
+  EXPECT_NEAR(tg.trajectory.points[1].qd[0],  1.0, 1e-12);   // 0.5 * 2
+  EXPECT_NEAR(tg.trajectory.points[1].qdd[0], 1.5, 1e-12);   // 0.5 * 3
+}
+
+TEST(MessageMapping, VelocitiesWithoutAccelerationsGivesCubic) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points = { prof_pt(0.0, 0.0, 7, 0), prof_pt(0.5, 2.0, 7, 0) };
+  auto tg = to_trajectory_goal(traj);
+  EXPECT_TRUE(tg.trajectory.has_velocities);
+  EXPECT_FALSE(tg.trajectory.has_accelerations);
+  EXPECT_NEAR(tg.trajectory.points[1].qd[0], 1.0, 1e-12);
+}
+
+TEST(MessageMapping, PartialOrMissizedProfileIsTreatedAsAbsent) {
+  trajectory_msgs::msg::JointTrajectory partial;      // second point has no velocities
+  partial.points = { prof_pt(0.0, 0.0, 7, 7), prof_pt(0.5, 2.0, 0, 0) };
+  auto tg = to_trajectory_goal(partial);
+  EXPECT_FALSE(tg.trajectory.has_velocities) << "a partial profile must not be trusted";
+  EXPECT_FALSE(tg.trajectory.has_accelerations);
+
+  trajectory_msgs::msg::JointTrajectory wrong_width;  // 6 velocities for a 7-DOF arm
+  wrong_width.points = { prof_pt(0.0, 0.0, 6, 6), prof_pt(0.5, 2.0, 6, 6) };
+  auto tg2 = to_trajectory_goal(wrong_width);
+  EXPECT_FALSE(tg2.trajectory.has_velocities);
+  EXPECT_FALSE(tg2.trajectory.has_accelerations);
+
+  // accelerations without velocities cannot select quintic on their own
+  trajectory_msgs::msg::JointTrajectory acc_only;
+  acc_only.points = { prof_pt(0.0, 0.0, 0, 7), prof_pt(0.5, 2.0, 0, 7) };
+  auto tg3 = to_trajectory_goal(acc_only);
+  EXPECT_FALSE(tg3.trajectory.has_velocities);
+  EXPECT_FALSE(tg3.trajectory.has_accelerations);
+}
+
+TEST(MessageMapping, ExecuteJointTrajectoryGoalAlsoCarriesTheProfile) {
+  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  g.trajectory.points = { prof_pt(0.0, 0.0, 7, 7), prof_pt(0.5, 2.0, 7, 7) };
+  g.control_mode = 0;
+  auto tg = to_trajectory_goal(g);
+  EXPECT_TRUE(tg.trajectory.has_velocities);
+  EXPECT_TRUE(tg.trajectory.has_accelerations);
+  EXPECT_NEAR(tg.trajectory.points[1].qd[0], 1.0, 1e-12);
+}

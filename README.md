@@ -65,6 +65,7 @@ Node name: **`kinova_arm_node`**.
 | Name | Type |
 |---|---|
 | `execute_joint_trajectory` | `kinova_arm_interfaces/action/ExecuteJointTrajectory` |
+| `go_to_ee_pose` | `kinova_arm_interfaces/action/GoToEEPose` |
 
 Goal:
 
@@ -90,6 +91,10 @@ A goal is REJECTED if the trajectory has no points, or if any point's `positions
 length is not exactly 7. (The mapping layer separately zero-fills / truncates as a
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
+
+`go_to_ee_pose` plans an end-effector pose goal via the external cuRobo node and
+executes it through the same Supervisor — see
+[`docs/guide-goto-ee-pose.md`](docs/guide-goto-ee-pose.md) for usage.
 
 ### Published topics
 

@@ -117,3 +117,93 @@ TEST_F(CuroboClientTest, PlanServerUnavailableReturnsFailure) {
   EXPECT_FALSE(o.ok);
   EXPECT_FALSE(o.message.empty());
 }
+
+// --- plan_to_joints: mirrors the four plan() cases above. FakeCuroboServer
+// --- hosts both tiers off one configuration, so only the call differs.
+namespace {
+const std::vector<double> kTargetJoints = {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571};
+}  // namespace
+
+TEST_F(CuroboClientTest, PlanToJointsSuccessReturnsTrajectory) {
+  auto node = std::make_shared<rclcpp::Node>("curobo_joints_test1");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  client.plan_to_joints(kTargetJoints, nullptr,
+                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
+  auto o = f.get();
+  EXPECT_TRUE(o.ok);
+  EXPECT_EQ(o.trajectory.points.size(), 3u);
+  EXPECT_DOUBLE_EQ(o.goal_mismatch_rad, 0.0);
+}
+
+TEST_F(CuroboClientTest, PlanToJointsAbortReturnsFailure) {
+  auto node = std::make_shared<rclcpp::Node>("curobo_joints_test2");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/false);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  client.plan_to_joints(kTargetJoints, nullptr,
+                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
+  auto o = f.get();
+  EXPECT_FALSE(o.ok);
+  EXPECT_FALSE(o.message.empty());
+}
+
+TEST_F(CuroboClientTest, PlanToJointsRejectedReturnsFailure) {
+  auto node = std::make_shared<rclcpp::Node>("curobo_joints_test3");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3,
+                                                /*reject=*/true);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  client.plan_to_joints(kTargetJoints, nullptr,
+                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
+  auto o = f.get();
+  EXPECT_FALSE(o.ok);
+  EXPECT_FALSE(o.message.empty());
+}
+
+TEST_F(CuroboClientTest, PlanToJointsServerUnavailableReturnsFailure) {
+  // As for the pose tier: name a joints action nothing ever serves, so stale
+  // discovery from earlier tests cannot make this hang instead of failing.
+  auto node = std::make_shared<rclcpp::Node>("curobo_joints_test4");
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp, "/rammp_curobo/plan_to_pose_unserved",
+                          "/rammp_curobo/plan_to_joints_unserved");
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  client.plan_to_joints(kTargetJoints, nullptr,
+                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
+  auto o = f.get();
+  EXPECT_FALSE(o.ok);
+  EXPECT_FALSE(o.message.empty());
+}

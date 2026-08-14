@@ -125,6 +125,20 @@ adding a launch file has not been needed yet.
 | `--cpu <n>` | `-1` (no pin) | CPU to pin the RT thread to. |
 | `--rt-priority <n>` | `80` | SCHED_FIFO priority for the RT thread. |
 | `--rate <hz>` | `1000.0` | RT loop rate. |
+| `--max-ref-speed <rad/s>` | URDF velocity limits | Cap on how fast the position-mode *reference* may move, applied per joint. See below. |
+
+`--max-ref-speed` is worth understanding before you change it. `JointPositionParams`
+defaults to 0.5 rad/s on every joint — a conservative bring-up value that
+`trajectory_run` overrides from a flag — while the Gen3's URDF limits are 1.3963
+(j1–4) and 1.2218 (j5–7). Left at the default, the node throttles every joint to
+roughly 0.4x of what the arm can do, so any trajectory planned near the real
+limits (anything cuRobo produces) is tracked late, and by a *different* amount per
+joint — the joints stop arriving together. It also aborts goals: the divergence
+guard compares measured q against the **planned** sample while the mode commands
+the rate-limited reference, so the throttle manufactures the very divergence that
+trips `PATH_TOLERANCE_VIOLATED`. The node therefore seeds this from the URDF and
+logs the result at startup; pass the flag only to go deliberately *slower*, e.g.
+for a cautious first on-robot run.
 
 Build option `KINOVA_ENABLE_KORTEX` (default `OFF`) selects whether the real
 `KortexTransport` path is compiled in. With it OFF the node is sim-only and exits

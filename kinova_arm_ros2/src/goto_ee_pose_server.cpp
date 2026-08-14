@@ -84,6 +84,12 @@ void GoToEEPoseServer::on_plan_done(GoalId id, CuroboPlanClient::Outcome outcome
     return;
   }
 
+  if (gh->is_canceling()) {   // canceled during planning; plan raced ahead and succeeded
+    settle_local(gh, result_code::kPreempted, "canceled during planning");
+    { std::lock_guard<std::mutex> l(m_); goals_.erase(id); }
+    return;
+  }
+
   TrajectoryGoal tg = to_trajectory_goal(outcome.trajectory);   // position mode
   tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
   tg.sender_id = gh->get_goal()->sender_id;

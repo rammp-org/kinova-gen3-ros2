@@ -116,3 +116,82 @@ TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
   ex.cancel();
   spin.join();
 }
+
+// Finding #1 (cancel-then-execute): the goal is canceled WHILE still planning,
+// but the (uninterruptible, per reject_cancel) fake planner still succeeds
+// afterwards. on_plan_done must re-check is_canceling() on the plan-success
+// path and settle PREEMPTED without ever submitting to the CommandSink.
+//
+// Deterministic sequencing, no sleeps: a gate blocks the fake planner's
+// execute() until released; a "started" promise proves planning is in flight
+// (and thus the goal is already recorded in GoToEEPoseServer's goals_ map)
+// before the client cancels; async_cancel_goal's future only resolves after
+// rclcpp_action has already flipped the outer goal's state to CANCELING on
+// the server side, so releasing the gate afterwards deterministically races
+// the plan success against an already-accepted cancel -- not a real race at
+// the test level.
+TEST_F(GotoServerTest, CancelDuringPlanningThenPlanSucceedsSettlesPreempted) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it3");
+  auto started = std::make_shared<std::promise<void>>();
+  auto started_future = started->get_future();
+  std::promise<void> release;
+  std::shared_future<void> gate = release.get_future().share();
+
+  kinova_arm_ros2::test::FakeCuroboServer fake(
+      node, /*succeed=*/true, /*n_points=*/3, /*reject=*/false, gate, started,
+      /*reject_cancel=*/true);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  std::thread spin([&] { ex.spin(); });
+
+  // FakeCuroboServer's action server sits on node's default (MutuallyExclusive)
+  // callback group and is about to block inside execute(). Put the test's own
+  // GoToEEPose client on a SEPARATE group so its cancel-response processing
+  // isn't starved behind that blocked callback.
+  auto client_grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose", client_grp);
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  GoToEEPose::Goal goal;
+  goal.target.header.frame_id = "base_link";
+
+  std::promise<int> code_promise;
+  auto code_future = code_promise.get_future();
+  rclcpp_action::Client<GoToEEPose>::SendGoalOptions opts;
+  opts.result_callback =
+      [&](const rclcpp_action::ClientGoalHandle<GoToEEPose>::WrappedResult& wr) {
+        code_promise.set_value(wr.result ? wr.result->error_code : -12345);
+      };
+  auto goal_handle_future = client->async_send_goal(goal, opts);
+  ASSERT_EQ(goal_handle_future.wait_for(5s), std::future_status::ready);
+  auto goal_handle = goal_handle_future.get();
+  ASSERT_NE(goal_handle, nullptr);
+
+  // Block until the fake cuRobo server has actually entered execute() (i.e.
+  // GoToEEPoseServer has already recorded the goal, still non-executing).
+  ASSERT_EQ(started_future.wait_for(5s), std::future_status::ready);
+
+  // Cancel the outer GoToEEPose goal; the future only resolves once the
+  // server has already accepted the cancel (goal state -> CANCELING).
+  auto cancel_future = client->async_cancel_goal(goal_handle);
+  ASSERT_EQ(cancel_future.wait_for(5s), std::future_status::ready);
+
+  // Now let the fake planner "finish" -- it still reports success even
+  // though its own cancel was rejected, modeling a planner that committed
+  // to an answer before honoring the cancel request.
+  release.set_value();
+
+  ASSERT_EQ(code_future.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(code_future.get(), result_code::kPreempted);
+  EXPECT_FALSE(sup.got_goal);
+
+  ex.cancel();
+  spin.join();
+}

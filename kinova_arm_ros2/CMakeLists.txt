@@ -7,6 +7,8 @@ find_package(kinova_arm_interfaces REQUIRED)
 find_package(kinova_lowlevel CONFIG REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rammp_curobo_interfaces REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
@@ -18,6 +20,12 @@ add_library(goal_router src/goal_router.cpp)
 target_include_directories(goal_router PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(goal_router kinova_lowlevel::kinova_lowlevel)
+
+add_library(curobo_plan_client src/curobo_plan_client.cpp)
+target_include_directories(curobo_plan_client PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(curobo_plan_client
+  rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs trajectory_msgs)
 
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
@@ -46,6 +54,12 @@ if(BUILD_TESTING)
 
   ament_add_gtest(goal_router_test test/goal_router_test.cpp)
   target_link_libraries(goal_router_test goal_router)
+
+  ament_add_gtest(curobo_plan_client_test test/curobo_plan_client_test.cpp)
+  target_include_directories(curobo_plan_client_test PRIVATE test)
+  target_link_libraries(curobo_plan_client_test curobo_plan_client)
+  ament_target_dependencies(curobo_plan_client_test
+    rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs)
 endif()
 
 ament_package()

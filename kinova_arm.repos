@@ -10,3 +10,10 @@ repositories:
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
     version: main
+  RAMMP-CuRobo:
+    type: git
+    url: https://github.com/ChrissCox/RAMMP-CuRobo.git
+    version: main
+    # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
+    # The bare-metal loop rsyncs just that sub-package; container builds must scope
+    # colcon with --packages-up-to kinova_arm_ros2 so the GPU packages are skipped.

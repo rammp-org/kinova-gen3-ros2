@@ -27,6 +27,14 @@ target_include_directories(curobo_plan_client PUBLIC
 ament_target_dependencies(curobo_plan_client
   rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs trajectory_msgs)
 
+add_library(goto_ee_pose_server src/goto_ee_pose_server.cpp)
+target_include_directories(goto_ee_pose_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(goto_ee_pose_server
+  rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
+target_link_libraries(goto_ee_pose_server
+  goal_router curobo_plan_client message_mapping kinova_lowlevel::kinova_lowlevel)
+
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces sensor_msgs)
@@ -60,6 +68,13 @@ if(BUILD_TESTING)
   target_link_libraries(curobo_plan_client_test curobo_plan_client)
   ament_target_dependencies(curobo_plan_client_test
     rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs)
+
+  ament_add_gtest(goto_ee_pose_integration_test test/goto_ee_pose_integration_test.cpp)
+  target_include_directories(goto_ee_pose_integration_test PRIVATE test)
+  target_link_libraries(goto_ee_pose_integration_test
+    goto_ee_pose_server goal_router curobo_plan_client message_mapping)
+  ament_target_dependencies(goto_ee_pose_integration_test
+    rclcpp rclcpp_action kinova_arm_interfaces rammp_curobo_interfaces geometry_msgs)
 endif()
 
 ament_package()

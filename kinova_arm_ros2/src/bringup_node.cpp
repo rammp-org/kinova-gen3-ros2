@@ -1,14 +1,18 @@
 // kinova_arm_ros2/src/bringup_node.cpp
 #include <atomic>
 #include <csignal>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_arm_ros2/ros2_backend.h"
 #include "kinova_arm_ros2/curobo_plan_client.h"
 #include "kinova_arm_ros2/goal_router.h"
 #include "kinova_arm_ros2/goto_ee_pose_server.h"
+#include "kinova_arm_ros2/goto_joint_config_server.h"
+#include "kinova_arm_ros2/goto_preset_server.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
 #include "kinova_lowlevel/interface/supervisor.h"
@@ -23,7 +27,33 @@
 #endif
 using namespace kinova;
 
-namespace { std::atomic<bool> g_stop{false}; void on_sigint(int){ g_stop.store(true); } }
+namespace { std::atomic<bool> g_stop{false}; void on_sigint(int){ g_stop.store(true); }
+
+// Build the GoToPreset registry from ROS params: `preset_names` lists the
+// presets, `presets.<name>` gives each one's 7 joint angles (rad). `home`
+// defaults to the cuRobo retract configuration so a stock node has one usable
+// preset. A mis-sized entry is dropped with a warning rather than padded --
+// GoToPreset then rejects that name outright instead of moving the arm to a
+// half-specified configuration.
+std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& node) {
+  std::map<std::string, std::vector<double>> reg;
+  const std::vector<double> home = {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571};
+  const auto names =
+      node.declare_parameter<std::vector<std::string>>("preset_names", {"home"});
+  for (const auto& n : names) {
+    const auto q = node.declare_parameter<std::vector<double>>(
+        "presets." + n, n == "home" ? home : std::vector<double>{});
+    if (q.size() == static_cast<size_t>(kinova::kNumJoints)) {
+      reg[n] = q;
+    } else {
+      RCLCPP_WARN(node.get_logger(),
+                  "preset '%s' has %zu joint values (need %d) - skipping",
+                  n.c_str(), q.size(), kinova::kNumJoints);
+    }
+  }
+  return reg;
+}
+}  // namespace
 
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
@@ -77,11 +107,18 @@ int main(int argc, char** argv) {
   // plan round-trip never starves the ExecuteJointTrajectory server/feedback.
   auto cb_group = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   kinova_arm_ros2::CuroboPlanClient planner(node, cb_group);
+  // All three high-level servers share the router, planner and group, and must
+  // be declared before `sup` so they outlive it (the router hands it their ports).
   kinova_arm_ros2::GoToEEPoseServer goto_server(node, router, planner, cb_group);
+  kinova_arm_ros2::GoToJointConfigServer jc_server(node, router, planner, cb_group);
+  kinova_arm_ros2::GoToPresetServer preset_server(node, router, planner, cb_group,
+                                                  load_presets(*node));
 
   interface::Supervisor sup(pos, imp, exec, snap, pump_dyn, *backend, router);
   backend->set_command_sink(&sup);
   goto_server.set_command_sink(&sup);
+  jc_server.set_command_sink(&sup);
+  preset_server.set_command_sink(&sup);
 
   // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
   // defaults to SIGTERM, not SIGINT) — rclcpp's own default handler logs and
@@ -98,7 +135,8 @@ int main(int argc, char** argv) {
   std::thread drain([&]{ CycleSample s; while (!g_stop.load()) { while (ring.pop(s)) {} std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (ring.pop(s)) {} });
 
   RCLCPP_INFO(node->get_logger(),
-              "kinova_arm_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose",
+              "kinova_arm_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose, "
+              "/go_to_joint_config, /go_to_preset",
               use_sim ? "sim" : "real");
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",

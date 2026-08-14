@@ -6,18 +6,21 @@
 namespace kinova_arm_ros2::test {
 
 // Minimal fake /rammp_curobo/plan_to_pose server. succeed=true returns a canned
-// n-point joint_1..7 trajectory; succeed=false aborts with a message.
+// n-point joint_1..7 trajectory; succeed=false aborts with a message. reject=true
+// rejects the goal outright (goal_response_callback sees a null handle).
 class FakeCuroboServer {
  public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
   using GoalHandle = rclcpp_action::ServerGoalHandle<PlanToPose>;
 
-  FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3)
-      : node_(node), succeed_(succeed), n_points_(n_points) {
+  FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
+                    bool reject = false)
+      : node_(node), succeed_(succeed), n_points_(n_points), reject_(reject) {
     server_ = rclcpp_action::create_server<PlanToPose>(
         node_, "/rammp_curobo/plan_to_pose",
-        [](const rclcpp_action::GoalUUID&, std::shared_ptr<const PlanToPose::Goal>) {
-          return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+        [this](const rclcpp_action::GoalUUID&, std::shared_ptr<const PlanToPose::Goal>) {
+          return reject_ ? rclcpp_action::GoalResponse::REJECT
+                          : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
         },
         [](std::shared_ptr<GoalHandle>) { return rclcpp_action::CancelResponse::ACCEPT; },
         [this](std::shared_ptr<GoalHandle> gh) { execute(gh); });
@@ -50,5 +53,6 @@ class FakeCuroboServer {
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   bool succeed_;
   int n_points_;
+  bool reject_;
 };
 }  // namespace kinova_arm_ros2::test

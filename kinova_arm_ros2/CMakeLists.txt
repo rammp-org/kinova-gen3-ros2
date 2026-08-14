@@ -13,6 +13,11 @@ target_include_directories(message_mapping PUBLIC
 ament_target_dependencies(message_mapping rclcpp kinova_arm_interfaces)
 target_link_libraries(message_mapping kinova_lowlevel::kinova_lowlevel)
 
+add_library(goal_router src/goal_router.cpp)
+target_include_directories(goal_router PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_link_libraries(goal_router kinova_lowlevel::kinova_lowlevel)
+
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces sensor_msgs)
@@ -37,6 +42,9 @@ if(BUILD_TESTING)
   ament_add_gtest(message_mapping_test test/message_mapping_test.cpp)
   target_link_libraries(message_mapping_test message_mapping)
   ament_target_dependencies(message_mapping_test kinova_arm_interfaces)
+
+  ament_add_gtest(goal_router_test test/goal_router_test.cpp)
+  target_link_libraries(goal_router_test goal_router)
 endif()
 
 ament_package()

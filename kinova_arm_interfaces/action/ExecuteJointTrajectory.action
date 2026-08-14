@@ -1,0 +1,22 @@
+# ---------- Goal ----------
+trajectory_msgs/JointTrajectory       trajectory
+control_msgs/JointTolerance[]         path_tolerance
+control_msgs/JointTolerance[]         goal_tolerance
+builtin_interfaces/Duration           goal_time_tolerance
+uint8   control_mode        # 0 = POSITION, 1 = IMPEDANCE
+uint8   preemption          # 0 = QUEUE,    1 = LATEST_WINS
+JointImpedanceGains gains   # used iff control_mode == IMPEDANCE
+string  sender_id
+---
+# ---------- Result ----------
+int32   error_code          # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4, GOAL_TOLERANCE_VIOLATED=-5, PREEMPTED=-6
+string  error_string
+trajectory_msgs/JointTrajectoryPoint final_error
+---
+# ---------- Feedback ----------
+std_msgs/Header                        header
+string[]                               joint_names
+trajectory_msgs/JointTrajectoryPoint   desired
+trajectory_msgs/JointTrajectoryPoint   actual
+trajectory_msgs/JointTrajectoryPoint   error
+float32                                fraction_complete

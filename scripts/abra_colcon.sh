@@ -7,9 +7,9 @@ ROS_SRC="/home/swapnil/atdev/kinova_arm_ros2/"
 WS="/tmp/kinova-ros2-ws"
 CMEEL="/usr/local/lib/python3.10/dist-packages/cmeel.prefix"
 
-rsync -az --delete --exclude '.git/' --exclude 'build/' --exclude 'build_kortex/' --exclude 'site/' \
+rsync -az --mkpath --delete --exclude '.git/' --exclude 'build/' --exclude 'build_kortex/' --exclude 'site/' \
   "$CORE_SRC" "abra:$WS/src/kinova-gen3-driver/"
-rsync -az --delete --exclude '.git/' --exclude 'build/' --exclude 'install/' --exclude 'log/' \
+rsync -az --mkpath --delete --exclude '.git/' --exclude 'build/' --exclude 'install/' --exclude 'log/' \
   "$ROS_SRC" "abra:$WS/src/kinova_arm_ros2/"
 
 ssh abra "bash -lc '

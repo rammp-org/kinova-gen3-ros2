@@ -1,0 +1,2 @@
+# Staging dir for the proprietary aarch64 KORTEX SDK (`make stage-kortex`).
+# Kept empty in git; its contents are gitignored. Sim builds copy an empty dir.

@@ -1,9 +1,12 @@
 # kinova_arm.repos — colcon workspace source list.
-# NOTE (2026-08): abra has no GitHub key, so the dev loop rsyncs the core in via
-# scripts/abra_colcon.sh instead of vcs-importing this. This file documents the
-# intended source. Pinned to main now that Plan 2 (ports + Supervisor) is merged (PR #11).
+# NOTE (2026-08): the CONTAINER build (docker/Dockerfile) does vcs-import this.
+# The bare-metal dev loop does not — abra has no GitHub key, so scripts/abra_colcon.sh
+# rsyncs a local core working tree in instead, which also picks up uncommitted
+# core changes. Pinned to main now that Plan 2 (ports + Supervisor) is merged (PR #11).
 repositories:
   kinova-gen3-driver:
     type: git
-    url: git@github.com:rammp-org/kinova-gen3-driver.git
+    # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
+    # image. The core repo is public, so an anonymous clone works.
+    url: https://github.com/rammp-org/kinova-gen3-driver.git
     version: main

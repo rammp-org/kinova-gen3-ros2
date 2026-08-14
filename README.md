@@ -130,8 +130,9 @@ with an error if launched without `--sim`.
 Both packages are colcon/ament; the core is vendored into the same workspace
 `src/` and found via `find_package(kinova_lowlevel CONFIG REQUIRED)` (the core
 exports `kinova_lowlevelConfig.cmake`). `kinova_arm.repos` documents the intended
-source pin (core `main`); in practice the dev loop rsyncs a local core working
-tree instead, because abra has no GitHub key.
+source pin (core `main`) and is what the **container** build vcs-imports; the
+bare-metal dev loop rsyncs a local core working tree instead, because abra has no
+GitHub key (and that way it picks up uncommitted core changes).
 
 Everything builds **and runs on abra** (aarch64) — same host, so the absolute
 paths baked into the core's exported target stay valid.
@@ -159,6 +160,62 @@ Note `set_target_properties(... INSTALL_RPATH_USE_LINK_PATH TRUE)` in
 `kinova_arm_ros2/CMakeLists.txt` — the core is a static lib that links pinocchio
 shared objects under the cmeel prefix with no RPATH of its own; without this the
 installed node builds fine but can't find `libpinocchio_*.so` at runtime.
+
+## Container
+
+`docker/Dockerfile` builds the whole workspace — core driver included — into one
+image for the Jetson AGX Orin. It follows the RAMMP-Software module conventions
+(`ros:humble` + Cyclone DDS + an entrypoint that sources ROS and then the
+workspace) but stays standalone: it does **not** require a locally-built
+`rammp-base:humble`. Build it **on the Orin** (arm64, and the KORTEX SDK lives
+there); the `Makefile` wraps the flags.
+
+```sh
+make build                 # sim image  -> kinova-arm-ros2:humble
+make sim                   # run it, foreground
+make e2e                   # two-goal integration check + SCHED_FIFO assertion
+make shell                 # poke around inside
+```
+
+Real arm — **attended only**, per `docs/on-robot-runbook.md`:
+
+```sh
+make stage-kortex          # copy the aarch64 KORTEX SDK into docker/vendor/
+make real IP=192.168.1.10  # KORTEX-enabled build, then run against the arm
+```
+
+Three things about this image are load-bearing:
+
+- **pinocchio is pinned to `pip install pin==3.9.0`**, matching the version
+  validated on the Jetson, and lands at the same cmeel prefix the bare-metal
+  build uses. It is deliberately *not* `ros-humble-pinocchio`, which is 4.0.0 on
+  Humble arm64 — a major version ahead of what the core is validated against.
+  That is also why `rosdep install` runs with `--skip-keys pinocchio`: the core's
+  `package.xml` declares the dep, and rosdep would otherwise install the apt
+  version over the pinned wheel.
+- **The KORTEX SDK must be in the build context**, not bind-mounted:
+  `libKortexApiCpp.a` is linked statically at build time. `make stage-kortex`
+  rsyncs it from `~/kortex_api_2.8.0_aarch64` into `docker/vendor/`, which is
+  gitignored — the SDK is proprietary and must never be committed.
+- **The container runs the node binary directly, not via `ros2 run`.** `ros2 run`
+  forks the real binary as a child of a Python wrapper, so the SIGTERM from
+  `docker stop` would hit the wrapper and the node would be SIGKILLed with no
+  `safe_shutdown()`. Exec'd directly it is PID 1 and its SIGTERM handler runs.
+
+The image sets `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`, so **anything talking to
+it must too** — a host shell left on the Humble default (Fast DDS) will see no
+nodes and give you a silent, confusing nothing:
+
+```sh
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp     # on the host, before ros2 CLI
+```
+
+Run flags that matter (all encoded in the Makefile): `--network host --ipc host`
+so DDS discovery and its shared-memory transport work across the container
+boundary, and `--cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1` so
+`mlockall` and `SCHED_FIFO`(80) succeed inside the container. Full `--privileged`
+is not needed. Verify the RT part with `chrt -p 1` inside the container — it
+should report `SCHED_FIFO` priority 80.
 
 ## Run
 

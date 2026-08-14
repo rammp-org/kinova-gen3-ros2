@@ -3,3 +3,6 @@ install/
 log/
 .superpowers/
 __pycache__/
+# Proprietary KORTEX SDK staged for real-arm container builds — never commit it.
+docker/vendor/*
+!docker/vendor/.gitkeep

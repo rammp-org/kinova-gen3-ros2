@@ -1,0 +1,9 @@
+.git/
+.superpowers/
+docs/
+build/
+install/
+log/
+__pycache__/
+# NOTE: docker/vendor/ is deliberately NOT ignored — the KORTEX SDK staged there
+# has to be readable from the build context for a real-arm build.

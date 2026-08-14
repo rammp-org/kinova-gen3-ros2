@@ -1,4 +1,5 @@
 #include "kinova_arm_ros2/message_mapping.h"
+#include "kinova_arm_ros2/joint_point.h"   // shared vec_to_point
 namespace kinova_arm_ros2 {
 using namespace kinova; using namespace kinova::interface;
 
@@ -55,11 +56,6 @@ TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal& g) {
   return tg;
 }
 
-static trajectory_msgs::msg::JointTrajectoryPoint vec_to_point(const JointVec& v) {
-  trajectory_msgs::msg::JointTrajectoryPoint p; p.positions.resize(kNumJoints);
-  for (int i = 0; i < kNumJoints; ++i) p.positions[i] = v[i];
-  return p;
-}
 
 ExecuteJointTrajectory::Feedback to_feedback_msg(const GoalId&, const TrajectoryFeedback& fb) {
   ExecuteJointTrajectory::Feedback m;

@@ -27,12 +27,15 @@ target_include_directories(curobo_plan_client PUBLIC
 ament_target_dependencies(curobo_plan_client
   rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs trajectory_msgs)
 
-add_library(goto_ee_pose_server src/goto_ee_pose_server.cpp)
-target_include_directories(goto_ee_pose_server PUBLIC
+# The high-level "go to a goal" action servers. Header-only: the lifecycle is
+# the PlannedMoveServer<ActionT> template and each concrete server is a thin
+# subclass, so there is no translation unit of its own to compile.
+add_library(planned_move_servers INTERFACE)
+target_include_directories(planned_move_servers INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(goto_ee_pose_server
+ament_target_dependencies(planned_move_servers INTERFACE
   rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
-target_link_libraries(goto_ee_pose_server
+target_link_libraries(planned_move_servers INTERFACE
   goal_router curobo_plan_client message_mapping kinova_lowlevel::kinova_lowlevel)
 
 add_library(ros2_backend src/ros2_backend.cpp)
@@ -43,7 +46,7 @@ target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowle
 add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_arm_node
-  ros2_backend goto_ee_pose_server goal_router curobo_plan_client message_mapping
+  ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
   kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
@@ -74,7 +77,7 @@ if(BUILD_TESTING)
   ament_add_gtest(goto_ee_pose_integration_test test/goto_ee_pose_integration_test.cpp)
   target_include_directories(goto_ee_pose_integration_test PRIVATE test)
   target_link_libraries(goto_ee_pose_integration_test
-    goto_ee_pose_server goal_router curobo_plan_client message_mapping)
+    planned_move_servers goal_router curobo_plan_client message_mapping)
   ament_target_dependencies(goto_ee_pose_integration_test
     rclcpp rclcpp_action kinova_arm_interfaces rammp_curobo_interfaces geometry_msgs)
 endif()

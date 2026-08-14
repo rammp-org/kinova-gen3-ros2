@@ -15,6 +15,24 @@ class CuroboClientTest : public ::testing::Test {
   void TearDown() override { rclcpp::shutdown(); }
 };
 
+namespace {
+// Spins an executor on a background thread and always cancels + joins it.
+// A bare `std::thread spin(...)` joined at the end of the test body is skipped
+// whenever an ASSERT_* returns early, and destroying a joinable thread calls
+// std::terminate — turning a legible gtest failure into a bare SIGABRT.
+class SpinThread {
+ public:
+  explicit SpinThread(rclcpp::Executor& ex) : ex_(ex), t_([&ex] { ex.spin(); }) {}
+  ~SpinThread() { ex_.cancel(); if (t_.joinable()) t_.join(); }
+  SpinThread(const SpinThread&) = delete;
+  SpinThread& operator=(const SpinThread&) = delete;
+
+ private:
+  rclcpp::Executor& ex_;
+  std::thread t_;
+};
+}  // namespace
+
 TEST_F(CuroboClientTest, PlanSuccessReturnsTrajectory) {
   auto node = std::make_shared<rclcpp::Node>("curobo_client_test");
   kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
@@ -23,7 +41,7 @@ TEST_F(CuroboClientTest, PlanSuccessReturnsTrajectory) {
 
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
-  std::thread spin([&] { ex.spin(); });
+  SpinThread spin(ex);
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
@@ -33,9 +51,6 @@ TEST_F(CuroboClientTest, PlanSuccessReturnsTrajectory) {
   auto o = f.get();
   EXPECT_TRUE(o.ok);
   EXPECT_EQ(o.trajectory.points.size(), 3u);
-
-  ex.cancel();
-  spin.join();
 }
 
 TEST_F(CuroboClientTest, PlanAbortReturnsFailure) {
@@ -46,7 +61,7 @@ TEST_F(CuroboClientTest, PlanAbortReturnsFailure) {
 
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
-  std::thread spin([&] { ex.spin(); });
+  SpinThread spin(ex);
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
@@ -56,9 +71,6 @@ TEST_F(CuroboClientTest, PlanAbortReturnsFailure) {
   auto o = f.get();
   EXPECT_FALSE(o.ok);
   EXPECT_FALSE(o.message.empty());
-
-  ex.cancel();
-  spin.join();
 }
 
 TEST_F(CuroboClientTest, PlanRejectedReturnsFailure) {
@@ -70,7 +82,7 @@ TEST_F(CuroboClientTest, PlanRejectedReturnsFailure) {
 
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
-  std::thread spin([&] { ex.spin(); });
+  SpinThread spin(ex);
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
@@ -80,20 +92,21 @@ TEST_F(CuroboClientTest, PlanRejectedReturnsFailure) {
   auto o = f.get();
   EXPECT_FALSE(o.ok);
   EXPECT_FALSE(o.message.empty());
-
-  ex.cancel();
-  spin.join();
 }
 
 TEST_F(CuroboClientTest, PlanServerUnavailableReturnsFailure) {
-  // No FakeCuroboServer constructed -> no server behind the default action name.
+  // No FakeCuroboServer constructed. Point the client at a name nothing ever
+  // serves rather than relying on the default being unserved: the preceding
+  // tests' fake servers linger in DDS discovery long enough that the default
+  // name is sometimes still matched here, in which case the goal is sent into
+  // the void and no result callback ever arrives (a 5 s hang, not a failure).
   auto node = std::make_shared<rclcpp::Node>("curobo_client_test4");
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
-  CuroboPlanClient client(node, grp);
+  CuroboPlanClient client(node, grp, "/rammp_curobo/plan_to_pose_unserved");
 
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
-  std::thread spin([&] { ex.spin(); });
+  SpinThread spin(ex);
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
@@ -103,7 +116,4 @@ TEST_F(CuroboClientTest, PlanServerUnavailableReturnsFailure) {
   auto o = f.get();
   EXPECT_FALSE(o.ok);
   EXPECT_FALSE(o.message.empty());
-
-  ex.cancel();
-  spin.join();
 }

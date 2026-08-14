@@ -90,6 +90,24 @@ void GoToEEPoseServer::on_plan_done(GoalId id, CuroboPlanClient::Outcome outcome
     return;
   }
 
+  // Fail loud on a malformed planner output rather than let to_trajectory_goal's
+  // memory-safety zero-fill silently mis-map a short/empty point onto the arm.
+  if (outcome.trajectory.points.empty()) {
+    settle_local(gh, result_code::kPlanningFailed, "planner returned an empty trajectory");
+    { std::lock_guard<std::mutex> l(m_); goals_.erase(id); }
+    return;
+  }
+  for (const auto& p : outcome.trajectory.points) {
+    if (p.positions.size() != static_cast<size_t>(kinova::kNumJoints)) {
+      settle_local(gh, result_code::kPlanningFailed,
+                   "planner returned malformed trajectory: point has " +
+                       std::to_string(p.positions.size()) + " positions, expected " +
+                       std::to_string(kinova::kNumJoints));
+      { std::lock_guard<std::mutex> l(m_); goals_.erase(id); }
+      return;
+    }
+  }
+
   TrajectoryGoal tg = to_trajectory_goal(outcome.trajectory);   // position mode
   tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
   tg.sender_id = gh->get_goal()->sender_id;

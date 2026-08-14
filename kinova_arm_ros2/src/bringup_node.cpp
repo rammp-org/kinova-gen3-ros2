@@ -77,8 +77,9 @@ int main(int argc, char** argv) {
   tap.connect(); tap.set_servoing_low_level();
   sup.start();
 
-  std::thread ros_spin([&]{ rclcpp::executors::MultiThreadedExecutor ex; ex.add_node(node);
-    while (!g_stop.load() && rclcpp::ok()) ex.spin_some(std::chrono::milliseconds(10)); });
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  std::thread ros_spin([&]{ ex.spin(); });
   std::thread drain([&]{ CycleSample s; while (!g_stop.load()) { while (ring.pop(s)) {} std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (ring.pop(s)) {} });
 
   RCLCPP_INFO(node->get_logger(),
@@ -87,6 +88,7 @@ int main(int argc, char** argv) {
   exec.run(g_stop);            // RT loop on the main thread; returns when g_stop set
 
   sup.stop(); base->safe_shutdown();
+  ex.cancel();
   ros_spin.join(); drain.join(); rclcpp::shutdown();
   return 0;
 }

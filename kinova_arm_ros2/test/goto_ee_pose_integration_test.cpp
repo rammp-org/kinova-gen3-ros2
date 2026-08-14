@@ -94,6 +94,35 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   spin.join();
 }
 
+// Finding #2 (fail-loud on planned-trajectory width): the fake planner reports
+// SUCCESS but its first point carries only 4 positions instead of 7. on_plan_done
+// must reject this before mapping/submitting rather than let to_trajectory_goal's
+// zero-fill silently mis-map a short point onto the arm.
+TEST_F(GotoServerTest, PlanSuccessWithMalformedWidthSettlesPlanningFailed) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it4");
+  kinova_arm_ros2::test::FakeCuroboServer fake(
+      node, /*succeed=*/true, /*n_points=*/3, /*reject=*/false, /*gate=*/{},
+      /*started=*/nullptr, /*reject_cancel=*/false, /*bad_width=*/true);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  std::thread spin([&] { ex.spin(); });
+
+  const int code = send_and_get_code(node, "base_link");
+  EXPECT_EQ(code, result_code::kPlanningFailed);
+  EXPECT_FALSE(sup.got_goal);
+
+  ex.cancel();
+  spin.join();
+}
+
 TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
   auto node = std::make_shared<rclcpp::Node>("goto_it2");
   kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/false);

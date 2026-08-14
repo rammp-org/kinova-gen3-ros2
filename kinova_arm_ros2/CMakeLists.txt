@@ -20,7 +20,10 @@ target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowle
 add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces)
 target_link_libraries(kinova_arm_node ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
-target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)   # sim build; Task 7 flips this
+option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
+if(NOT KINOVA_ENABLE_KORTEX)
+  target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)
+endif()
 # kinova_lowlevel links pinocchio (shared libs under the cmeel prefix) with no
 # RPATH of its own (static lib); without this the installed node can't find
 # libpinocchio_*.so at runtime even though it links/builds fine.

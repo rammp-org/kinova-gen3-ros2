@@ -80,6 +80,21 @@ if(BUILD_TESTING)
     planned_move_servers goal_router curobo_plan_client message_mapping)
   ament_target_dependencies(goto_ee_pose_integration_test
     rclcpp rclcpp_action kinova_arm_interfaces rammp_curobo_interfaces geometry_msgs)
+
+  ament_add_gtest(goto_joint_config_integration_test
+    test/goto_joint_config_integration_test.cpp)
+  target_include_directories(goto_joint_config_integration_test PRIVATE test)
+  target_link_libraries(goto_joint_config_integration_test
+    planned_move_servers goal_router curobo_plan_client message_mapping)
+  ament_target_dependencies(goto_joint_config_integration_test
+    rclcpp rclcpp_action kinova_arm_interfaces rammp_curobo_interfaces geometry_msgs)
+
+  ament_add_gtest(goto_preset_integration_test test/goto_preset_integration_test.cpp)
+  target_include_directories(goto_preset_integration_test PRIVATE test)
+  target_link_libraries(goto_preset_integration_test
+    planned_move_servers goal_router curobo_plan_client message_mapping)
+  ament_target_dependencies(goto_preset_integration_test
+    rclcpp rclcpp_action kinova_arm_interfaces rammp_curobo_interfaces geometry_msgs)
 endif()
 
 ament_package()

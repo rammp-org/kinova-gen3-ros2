@@ -66,6 +66,8 @@ Node name: **`kinova_arm_node`**.
 |---|---|
 | `execute_joint_trajectory` | `kinova_arm_interfaces/action/ExecuteJointTrajectory` |
 | `go_to_ee_pose` | `kinova_arm_interfaces/action/GoToEEPose` |
+| `go_to_joint_config` | `kinova_arm_interfaces/action/GoToJointConfig` |
+| `go_to_preset` | `kinova_arm_interfaces/action/GoToPreset` |
 
 Goal:
 
@@ -92,9 +94,17 @@ length is not exactly 7. (The mapping layer separately zero-fills / truncates as
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
 
-`go_to_ee_pose` plans an end-effector pose goal via the external cuRobo node and
-executes it through the same Supervisor — see
-[`docs/guide-goto-ee-pose.md`](docs/guide-goto-ee-pose.md) for usage.
+`go_to_ee_pose`, `go_to_joint_config` and `go_to_preset` describe a *goal* rather
+than a trajectory: each plans a collision-free path via the external cuRobo node
+and executes it through the same Supervisor. They share one lifecycle, so their
+Result/Feedback and their cancel behaviour are identical — see
+[`docs/guide-goto-actions.md`](docs/guide-goto-actions.md) for all three
+(`go_to_ee_pose` alone is also covered in
+[`docs/guide-goto-ee-pose.md`](docs/guide-goto-ee-pose.md)).
+
+Both joint-space actions plan through cuRobo's `plan_to_joints`; `go_to_preset`
+just resolves a name to 7 joint angles first, from the `preset_names` /
+`presets.<name>` parameters.
 
 ### Published topics
 
@@ -125,6 +135,20 @@ adding a launch file has not been needed yet.
 | `--cpu <n>` | `-1` (no pin) | CPU to pin the RT thread to. |
 | `--rt-priority <n>` | `80` | SCHED_FIFO priority for the RT thread. |
 | `--rate <hz>` | `1000.0` | RT loop rate. |
+| `--max-ref-speed <rad/s>` | URDF velocity limits | Cap on how fast the position-mode *reference* may move, applied per joint. See below. |
+
+`--max-ref-speed` is worth understanding before you change it. `JointPositionParams`
+defaults to 0.5 rad/s on every joint — a conservative bring-up value that
+`trajectory_run` overrides from a flag — while the Gen3's URDF limits are 1.3963
+(j1–4) and 1.2218 (j5–7). Left at the default, the node throttles every joint to
+roughly 0.4x of what the arm can do, so any trajectory planned near the real
+limits (anything cuRobo produces) is tracked late, and by a *different* amount per
+joint — the joints stop arriving together. It also aborts goals: the divergence
+guard compares measured q against the **planned** sample while the mode commands
+the rate-limited reference, so the throttle manufactures the very divergence that
+trips `PATH_TOLERANCE_VIOLATED`. The node therefore seeds this from the URDF and
+logs the result at startup; pass the flag only to go deliberately *slower*, e.g.
+for a cautious first on-robot run.
 
 Build option `KINOVA_ENABLE_KORTEX` (default `OFF`) selects whether the real
 `KortexTransport` path is compiled in. With it OFF the node is sim-only and exits

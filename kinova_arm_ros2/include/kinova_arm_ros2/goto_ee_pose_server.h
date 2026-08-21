@@ -1,58 +1,33 @@
 #pragma once
-#include <map>
-#include <memory>
-#include <mutex>
+#include <optional>
 #include <string>
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
 #include "kinova_arm_interfaces/action/go_to_ee_pose.hpp"
-#include "kinova_arm_ros2/curobo_plan_client.h"
-#include "kinova_arm_ros2/goal_router.h"
-#include "kinova_lowlevel/interface/ports.h"
+#include "kinova_arm_ros2/planned_move_server.h"
 namespace kinova_arm_ros2 {
 
-// Hosts GoToEEPose: validate -> cuRobo plan -> feed the planned trajectory into the
-// shared CommandSink seam (same path as ExecuteJointTrajectory) -> settle. Implements
-// ActionServerPort for its OWN goals; the GoalRouter routes the Supervisor's
-// execution feedback/settle back here by GoalId.
-class GoToEEPoseServer : public kinova::interface::ActionServerPort {
+// Hosts GoToEEPose: validate -> cuRobo plan_to_pose -> feed the planned
+// trajectory into the shared CommandSink seam (same path as
+// ExecuteJointTrajectory) -> settle. The lifecycle lives in PlannedMoveServer;
+// only the frame check and the planner call are specific to this action.
+class GoToEEPoseServer : public PlannedMoveServer<kinova_arm_interfaces::action::GoToEEPose> {
  public:
   using Action = kinova_arm_interfaces::action::GoToEEPose;
-  using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter& router,
-                   CuroboPlanClient& planner, rclcpp::CallbackGroup::SharedPtr cb_group);
-  void set_command_sink(kinova::interface::CommandSink* sink) { sink_ = sink; }
+                   CuroboPlanClient& planner, rclcpp::CallbackGroup::SharedPtr cb_group)
+      : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner, cb_group) {}
 
-  // ActionServerPort (called by the supervisor sampler thread via the router):
-  void publish_feedback(const kinova::interface::GoalId&,
-                        const kinova::interface::TrajectoryFeedback&) override;
-  void settle(const kinova::interface::GoalId&,
-              const kinova::interface::TrajectoryResult&) override;
+ protected:
+  std::optional<std::string> validate(const Action::Goal& goal) override {
+    if (goal.target.header.frame_id != "base_link")
+      return "GoToEEPose: frame_id '" + goal.target.header.frame_id + "' != base_link";
+    return std::nullopt;
+  }
 
- private:
-  rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID&,
-                                          std::shared_ptr<const Action::Goal>);
-  rclcpp_action::CancelResponse handle_cancel(std::shared_ptr<GoalHandle>);
-  void handle_accepted(std::shared_ptr<GoalHandle>);
-  void on_plan_done(kinova::interface::GoalId id, CuroboPlanClient::Outcome outcome);
-  void settle_local(std::shared_ptr<GoalHandle> gh, int error_code, const std::string& msg);
-
-  static constexpr double kGotoPathTolRad = 0.35;  // generous; full-speed tracking lag
-
-  rclcpp::Node::SharedPtr node_;
-  GoalRouter& router_;
-  CuroboPlanClient& planner_;
-  kinova::interface::CommandSink* sink_ = nullptr;
-  rclcpp_action::Server<Action>::SharedPtr server_;
-
-  // cancel_requested latches a cancel that arrived before the supervisor owned
-  // the goal. Without it such a cancel is ACCEPTed and then lost, and the arm
-  // executes the whole planned motion -- see the handover re-check in
-  // on_plan_done.
-  struct Goal { std::shared_ptr<GoalHandle> gh; bool executing = false;
-                bool cancel_requested = false; };
-  std::mutex m_;
-  std::map<kinova::interface::GoalId, Goal> goals_;
+  void start_plan(const Action::Goal& goal, CuroboPlanClient::FeedbackCb on_fb,
+                  CuroboPlanClient::DoneCb on_done) override {
+    planner_.plan(goal.target.pose, std::move(on_fb), std::move(on_done));
+  }
 };
+
 }  // namespace kinova_arm_ros2

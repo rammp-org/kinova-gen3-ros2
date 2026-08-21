@@ -1,14 +1,18 @@
 // kinova_arm_ros2/src/bringup_node.cpp
 #include <atomic>
 #include <csignal>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_arm_ros2/ros2_backend.h"
 #include "kinova_arm_ros2/curobo_plan_client.h"
 #include "kinova_arm_ros2/goal_router.h"
 #include "kinova_arm_ros2/goto_ee_pose_server.h"
+#include "kinova_arm_ros2/goto_joint_config_server.h"
+#include "kinova_arm_ros2/goto_preset_server.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
 #include "kinova_lowlevel/interface/supervisor.h"
@@ -23,17 +27,45 @@
 #endif
 using namespace kinova;
 
-namespace { std::atomic<bool> g_stop{false}; void on_sigint(int){ g_stop.store(true); } }
+namespace { std::atomic<bool> g_stop{false}; void on_sigint(int){ g_stop.store(true); }
+
+// Build the GoToPreset registry from ROS params: `preset_names` lists the
+// presets, `presets.<name>` gives each one's 7 joint angles (rad). `home`
+// defaults to the cuRobo retract configuration so a stock node has one usable
+// preset. A mis-sized entry is dropped with a warning rather than padded --
+// GoToPreset then rejects that name outright instead of moving the arm to a
+// half-specified configuration.
+std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& node) {
+  std::map<std::string, std::vector<double>> reg;
+  const std::vector<double> home = {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571};
+  const auto names =
+      node.declare_parameter<std::vector<std::string>>("preset_names", {"home"});
+  for (const auto& n : names) {
+    const auto q = node.declare_parameter<std::vector<double>>(
+        "presets." + n, n == "home" ? home : std::vector<double>{});
+    if (q.size() == static_cast<size_t>(kinova::kNumJoints)) {
+      reg[n] = q;
+    } else {
+      RCLCPP_WARN(node.get_logger(),
+                  "preset '%s' has %zu joint values (need %d) - skipping",
+                  n.c_str(), q.size(), kinova::kNumJoints);
+    }
+  }
+  return reg;
+}
+}  // namespace
 
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   std::string urdf = "models/gen3_7dof_2f85.urdf", ip;
   bool use_sim = false; int cpu = -1, prio = 80; double rate = 1000.0;
+  double max_ref_speed = 0.0;          // <=0 => seed from the URDF velocity limits
   for (int i = 1; i < argc; ++i) { std::string a = argv[i];
     auto nxt = [&]{ return std::string(argv[++i]); };
     if (a == "--sim") use_sim = true; else if (a == "--ip") ip = nxt();
     else if (a == "--urdf") urdf = nxt(); else if (a == "--cpu") cpu = std::stoi(nxt());
-    else if (a == "--rt-priority") prio = std::stoi(nxt()); else if (a == "--rate") rate = std::stod(nxt()); }
+    else if (a == "--rt-priority") prio = std::stoi(nxt()); else if (a == "--rate") rate = std::stod(nxt());
+    else if (a == "--max-ref-speed") max_ref_speed = std::stod(nxt()); }
 
   Dynamics dyn(urdf), pump_dyn(urdf);
   std::unique_ptr<Transport> base;
@@ -48,7 +80,20 @@ int main(int argc, char** argv) {
   }
   Seqlock<JointFeedback> snap; FeedbackTap tap(*base, snap);
 
-  JointPositionMode pos(dyn); JointImpedanceMode imp(dyn);
+  // Seed the reference rate limit from the URDF instead of taking
+  // JointPositionParams' 0.5 rad/s default. That default is a conservative
+  // bring-up value (trajectory_run overrides it from a CLI flag); left in place
+  // here it throttles every joint to ~0.4x of what the arm can do, so any
+  // planned trajectory faster than that is tracked late and per-joint by a
+  // DIFFERENT amount — joints stop arriving together. Worse, the divergence
+  // guard compares measured q against the PLANNED sample while the mode
+  // commands the rate-limited reference, so the throttle manufactures the very
+  // divergence that aborts the goal with PATH_TOLERANCE_VIOLATED.
+  // --max-ref-speed <rad/s> still forces a slower cap for cautious on-robot runs.
+  JointPositionParams pos_params;
+  if (max_ref_speed > 0.0) pos_params.max_ref_speed.setConstant(max_ref_speed);
+  else                     dyn.velocity_limits(pos_params.max_ref_speed);
+  JointPositionMode pos(dyn, pos_params); JointImpedanceMode imp(dyn);
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
@@ -62,11 +107,18 @@ int main(int argc, char** argv) {
   // plan round-trip never starves the ExecuteJointTrajectory server/feedback.
   auto cb_group = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   kinova_arm_ros2::CuroboPlanClient planner(node, cb_group);
+  // All three high-level servers share the router, planner and group, and must
+  // be declared before `sup` so they outlive it (the router hands it their ports).
   kinova_arm_ros2::GoToEEPoseServer goto_server(node, router, planner, cb_group);
+  kinova_arm_ros2::GoToJointConfigServer jc_server(node, router, planner, cb_group);
+  kinova_arm_ros2::GoToPresetServer preset_server(node, router, planner, cb_group,
+                                                  load_presets(*node));
 
   interface::Supervisor sup(pos, imp, exec, snap, pump_dyn, *backend, router);
   backend->set_command_sink(&sup);
   goto_server.set_command_sink(&sup);
+  jc_server.set_command_sink(&sup);
+  preset_server.set_command_sink(&sup);
 
   // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
   // defaults to SIGTERM, not SIGINT) — rclcpp's own default handler logs and
@@ -83,8 +135,16 @@ int main(int argc, char** argv) {
   std::thread drain([&]{ CycleSample s; while (!g_stop.load()) { while (ring.pop(s)) {} std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (ring.pop(s)) {} });
 
   RCLCPP_INFO(node->get_logger(),
-              "kinova_arm_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose",
+              "kinova_arm_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose, "
+              "/go_to_joint_config, /go_to_preset",
               use_sim ? "sim" : "real");
+  RCLCPP_INFO(node->get_logger(),
+              "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",
+              pos_params.max_ref_speed[0], pos_params.max_ref_speed[1],
+              pos_params.max_ref_speed[2], pos_params.max_ref_speed[3],
+              pos_params.max_ref_speed[4], pos_params.max_ref_speed[5],
+              pos_params.max_ref_speed[6],
+              max_ref_speed > 0.0 ? "--max-ref-speed" : "URDF limits");
   exec.run(g_stop);            // RT loop on the main thread; returns when g_stop set
 
   sup.stop(); base->safe_shutdown();

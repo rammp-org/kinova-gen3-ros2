@@ -11,6 +11,8 @@ find_package(geometry_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ExecuteJointTrajectory.action"
   "action/GoToEEPose.action"
+  "action/GoToJointConfig.action"
+  "action/GoToPreset.action"
   "msg/JointImpedanceGains.msg"
   DEPENDENCIES builtin_interfaces std_msgs trajectory_msgs control_msgs action_msgs geometry_msgs)
 ament_package()

@@ -3,12 +3,16 @@
 #include <memory>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "rammp_curobo_interfaces/action/plan_to_joints.hpp"
 #include "rammp_curobo_interfaces/action/plan_to_pose.hpp"
 namespace kinova_arm_ros2::test {
 
-// Minimal fake /rammp_curobo/plan_to_pose server. succeed=true returns a canned
-// n-point joint_1..7 trajectory; succeed=false aborts with a message. reject=true
-// rejects the goal outright (goal_response_callback sees a null handle).
+// Minimal fake cuRobo planner. Hosts BOTH /rammp_curobo/plan_to_pose and
+// /rammp_curobo/plan_to_joints off the same configuration, so a test picks a
+// planning tier purely by which one it calls. succeed=true returns a canned
+// n-point joint_1..7 trajectory; succeed=false aborts with a message.
+// reject=true rejects the goal outright (goal_response_callback sees a null
+// handle).
 //
 // Optional, additive knobs for deterministically testing races against a
 // caller that cancels while planning is in flight:
@@ -27,7 +31,9 @@ namespace kinova_arm_ros2::test {
 class FakeCuroboServer {
  public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
+  using PlanToJoints = rammp_curobo_interfaces::action::PlanToJoints;
   using GoalHandle = rclcpp_action::ServerGoalHandle<PlanToPose>;
+  using JointsGoalHandle = rclcpp_action::ServerGoalHandle<PlanToJoints>;
 
   FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
                     bool reject = false, std::shared_future<void> gate = {},
@@ -46,14 +52,30 @@ class FakeCuroboServer {
           return reject_cancel_ ? rclcpp_action::CancelResponse::REJECT
                                  : rclcpp_action::CancelResponse::ACCEPT;
         },
-        [this](std::shared_ptr<GoalHandle> gh) { execute(gh); });
+        [this](std::shared_ptr<GoalHandle> gh) { execute<PlanToPose>(gh); });
+    joints_server_ = rclcpp_action::create_server<PlanToJoints>(
+        node_, "/rammp_curobo/plan_to_joints",
+        [this](const rclcpp_action::GoalUUID&, std::shared_ptr<const PlanToJoints::Goal>) {
+          return reject_ ? rclcpp_action::GoalResponse::REJECT
+                          : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+        },
+        [this](std::shared_ptr<JointsGoalHandle>) {
+          return reject_cancel_ ? rclcpp_action::CancelResponse::REJECT
+                                 : rclcpp_action::CancelResponse::ACCEPT;
+        },
+        [this](std::shared_ptr<JointsGoalHandle> gh) { execute<PlanToJoints>(gh); });
   }
 
  private:
-  void execute(std::shared_ptr<GoalHandle> gh) {
+  // Shared by both tiers; only the Result type differs. PlanToJoints::Result
+  // additionally carries goal_mismatch_rad, which stays at its 0.0 default -
+  // the canned plan is treated as reaching the requested joints exactly.
+  // `started_` is a one-shot promise, so a single test must drive only one tier.
+  template <typename ActionT>
+  void execute(std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> gh) {
     if (started_) started_->set_value();
     if (gate_.valid()) gate_.wait();
-    auto result = std::make_shared<PlanToPose::Result>();
+    auto result = std::make_shared<typename ActionT::Result>();
     if (!succeed_) {
       result->success = false;
       result->message = "fake planner: no solution";
@@ -76,6 +98,7 @@ class FakeCuroboServer {
   }
   rclcpp::Node::SharedPtr node_;
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
+  rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;
   bool succeed_;
   int n_points_;
   bool reject_;

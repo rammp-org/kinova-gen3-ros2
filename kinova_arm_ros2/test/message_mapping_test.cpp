@@ -82,3 +82,37 @@ TEST(MessageMapping, ResultCarriesErrorCode) {
   ASSERT_EQ(m.final_error.positions.size(), 7u);
   EXPECT_NEAR(m.final_error.positions[0], 0.01, 1e-12);
 }
+
+TEST(MessageMapping, JointTrajectoryToPositionGoal) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points = { pt(0.0, 0.0), pt(0.3, 0.5) };
+  auto tg = to_trajectory_goal(traj);
+  ASSERT_EQ(tg.trajectory.points.size(), 2u);
+  EXPECT_NEAR(tg.trajectory.points[1].q[0], 0.3, 1e-12);
+  EXPECT_NEAR(tg.trajectory.points[1].t_s, 0.5, 1e-9);
+  EXPECT_EQ(tg.control_mode, ControlModeKind::kPosition);
+  EXPECT_EQ(tg.preemption, Preemption::kLatestWins);
+  EXPECT_FALSE(tg.has_gains);
+}
+
+TEST(MessageMapping, GotoResultCarriesPlanningFailed) {
+  kinova::interface::TrajectoryResult r;
+  r.error_code = kinova::interface::result_code::kPlanningFailed;
+  r.error_string = "no plan";
+  r.final_error = kinova::JointVec::Zero();
+  auto m = to_goto_result_msg(r);
+  EXPECT_EQ(m.error_code, -7);
+  EXPECT_EQ(m.error_string, "no plan");
+  ASSERT_EQ(m.final_error.positions.size(), 7u);
+}
+
+TEST(MessageMapping, GotoExecutingFeedback) {
+  kinova::interface::TrajectoryFeedback fb;
+  fb.fraction_complete = 0.5;
+  fb.actual = kinova::JointVec::Constant(0.2);
+  auto m = to_goto_feedback_msg(fb);
+  EXPECT_EQ(m.phase, "executing");
+  EXPECT_NEAR(m.fraction_complete, 0.5f, 1e-6);
+  ASSERT_EQ(m.actual.positions.size(), 7u);
+  EXPECT_NEAR(m.actual.positions[0], 0.2, 1e-12);
+}

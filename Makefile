@@ -14,12 +14,33 @@
 
 IMAGE       ?= kinova-arm-ros2:humble
 IMAGE_REAL  ?= kinova-arm-ros2:kortex
+# Override the core ref that kinova_arm.repos pins, e.g.
+#   make build CORE_REF=feat/planning-failed-result-code
+# Needed whenever this repo depends on a core change that has not reached core
+# main yet — the container clones main, unlike the rsync dev loop.
+CORE_REF    ?=
+CORE_ARG    := $(if $(CORE_REF),--build-arg CORE_REF=$(CORE_REF),)
 KORTEX_SRC  ?= $(HOME)/kortex_api_2.8.0_aarch64
 KORTEX_SDK_DIR := $(notdir $(KORTEX_SRC))
 
 NODE   := /ros2_ws/install/kinova_arm_ros2/lib/kinova_arm_ros2/kinova_arm_node
 CLIENT := /ros2_ws/src/kinova_arm_ros2/kinova_arm_ros2/test/send_trajectory.py
 URDF   := /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+
+# Pin the RT loop to abra's isolated core. The host boots with
+# `isolcpus=11 nohz_full=11 rcu_nocbs=11` and the core driver's scripts/rt_setup.sh
+# defaults RT_CORE=11. isolcpus takes that core OUT of the scheduler's load
+# balancing, so a thread only ever lands there via explicit affinity — without
+# --cpu the node calls no sched_setaffinity at all (enable_rt guards it on
+# cpu >= 0) and the 1 kHz loop runs on the general cores forever.
+#
+# --cpu pins ONLY the RT loop: enable_rt() runs inside RtExecutor::run() on the
+# main thread, after bringup_node has already spawned the rclcpp spin and
+# telemetry-drain threads, so those keep the full mask. Do NOT reach for docker's
+# --cpuset-cpus instead: that confines the whole container, ROS threads included,
+# to the isolated core — the opposite of what the isolation is for.
+RT_CORE ?= 11
+NODE_ARGS := --urdf $(URDF) --cpu $(RT_CORE)
 
 # DDS needs the host net + a shared IPC namespace (shared-memory transport).
 ROS_FLAGS := --network host --ipc host -e ROS_DOMAIN_ID=0 -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -29,18 +50,18 @@ ROS_FLAGS := --network host --ipc host -e ROS_DOMAIN_ID=0 -e RMW_IMPLEMENTATION=
 RT_FLAGS  := --cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1
 RUN       := docker run --rm $(ROS_FLAGS) $(RT_FLAGS)
 
-.PHONY: build sim e2e shell stage-kortex real
+.PHONY: build build-real sim e2e shell stage-kortex real
 
 build:                     ## Build the sim image
-	docker build -f docker/Dockerfile -t $(IMAGE) .
+	docker build -f docker/Dockerfile $(CORE_ARG) -t $(IMAGE) .
 
 sim: build                 ## Run the node in sim, foreground
-	$(RUN) -it --name kinova_arm_sim $(IMAGE) $(NODE) --sim --urdf $(URDF)
+	$(RUN) -it --name kinova_arm_sim $(IMAGE) $(NODE) --sim $(NODE_ARGS)
 
 # Success case then forced-divergence case, same assertions as
 # scripts/abra_e2e_sim.sh but against the containerized node.
 e2e: build                 ## Sim integration check (success + path-tolerance abort)
-	$(RUN) -d --name kinova_arm_e2e $(IMAGE) $(NODE) --sim --urdf $(URDF)
+	$(RUN) -d --name kinova_arm_e2e $(IMAGE) $(NODE) --sim $(NODE_ARGS)
 	@sleep 5
 	@set -e; trap 'docker rm -f kinova_arm_e2e >/dev/null' EXIT; \
 	  docker exec kinova_arm_e2e /ros_entrypoint.sh python3 $(CLIENT) \
@@ -60,10 +81,15 @@ stage-kortex:              ## Copy the aarch64 KORTEX SDK into docker/vendor/
 	rsync -a --delete "$(KORTEX_SRC)/" "docker/vendor/$(KORTEX_SDK_DIR)/"
 	@echo "staged $(KORTEX_SDK_DIR) -> docker/vendor/"
 
-# ATTENDED ONLY — docs/on-robot-runbook.md. e-stop in hand.
-real: stage-kortex         ## Build KORTEX-enabled and run against the arm
-	@test -n "$(IP)" || { echo "usage: make real IP=192.168.1.10"; exit 1; }
-	docker build -f docker/Dockerfile --build-arg KINOVA_ENABLE_KORTEX=ON \
+# Build the real-arm image WITHOUT running it — safe off-robot, and the step you
+# want ahead of an attended session so the ~minutes of build are not happening
+# with the arm powered and someone holding the e-stop.
+build-real: stage-kortex   ## Build the KORTEX-enabled image only
+	docker build -f docker/Dockerfile $(CORE_ARG) --build-arg KINOVA_ENABLE_KORTEX=ON \
 	  --build-arg KORTEX_SDK_DIR=$(KORTEX_SDK_DIR) -t $(IMAGE_REAL) .
+
+# ATTENDED ONLY — docs/on-robot-runbook.md. e-stop in hand.
+real: build-real           ## Build KORTEX-enabled and run against the arm
+	@test -n "$(IP)" || { echo "usage: make real IP=192.168.1.10"; exit 1; }
 	$(RUN) -it --name kinova_arm_real --stop-timeout 20 $(IMAGE_REAL) \
-	  $(NODE) --ip $(IP) --urdf $(URDF)
+	  $(NODE) --ip $(IP) $(NODE_ARGS)

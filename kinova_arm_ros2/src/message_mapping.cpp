@@ -53,4 +53,36 @@ ExecuteJointTrajectory::Result to_result_msg(const TrajectoryResult& r) {
   m.final_error = vec_to_point(r.final_error);
   return m;
 }
+
+TrajectoryGoal to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory& traj) {
+  TrajectoryGoal tg;
+  for (const auto& p : traj.points) {
+    JointWaypoint w{JointVec::Zero(), 0.0};
+    for (int i = 0; i < kNumJoints && i < static_cast<int>(p.positions.size()); ++i)
+      w.q[i] = p.positions[i];
+    w.t_s = static_cast<double>(p.time_from_start.sec)
+          + static_cast<double>(p.time_from_start.nanosec) * 1e-9;
+    tg.trajectory.points.push_back(w);
+  }
+  tg.control_mode = ControlModeKind::kPosition;
+  tg.preemption   = Preemption::kLatestWins;
+  // path_tolerance / sender_id are set by the caller (GoToEEPoseServer).
+  return tg;
+}
+
+GoToEEPose::Feedback to_goto_feedback_msg(const TrajectoryFeedback& fb) {
+  GoToEEPose::Feedback m;
+  m.phase = "executing";
+  m.fraction_complete = static_cast<float>(fb.fraction_complete);
+  m.actual = vec_to_point(fb.actual);
+  return m;
+}
+
+GoToEEPose::Result to_goto_result_msg(const TrajectoryResult& r) {
+  GoToEEPose::Result m;
+  m.error_code = r.error_code;
+  m.error_string = r.error_string;
+  m.final_error = vec_to_point(r.final_error);
+  return m;
+}
 }  // namespace kinova_arm_ros2

@@ -11,6 +11,10 @@
   <depend>kinova_arm_interfaces</depend>
   <depend>kinova_lowlevel</depend>
   <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>rammp_curobo_interfaces</depend>
   <test_depend>ament_cmake_gtest</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

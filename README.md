@@ -65,6 +65,7 @@ Node name: **`kinova_arm_node`**.
 | Name | Type |
 |---|---|
 | `execute_joint_trajectory` | `kinova_arm_interfaces/action/ExecuteJointTrajectory` |
+| `go_to_ee_pose` | `kinova_arm_interfaces/action/GoToEEPose` |
 
 Goal:
 
@@ -90,6 +91,10 @@ A goal is REJECTED if the trajectory has no points, or if any point's `positions
 length is not exactly 7. (The mapping layer separately zero-fills / truncates as a
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
+
+`go_to_ee_pose` plans an end-effector pose goal via the external cuRobo node and
+executes it through the same Supervisor — see
+[`docs/guide-goto-ee-pose.md`](docs/guide-goto-ee-pose.md) for usage.
 
 ### Published topics
 
@@ -216,6 +221,25 @@ boundary, and `--cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1` so
 `mlockall` and `SCHED_FIFO`(80) succeed inside the container. Full `--privileged`
 is not needed. Verify the RT part with `chrt -p 1` inside the container — it
 should report `SCHED_FIFO` priority 80.
+
+**Core pinning is a node argument, not a Docker flag.** abra boots
+`isolcpus=11 nohz_full=11 rcu_nocbs=11` and the core driver's `scripts/rt_setup.sh`
+defaults `RT_CORE=11`. `isolcpus` removes that core from the scheduler's load
+balancing, so a thread reaches it *only* via explicit affinity — and `enable_rt()`
+guards its `sched_setaffinity` on `cpu >= 0`, which `--cpu` is the only way to set.
+Omit `--cpu` and the 1 kHz loop runs on the general cores forever, even though
+`chrt` still cheerfully reports `SCHED_FIFO`/80. The Makefile passes
+`--cpu $(RT_CORE)` (default 11) on every run target. Verify with:
+
+```sh
+docker exec <container> taskset -pc 1     # expect "current affinity list: 11"
+```
+
+Do **not** use Docker's `--cpuset-cpus` for this. That confines the entire
+container — rclcpp executor and telemetry drain included — to the isolated core,
+which is the opposite of what the isolation buys you. `--cpu` pins only the RT
+loop, because `enable_rt()` runs inside `RtExecutor::run()` on the main thread,
+after `bringup_node` has already spawned the non-RT threads.
 
 ## Run
 

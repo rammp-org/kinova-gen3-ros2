@@ -51,11 +51,19 @@ RUN mkdir -p src && vcs import src < /tmp/kinova_arm.repos && \
 # --- ROS deps (cached unless a package.xml changes) ---------------------------
 # --skip-keys pinocchio: the core's package.xml declares it, but rosdep would
 # resolve it to the apt 4.0.0 package and shadow the pinned wheel above.
+#
+# The paths are enumerated rather than a bare `src`: kinova_arm.repos vendors all
+# of RAMMP-CuRobo, but this image only ever builds rammp_curobo_interfaces (the
+# dependency-free IDL). A bare `src` would also install rammp_curobo_ros's deps
+# for a package this image never runs — that node lives in the GPU container.
 COPY kinova_arm_interfaces/package.xml src/kinova_arm_ros2/kinova_arm_interfaces/package.xml
 COPY kinova_arm_ros2/package.xml       src/kinova_arm_ros2/kinova_arm_ros2/package.xml
 RUN source /opt/ros/humble/setup.bash && \
     apt-get update && \
-    rosdep install --from-paths src --ignore-src -y --skip-keys pinocchio && \
+    rosdep install --ignore-src -y --skip-keys pinocchio --from-paths \
+      src/kinova_arm_ros2 \
+      src/kinova-gen3-driver \
+      src/RAMMP-CuRobo/rammp_curobo_interfaces && \
     rm -rf /var/lib/apt/lists/*
 
 # --- KORTEX SDK (real-arm builds only) ----------------------------------------
@@ -68,11 +76,16 @@ COPY docker/vendor/ /opt/kortex/
 # --- workspace source + build -------------------------------------------------
 COPY . src/kinova_arm_ros2/
 
+# --packages-up-to kinova_arm_ros2 builds exactly the node and its recursive
+# deps (kinova_lowlevel, kinova_arm_interfaces, rammp_curobo_interfaces) and
+# stops there — rammp_curobo_ros is the GPU planner node and belongs in the
+# rammp-curobo image, not this one.
 ARG KINOVA_ENABLE_KORTEX=OFF
 ARG KORTEX_SDK_DIR=kortex_api_2.8.0_aarch64
 RUN source /opt/ros/humble/setup.bash && \
     export CMAKE_PREFIX_PATH="${CMEEL_PREFIX}:${CMAKE_PREFIX_PATH:-}" && \
     colcon build --symlink-install --event-handlers console_direct+ \
+      --packages-up-to kinova_arm_ros2 \
       --cmake-args -DCMAKE_BUILD_TYPE=Release \
         "-DKINOVA_ENABLE_KORTEX=${KINOVA_ENABLE_KORTEX}" \
         "-DKORTEX_HW_DIR=/opt/kortex/${KORTEX_SDK_DIR}"

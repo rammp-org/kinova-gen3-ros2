@@ -11,6 +11,8 @@ rsync -az --mkpath --delete --exclude '.git/' --exclude 'build/' --exclude 'buil
   "$CORE_SRC" "abra:$WS/src/kinova-gen3-driver/"
 rsync -az --mkpath --delete --exclude '.git/' --exclude 'build/' --exclude 'install/' --exclude 'log/' \
   "$ROS_SRC" "abra:$WS/src/kinova_arm_ros2/"
+rsync -az --mkpath --delete --exclude '.git/' --exclude 'build/' --exclude 'install/' --exclude 'log/' \
+  "/home/swapnil/atdev/RAMMP-CuRobo/rammp_curobo_interfaces/" "abra:$WS/src/rammp_curobo_interfaces/"
 
 ssh abra "bash -lc '
   set -eo pipefail

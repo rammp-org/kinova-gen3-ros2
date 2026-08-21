@@ -33,10 +33,17 @@ ros2 launch rammp_curobo_ros planner.launch.py config:=gen3_real.yaml
 ```
 
 Then start the arm node as usual (sim or real — see the top-level `README.md`
-`Run` section). No extra flags are needed on `kinova_arm_node`: it already
-publishes `/joint_states` at ~100 Hz, and cuRobo reads that topic to get the
-live joint configuration it plans from. You do not need to supply a starting
-configuration yourself.
+`Run` section). No extra flags are needed on `kinova_arm_node`, and you do not
+supply a starting configuration yourself: the arm node reads its own measured
+joint state and states it in the plan request, so cuRobo plans from exactly the
+configuration the arm is standing in.
+
+That is deliberate. cuRobo *can* source the start state itself, by subscribing
+to `/joint_states`, if the request leaves `start_joints` empty — but then the
+planner depends on the robot being present and on the two nodes' QoS matching,
+and it will accept a joint state up to 2 s old. Planning from a configuration
+the arm has already left, while the arm node executes from the live one, is a
+real divergence. We never send the empty form.
 
 ## Calling it
 

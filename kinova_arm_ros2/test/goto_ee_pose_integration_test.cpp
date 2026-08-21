@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <future>
+#include <mutex>
+#include <string>
+#include <vector>
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -37,10 +40,14 @@ struct FakeSupervisor : public CommandSink {
     port.settle(id, r); return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
-  // The measured configuration the arm is standing in. The planner must be
-  // told to plan FROM this, rather than left to discover it for itself.
+  // The measured configuration the arm is standing in. stamp_s must be > 0:
+  // the supervisor only stores a snapshot after a SUCCESSFUL feedback read, so
+  // a zero stamp means "no measurement yet", not "the arm is at zero".
   kinova::JointVec q_meas = kinova::JointVec::Zero();
-  ArmState on_query_state() override { ArmState s; s.q = q_meas; return s; }
+  double stamp_s = 1.0;
+  ArmState on_query_state() override {
+    ArmState s; s.q = q_meas; s.stamp_s = stamp_s; return s;
+  }
 };
 // Cancels and joins the spin thread on ANY exit, so an early return from a
 // failed ASSERT_* cannot destroy a joinable thread -- which calls
@@ -54,6 +61,46 @@ class SpinThread {
  private:
   rclcpp::Executor& ex_;
   std::thread t_;
+};
+
+// A Supervisor stand-in that models the real ordering constraint the arm node
+// lives under: a cancel only stops motion if it reaches the supervisor AFTER the
+// goal has been handed over. The real Supervisor queues both on one FIFO inbox,
+// so a cancel delivered first drains against no active goal and is silently
+// lost -- and the trajectory then runs to completion.
+//
+// It blocks inside on_trajectory_goal until the test releases it, which pins the
+// cancel to exactly the window between the supervisor accepting the goal and the
+// server handing it over. Ordering is recorded, not timed.
+struct OrderingSupervisor : public CommandSink {
+  ActionServerPort& port;
+  std::promise<void> in_goal;          // fires once on_trajectory_goal is entered
+  std::shared_future<void> release;    // test releases it after the cancel lands
+  std::mutex m;
+  std::vector<std::string> calls;      // "goal" / "accepted" / "cancel"
+
+  explicit OrderingSupervisor(ActionServerPort& p) : port(p) {}
+  void note(const char* what) { std::lock_guard<std::mutex> l(m); calls.emplace_back(what); }
+  std::vector<std::string> log() { std::lock_guard<std::mutex> l(m); return calls; }
+
+  GoalResponse on_trajectory_goal(const TrajectoryGoal&) override {
+    note("goal");
+    in_goal.set_value();
+    if (release.valid()) release.wait();
+    return GoalResponse::kAccept;
+  }
+  void on_trajectory_accepted(const GoalId&, const TrajectoryGoal&) override {
+    note("accepted");   // deliberately does NOT settle: the motion is "running"
+  }
+  CancelResponse on_trajectory_cancel(const GoalId& id) override {
+    note("cancel");
+    TrajectoryResult r; r.error_code = result_code::kPreempted;
+    r.final_error = kinova::JointVec::Zero();
+    port.settle(id, r);
+    return CancelResponse::kAccept;
+  }
+  GainsResult on_set_gains(const GainsRequest&) override { return {}; }
+  ArmState on_query_state() override { return {}; }
 };
 
 struct DummyPort : public ActionServerPort {   // default router port; unused here
@@ -111,11 +158,60 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   spin.join();
 }
 
-// The planner must not have to discover where the arm is. kinova_arm_node owns
-// the measured joint state, so it states it in the plan request; leaving
-// start_joints empty is an instruction to the real cuRobo node to subscribe to
-// /joint_states and work it out, which couples the planner to the robot and
-// lets it plan from a state up to 2 s older than the one we execute from.
+// A cancel accepted while the server is handing the planned trajectory to the
+// supervisor must still stop the arm. Before the fix the cancel was ACCEPTed and
+// then dropped: it either hit planner_.cancel() on an already-finished plan, or
+// reached the supervisor AHEAD of the goal, where it drained against nothing.
+// Either way the client saw a cancel it never got, and the arm executed the
+// entire cuRobo motion at planned speed.
+TEST_F(GotoServerTest, CancelDuringHandoverStillReachesTheSupervisor) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it_cancelwin");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  OrderingSupervisor sup(router);
+  auto gate = std::make_shared<std::promise<void>>();
+  sup.release = gate->get_future().share();
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  GoToEEPose::Goal goal;
+  goal.target.header.frame_id = "base_link";
+  auto gh_fut = client->async_send_goal(goal);
+  ASSERT_EQ(gh_fut.wait_for(5s), std::future_status::ready);
+  auto gh = gh_fut.get();
+  ASSERT_TRUE(gh);
+
+  // Wait until the server is inside the handover, then cancel and release it.
+  ASSERT_EQ(sup.in_goal.get_future().wait_for(5s), std::future_status::ready);
+  auto cancel_fut = client->async_cancel_goal(gh);
+  ASSERT_EQ(cancel_fut.wait_for(5s), std::future_status::ready);
+  gate->set_value();
+
+  // The supervisor must be told to cancel, and only AFTER it owns the goal.
+  std::vector<std::string> seen;
+  for (int i = 0; i < 100; ++i) {
+    seen = sup.log();
+    if (seen.size() >= 3) break;
+    std::this_thread::sleep_for(50ms);
+  }
+  ASSERT_GE(seen.size(), 3u) << "supervisor never saw the cancel; the arm would "
+                                "have run the whole trajectory";
+  EXPECT_EQ(seen[0], "goal");
+  EXPECT_EQ(seen[1], "accepted");
+  EXPECT_EQ(seen[2], "cancel") << "cancel must arrive after the handover";
+}
+
+// The planner must not have to discover where the arm is: kinova_arm_node owns
+// the measured joint state and states it in the plan request.
 TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
   auto node = std::make_shared<rclcpp::Node>("goto_it_start");
   kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
@@ -130,7 +226,7 @@ TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
 
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
-  SpinThread spin(ex);   // cancels + joins on any exit
+  SpinThread spin(ex);
 
   const int code = send_and_get_code(node, "base_link");
   EXPECT_EQ(code, result_code::kSuccessful);
@@ -140,6 +236,39 @@ TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
       << "planner was left to source the start state itself";
   for (int i = 0; i < kinova::kNumJoints; ++i)
     EXPECT_DOUBLE_EQ(seen[i], sup.q_meas[i]) << "joint_" << (i + 1);
+}
+
+// Supervisor::pump_loop stores a snapshot ONLY after a successful feedback read,
+// and a default-constructed ArmState is {q = Zero, stamp_s = 0}. Before the first
+// good frame, sending that q as the start state is indistinguishable from a real
+// measurement, and cuRobo would plan from the fully-extended zero pose. The goal
+// must be refused instead -- the loud failure this replaced lived on the planner
+// side ("no fresh joint state on /joint_states").
+TEST_F(GotoServerTest, GoalIsRefusedWhenNoJointStateHasBeenMeasuredYet) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it_nostate");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  sup.stamp_s = 0.0;                 // no successful feedback read has happened
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  GoToEEPose::Goal goal;
+  goal.target.header.frame_id = "base_link";
+  auto fut = client->async_send_goal(goal);
+  ASSERT_EQ(fut.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(fut.get()) << "goal must be refused when the arm state is unknown";
+  EXPECT_TRUE(fake.last_start_joints().empty())
+      << "the planner must not have been asked to plan from a fabricated pose";
 }
 
 // Finding #2 (fail-loud on planned-trajectory width): the fake planner reports

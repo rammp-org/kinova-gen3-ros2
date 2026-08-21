@@ -26,7 +26,8 @@ class GoToEEPoseServer : public PlannedMoveServer<kinova_arm_interfaces::action:
 
   void start_plan(const Action::Goal& goal, CuroboPlanClient::FeedbackCb on_fb,
                   CuroboPlanClient::DoneCb on_done) override {
-    planner_.plan(goal.target.pose, std::move(on_fb), std::move(on_done));
+    planner_.plan(goal.target.pose, this->start_config(), std::move(on_fb),
+                  std::move(on_done));
   }
 };
 

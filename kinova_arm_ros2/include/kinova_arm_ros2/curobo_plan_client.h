@@ -38,8 +38,16 @@ class CuroboPlanClient {
                    rclcpp::CallbackGroup::SharedPtr cb_group,
                    std::string action_name = "/rammp_curobo/plan_to_pose",
                    std::string joints_action_name = "/rammp_curobo/plan_to_joints");
-  void plan(const geometry_msgs::msg::Pose& target, FeedbackCb on_fb, DoneCb on_done);
-  void plan_to_joints(const std::vector<double>& target_joints, FeedbackCb on_fb, DoneCb on_done);
+  // start_joints is the configuration the plan must START from -- the arm's
+  // measured q, supplied by the caller. It is NOT optional: cuRobo treats an
+  // empty vector as "subscribe to /joint_states and work it out yourself",
+  // which couples the planner to the robot and lets it plan from a state up to
+  // 2 s stale while we execute from now.
+  void plan(const geometry_msgs::msg::Pose& target, const std::vector<double>& start_joints,
+            FeedbackCb on_fb, DoneCb on_done);
+  void plan_to_joints(const std::vector<double>& target_joints,
+                      const std::vector<double>& start_joints,
+                      FeedbackCb on_fb, DoneCb on_done);
   // Cancels whichever plan is in flight, pose or joint-space.
   void cancel();
 

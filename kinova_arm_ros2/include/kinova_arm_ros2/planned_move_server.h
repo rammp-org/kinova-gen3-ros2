@@ -74,6 +74,19 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
 
  protected:
   // Everything action-specific. validate() returns a reason to reject, or
+  // The arm's measured configuration, for start_plan() to state in the plan
+  // request. This node owns that state -- it is the same source /joint_states
+  // is published from -- so the planner never has to source it itself.
+  std::vector<double> start_config() const {
+    // handle_goal has already refused the goal unless sink_ exists and has a
+    // measured state, so there is no empty-vector fallback here -- returning one
+    // would silently restore the /joint_states coupling this replaced.
+    const kinova::interface::ArmState s = sink_->on_query_state();
+    std::vector<double> q(kinova::kNumJoints, 0.0);
+    for (int i = 0; i < kinova::kNumJoints; ++i) q[i] = s.q[i];
+    return q;
+  }
+
   // nullopt to accept; start_plan() dispatches the appropriate cuRobo plan.
   virtual std::optional<std::string> validate(const typename ActionT::Goal& goal) = 0;
   virtual void start_plan(const typename ActionT::Goal& goal,
@@ -90,6 +103,17 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
   rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID&,
                                           std::shared_ptr<const typename ActionT::Goal> goal) {
     if (!sink_) return rclcpp_action::GoalResponse::REJECT;
+    // Refuse before planning if the arm's configuration is not yet known.
+    // Supervisor::pump_loop stores a snapshot only after a SUCCESSFUL feedback
+    // read, and a default-constructed ArmState is {q = Zero, stamp_s = 0}. Sending
+    // that q as the plan's start state would be indistinguishable from a real
+    // measurement, and cuRobo would plan from the fully-extended zero pose.
+    if (sink_->on_query_state().stamp_s <= 0.0) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "rejecting goal: no joint state measured yet -- the arm's "
+                  "configuration is unknown, so there is nothing to plan from");
+      return rclcpp_action::GoalResponse::REJECT;
+    }
     if (auto why = validate(*goal)) {   // fail loud
       RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
       return rclcpp_action::GoalResponse::REJECT;

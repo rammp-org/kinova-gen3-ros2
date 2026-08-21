@@ -32,8 +32,8 @@ class GoToPresetServer : public PlannedMoveServer<kinova_arm_interfaces::action:
 
   void start_plan(const Action::Goal& goal, CuroboPlanClient::FeedbackCb on_fb,
                   CuroboPlanClient::DoneCb on_done) override {
-    planner_.plan_to_joints(registry_.at(goal.preset_name), std::move(on_fb),
-                            std::move(on_done));
+    planner_.plan_to_joints(registry_.at(goal.preset_name), this->start_config(),
+                            std::move(on_fb), std::move(on_done));
   }
 
  private:

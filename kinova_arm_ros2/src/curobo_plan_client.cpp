@@ -69,17 +69,21 @@ CuroboPlanClient::CuroboPlanClient(rclcpp::Node::SharedPtr node,
 }
 
 void CuroboPlanClient::plan(const geometry_msgs::msg::Pose& target,
+                            const std::vector<double>& start_joints,
                             FeedbackCb on_fb, DoneCb on_done) {
   PlanToPose::Goal goal;
-  goal.target = target;   // start_joints left empty -> cuRobo reads our /joint_states
+  goal.target = target;
+  goal.start_joints = start_joints;   // plan from where the arm actually is
   dispatch_plan<PlanToPose>(client_, goal, m_, active_cancel_, std::move(on_fb),
                             std::move(on_done));
 }
 
 void CuroboPlanClient::plan_to_joints(const std::vector<double>& target_joints,
+                                      const std::vector<double>& start_joints,
                                       FeedbackCb on_fb, DoneCb on_done) {
   PlanToJoints::Goal goal;
-  goal.target_joints = target_joints;   // start_joints empty -> cuRobo reads /joint_states
+  goal.target_joints = target_joints;
+  goal.start_joints = start_joints;   // plan from where the arm actually is
   dispatch_plan<PlanToJoints>(client_joints_, goal, m_, active_cancel_, std::move(on_fb),
                               std::move(on_done));
 }

@@ -40,7 +40,14 @@ struct FakeSupervisor : public CommandSink {
     port.settle(id, r); return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
-  ArmState on_query_state() override { return {}; }
+  // The measured configuration the arm is standing in. stamp_s must be > 0:
+  // the supervisor only stores a snapshot after a SUCCESSFUL feedback read, so
+  // a zero stamp means "no measurement yet", not "the arm is at zero".
+  kinova::JointVec q_meas = kinova::JointVec::Zero();
+  double stamp_s = 1.0;
+  ArmState on_query_state() override {
+    ArmState s; s.q = q_meas; s.stamp_s = stamp_s; return s;
+  }
 };
 // Cancels and joins the spin thread on ANY exit, so an early return from a
 // failed ASSERT_* cannot destroy a joinable thread -- which calls
@@ -93,7 +100,11 @@ struct OrderingSupervisor : public CommandSink {
     return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
-  ArmState on_query_state() override { return {}; }
+  // stamp_s > 0 marks the state as actually measured. The server refuses goals
+  // when it is zero, because Supervisor::pump_loop only stores a snapshot after
+  // a successful feedback read and {q=Zero, stamp_s=0} would otherwise be
+  // executed as if the arm were really at zero.
+  ArmState on_query_state() override { ArmState s; s.stamp_s = 1.0; return s; }
 };
 
 struct DummyPort : public ActionServerPort {   // default router port; unused here
@@ -201,6 +212,67 @@ TEST_F(GotoServerTest, CancelDuringHandoverStillReachesTheSupervisor) {
   EXPECT_EQ(seen[0], "goal");
   EXPECT_EQ(seen[1], "accepted");
   EXPECT_EQ(seen[2], "cancel") << "cancel must arrive after the handover";
+}
+
+// The planner must not have to discover where the arm is: kinova_arm_node owns
+// the measured joint state and states it in the plan request.
+TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it_start");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  sup.q_meas << 0.11, -0.22, 0.33, -0.44, 0.55, -0.66, 0.77;
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  const int code = send_and_get_code(node, "base_link");
+  EXPECT_EQ(code, result_code::kSuccessful);
+
+  const std::vector<double> seen = fake.last_start_joints();
+  ASSERT_EQ(seen.size(), static_cast<size_t>(kinova::kNumJoints))
+      << "planner was left to source the start state itself";
+  for (int i = 0; i < kinova::kNumJoints; ++i)
+    EXPECT_DOUBLE_EQ(seen[i], sup.q_meas[i]) << "joint_" << (i + 1);
+}
+
+// Supervisor::pump_loop stores a snapshot ONLY after a successful feedback read,
+// and a default-constructed ArmState is {q = Zero, stamp_s = 0}. Before the first
+// good frame, sending that q as the start state is indistinguishable from a real
+// measurement, and cuRobo would plan from the fully-extended zero pose. The goal
+// must be refused instead -- the loud failure this replaced lived on the planner
+// side ("no fresh joint state on /joint_states").
+TEST_F(GotoServerTest, GoalIsRefusedWhenNoJointStateHasBeenMeasuredYet) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it_nostate");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  sup.stamp_s = 0.0;                 // no successful feedback read has happened
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  GoToEEPose::Goal goal;
+  goal.target.header.frame_id = "base_link";
+  auto fut = client->async_send_goal(goal);
+  ASSERT_EQ(fut.wait_for(5s), std::future_status::ready);
+  EXPECT_FALSE(fut.get()) << "goal must be refused when the arm state is unknown";
+  EXPECT_TRUE(fake.last_start_joints().empty())
+      << "the planner must not have been asked to plan from a fabricated pose";
 }
 
 // Finding #2 (fail-loud on planned-trajectory width): the fake planner reports

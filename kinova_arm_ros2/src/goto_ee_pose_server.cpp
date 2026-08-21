@@ -36,11 +36,16 @@ rclcpp_action::CancelResponse GoToEEPoseServer::handle_cancel(std::shared_ptr<Go
   bool executing = false;
   { std::lock_guard<std::mutex> l(m_);
     auto it = goals_.find(id);
-    if (it != goals_.end()) executing = it->second.executing; }
+    if (it != goals_.end()) { executing = it->second.executing;
+                              it->second.cancel_requested = true; } }
   if (executing) {
     if (sink_) sink_->on_trajectory_cancel(id);   // Supervisor -> kPreempted -> settle()
   } else {
-    planner_.cancel();                            // cancel in-flight plan -> on_plan_done
+    // Still planning, OR mid-handover. planner_.cancel() covers the first; the
+    // second is covered by on_plan_done re-reading cancel_requested AFTER
+    // on_trajectory_accepted, because a cancel delivered before the supervisor
+    // owns the goal drains against nothing on its single FIFO inbox.
+    planner_.cancel();
   }
   return rclcpp_action::CancelResponse::ACCEPT;
 }
@@ -123,7 +128,40 @@ void GoToEEPoseServer::on_plan_done(GoalId id, CuroboPlanClient::Outcome outcome
     if (it != goals_.end()) it->second.executing = true; }
   router_.register_owner(id, *this);
   sink_->on_trajectory_accepted(id, tg);
+
+  // The supervisor now owns the goal. If a cancel landed any time before this
+  // point it was ACCEPTed but could not have stopped anything -- either the
+  // plan had already finished (planner_.cancel() was a no-op) or the cancel
+  // reached the supervisor's FIFO ahead of the goal and drained against no
+  // active trajectory. Re-issue it now, when it can actually take effect.
+  bool canceled = false;
+  { std::lock_guard<std::mutex> l(m_);
+    auto it = goals_.find(id);
+    if (it != goals_.end()) canceled = it->second.cancel_requested; }
+  if (canceled) sink_->on_trajectory_cancel(id);
 }
+
+namespace {
+// rclcpp_action throws std::runtime_error if the goal has already left the state
+// this transition expects -- and is_canceling() can flip between the check and
+// the call, because handle_cancel ACCEPTs from an executor thread. settle() runs
+// on Supervisor::sampler_loop, which has no handler, so an escaping exception
+// terminates the process with the arm powered and mid-trajectory. Losing the
+// terminal transition is bad; losing the process is worse.
+template <class Handle, class Msg>
+void terminate_goal(rclcpp::Logger log, const Handle& gh, const Msg& msg,
+                    int error_code) {
+  try {
+    if (gh->is_canceling())                          gh->canceled(msg);
+    else if (error_code == kinova::interface::result_code::kSuccessful)
+                                                     gh->succeed(msg);
+    else                                             gh->abort(msg);
+  } catch (const std::exception& e) {
+    RCLCPP_WARN(log, "goal terminal transition raced a cancel and was dropped: %s",
+                e.what());
+  }
+}
+}  // namespace
 
 void GoToEEPoseServer::settle_local(std::shared_ptr<GoalHandle> gh, int error_code,
                                     const std::string& msg) {
@@ -132,9 +170,7 @@ void GoToEEPoseServer::settle_local(std::shared_ptr<GoalHandle> gh, int error_co
   r.error_string = msg;
   r.final_error = kinova::JointVec::Zero();
   auto out = std::make_shared<Action::Result>(to_goto_result_msg(r));
-  if (gh->is_canceling())                          gh->canceled(out);
-  else if (error_code == result_code::kSuccessful) gh->succeed(out);
-  else                                             gh->abort(out);
+  terminate_goal(node_->get_logger(), gh, out, error_code);
 }
 
 // --- ActionServerPort (execution phase, sampler thread via router) ---
@@ -156,8 +192,6 @@ void GoToEEPoseServer::settle(const GoalId& id, const TrajectoryResult& r) {
     gh = it->second.gh;
     goals_.erase(it); }
   auto msg = std::make_shared<Action::Result>(to_goto_result_msg(r));
-  if (gh->is_canceling())                            gh->canceled(msg);
-  else if (r.error_code == result_code::kSuccessful) gh->succeed(msg);
-  else                                               gh->abort(msg);
+  terminate_goal(node_->get_logger(), gh, msg, r.error_code);
 }
 }  // namespace kinova_arm_ros2

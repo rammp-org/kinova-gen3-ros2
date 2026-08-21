@@ -102,11 +102,16 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
     bool executing = false;
     { std::lock_guard<std::mutex> l(m_);
       auto it = goals_.find(id);
-      if (it != goals_.end()) executing = it->second.executing; }
+      if (it != goals_.end()) { executing = it->second.executing;
+                                it->second.cancel_requested = true; } }
     if (executing) {
       if (sink_) sink_->on_trajectory_cancel(id);   // Supervisor -> kPreempted -> settle()
     } else {
-      planner_.cancel();                            // cancel in-flight plan -> on_plan_done
+      // Still planning, OR mid-handover. planner_.cancel() covers the first; the
+      // second is covered by start_execution() re-reading cancel_requested AFTER
+      // on_trajectory_accepted, because a cancel delivered before the supervisor
+      // owns the goal drains against nothing on its single FIFO inbox.
+      planner_.cancel();
     }
     return rclcpp_action::CancelResponse::ACCEPT;
   }
@@ -188,6 +193,17 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
       if (it != goals_.end()) it->second.executing = true; }
     router_.register_owner(id, *this);
     sink_->on_trajectory_accepted(id, tg);
+
+    // The supervisor now owns the goal. A cancel accepted before this point was
+    // ACCEPTed but could not have stopped anything -- either the plan had
+    // already finished (planner_.cancel() was a no-op) or the cancel reached the
+    // supervisor's FIFO ahead of the goal and drained against no active
+    // trajectory. Re-issue it now, when it can actually take effect.
+    bool canceled = false;
+    { std::lock_guard<std::mutex> l(m_);
+      auto it = goals_.find(id);
+      if (it != goals_.end()) canceled = it->second.cancel_requested; }
+    if (canceled) sink_->on_trajectory_cancel(id);
   }
 
   void settle_local(std::shared_ptr<GoalHandle> gh, int error_code, const std::string& msg) {
@@ -201,9 +217,20 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
     out->error_code = error_code;
     out->error_string = msg;
     out->final_error = vec_to_point(final_error);
-    if (gh->is_canceling())                                              gh->canceled(out);
-    else if (error_code == kinova::interface::result_code::kSuccessful)  gh->succeed(out);
-    else                                                                 gh->abort(out);
+    // rclcpp_action throws if the goal has already left the state this
+    // transition expects, and is_canceling() can flip between the check and the
+    // call because handle_cancel ACCEPTs from an executor thread. settle() runs
+    // on Supervisor::sampler_loop, which has no handler, so an escaping
+    // exception terminates the node with the arm powered and mid-trajectory.
+    // Losing a terminal transition is bad; losing the process is worse.
+    try {
+      if (gh->is_canceling())                                              gh->canceled(out);
+      else if (error_code == kinova::interface::result_code::kSuccessful)  gh->succeed(out);
+      else                                                                 gh->abort(out);
+    } catch (const std::exception& e) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "goal terminal transition raced a cancel and was dropped: %s", e.what());
+    }
   }
 
   void erase(const GoalId& id) { std::lock_guard<std::mutex> l(m_); goals_.erase(id); }
@@ -211,7 +238,10 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
   GoalRouter& router_;
   kinova::interface::CommandSink* sink_ = nullptr;
   typename rclcpp_action::Server<ActionT>::SharedPtr server_;
-  struct Goal { std::shared_ptr<GoalHandle> gh; bool executing = false; };
+  // cancel_requested latches a cancel that arrived before the supervisor owned
+  // the goal, so start_execution() can re-issue it once the handover is done.
+  struct Goal { std::shared_ptr<GoalHandle> gh; bool executing = false;
+                bool cancel_requested = false; };
   std::mutex m_;
   std::map<GoalId, Goal> goals_;
 };

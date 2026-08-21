@@ -100,7 +100,11 @@ struct OrderingSupervisor : public CommandSink {
     return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
-  ArmState on_query_state() override { return {}; }
+  // stamp_s > 0 marks the state as actually measured. The server refuses goals
+  // when it is zero, because Supervisor::pump_loop only stores a snapshot after
+  // a successful feedback read and {q=Zero, stamp_s=0} would otherwise be
+  // executed as if the arm were really at zero.
+  ArmState on_query_state() override { ArmState s; s.stamp_s = 1.0; return s; }
 };
 
 struct DummyPort : public ActionServerPort {   // default router port; unused here

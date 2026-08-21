@@ -42,6 +42,20 @@ struct FakeSupervisor : public CommandSink {
   kinova::JointVec q_meas = kinova::JointVec::Zero();
   ArmState on_query_state() override { ArmState s; s.q = q_meas; return s; }
 };
+// Cancels and joins the spin thread on ANY exit, so an early return from a
+// failed ASSERT_* cannot destroy a joinable thread -- which calls
+// std::terminate and replaces the gtest diagnostic with a bare SIGABRT.
+class SpinThread {
+ public:
+  explicit SpinThread(rclcpp::Executor& ex) : ex_(ex), t_([&ex] { ex.spin(); }) {}
+  ~SpinThread() { ex_.cancel(); if (t_.joinable()) t_.join(); }
+  SpinThread(const SpinThread&) = delete;
+  SpinThread& operator=(const SpinThread&) = delete;
+ private:
+  rclcpp::Executor& ex_;
+  std::thread t_;
+};
+
 struct DummyPort : public ActionServerPort {   // default router port; unused here
   void publish_feedback(const GoalId&, const TrajectoryFeedback&) override {}
   void settle(const GoalId&, const TrajectoryResult&) override {}
@@ -116,7 +130,7 @@ TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
 
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
-  std::thread spin([&] { ex.spin(); });
+  SpinThread spin(ex);   // cancels + joins on any exit
 
   const int code = send_and_get_code(node, "base_link");
   EXPECT_EQ(code, result_code::kSuccessful);
@@ -126,9 +140,6 @@ TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
       << "planner was left to source the start state itself";
   for (int i = 0; i < kinova::kNumJoints; ++i)
     EXPECT_DOUBLE_EQ(seen[i], sup.q_meas[i]) << "joint_" << (i + 1);
-
-  ex.cancel();
-  spin.join();
 }
 
 // Finding #2 (fail-loud on planned-trajectory width): the fake planner reports

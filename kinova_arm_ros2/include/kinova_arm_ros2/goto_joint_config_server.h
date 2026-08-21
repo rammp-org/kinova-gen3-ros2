@@ -34,7 +34,7 @@ class GoToJointConfigServer
                   CuroboPlanClient::DoneCb on_done) override {
     planner_.plan_to_joints(
         std::vector<double>(goal.target_joints.begin(), goal.target_joints.end()),
-        std::move(on_fb), std::move(on_done));
+        this->start_config(), std::move(on_fb), std::move(on_done));
   }
 };
 

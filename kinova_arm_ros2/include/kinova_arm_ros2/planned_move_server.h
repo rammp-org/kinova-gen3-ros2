@@ -74,6 +74,17 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
 
  protected:
   // Everything action-specific. validate() returns a reason to reject, or
+  // The arm's measured configuration, for start_plan() to state in the plan
+  // request. This node owns that state -- it is the same source /joint_states
+  // is published from -- so the planner never has to source it itself.
+  std::vector<double> start_config() const {
+    std::vector<double> q(kinova::kNumJoints, 0.0);
+    if (!sink_) return {};
+    const kinova::interface::ArmState s = sink_->on_query_state();
+    for (int i = 0; i < kinova::kNumJoints; ++i) q[i] = s.q[i];
+    return q;
+  }
+
   // nullopt to accept; start_plan() dispatches the appropriate cuRobo plan.
   virtual std::optional<std::string> validate(const typename ActionT::Goal& goal) = 0;
   virtual void start_plan(const typename ActionT::Goal& goal,

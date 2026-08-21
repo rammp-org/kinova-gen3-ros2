@@ -20,6 +20,10 @@ namespace {
 // A bare `std::thread spin(...)` joined at the end of the test body is skipped
 // whenever an ASSERT_* returns early, and destroying a joinable thread calls
 // std::terminate — turning a legible gtest failure into a bare SIGABRT.
+// The configuration a plan starts from. The caller always states it; an
+// empty vector would tell cuRobo to source the arm state itself.
+const std::vector<double> kStartJoints{0.0, 0.26, 3.14, -2.27, 0.0, 0.96, 1.57};
+
 class SpinThread {
  public:
   explicit SpinThread(rclcpp::Executor& ex) : ex_(ex), t_([&ex] { ex.spin(); }) {}
@@ -45,7 +49,7 @@ TEST_F(CuroboClientTest, PlanSuccessReturnsTrajectory) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan(geometry_msgs::msg::Pose{}, nullptr,
+  client.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr,
               [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -65,7 +69,7 @@ TEST_F(CuroboClientTest, PlanAbortReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan(geometry_msgs::msg::Pose{}, nullptr,
+  client.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr,
               [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -86,7 +90,7 @@ TEST_F(CuroboClientTest, PlanRejectedReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan(geometry_msgs::msg::Pose{}, nullptr,
+  client.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr,
               [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -110,7 +114,7 @@ TEST_F(CuroboClientTest, PlanServerUnavailableReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan(geometry_msgs::msg::Pose{}, nullptr,
+  client.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr,
               [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -136,7 +140,7 @@ TEST_F(CuroboClientTest, PlanToJointsSuccessReturnsTrajectory) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, nullptr,
+  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
                         [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -157,7 +161,7 @@ TEST_F(CuroboClientTest, PlanToJointsAbortReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, nullptr,
+  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
                         [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -178,7 +182,7 @@ TEST_F(CuroboClientTest, PlanToJointsRejectedReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, nullptr,
+  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
                         [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
@@ -200,7 +204,7 @@ TEST_F(CuroboClientTest, PlanToJointsServerUnavailableReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, nullptr,
+  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
                         [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();

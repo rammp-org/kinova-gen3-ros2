@@ -46,7 +46,12 @@ class GoToEEPoseServer : public kinova::interface::ActionServerPort {
   kinova::interface::CommandSink* sink_ = nullptr;
   rclcpp_action::Server<Action>::SharedPtr server_;
 
-  struct Goal { std::shared_ptr<GoalHandle> gh; bool executing = false; };
+  // cancel_requested latches a cancel that arrived before the supervisor owned
+  // the goal. Without it such a cancel is ACCEPTed and then lost, and the arm
+  // executes the whole planned motion -- see the handover re-check in
+  // on_plan_done.
+  struct Goal { std::shared_ptr<GoalHandle> gh; bool executing = false;
+                bool cancel_requested = false; };
   std::mutex m_;
   std::map<kinova::interface::GoalId, Goal> goals_;
 };

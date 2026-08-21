@@ -12,7 +12,7 @@ repositories:
     version: main
   RAMMP-CuRobo:
     type: git
-    url: https://github.com/ChrissCox/RAMMP-CuRobo.git
+    url: https://github.com/rammp-org/RAMMP-CuRobo.git
     version: main
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # The bare-metal loop rsyncs just that sub-package; container builds must scope

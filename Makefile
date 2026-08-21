@@ -15,7 +15,7 @@
 IMAGE       ?= kinova-arm-ros2:humble
 IMAGE_REAL  ?= kinova-arm-ros2:kortex
 # Override the core ref that kinova_arm.repos pins, e.g.
-#   make build CORE_REF=feat/planning-failed-result-code
+#   make build CORE_REF=feat/some-unmerged-core-branch
 # Needed whenever this repo depends on a core change that has not reached core
 # main yet — the container clones main, unlike the rsync dev loop.
 CORE_REF    ?=

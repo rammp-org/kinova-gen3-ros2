@@ -37,7 +37,10 @@ struct FakeSupervisor : public CommandSink {
     port.settle(id, r); return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
-  ArmState on_query_state() override { return {}; }
+  // The measured configuration the arm is standing in. The planner must be
+  // told to plan FROM this, rather than left to discover it for itself.
+  kinova::JointVec q_meas = kinova::JointVec::Zero();
+  ArmState on_query_state() override { ArmState s; s.q = q_meas; return s; }
 };
 struct DummyPort : public ActionServerPort {   // default router port; unused here
   void publish_feedback(const GoalId&, const TrajectoryFeedback&) override {}
@@ -89,6 +92,40 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   EXPECT_TRUE(sup.got_goal);
   EXPECT_EQ(sup.last_goal.trajectory.points.size(), 3u);
   EXPECT_EQ(sup.last_goal.control_mode, ControlModeKind::kPosition);
+
+  ex.cancel();
+  spin.join();
+}
+
+// The planner must not have to discover where the arm is. kinova_arm_node owns
+// the measured joint state, so it states it in the plan request; leaving
+// start_joints empty is an instruction to the real cuRobo node to subscribe to
+// /joint_states and work it out, which couples the planner to the robot and
+// lets it plan from a state up to 2 s older than the one we execute from.
+TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it_start");
+  kinova_arm_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_arm_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_arm_ros2::GoalRouter router(dummy);
+  kinova_arm_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  sup.q_meas << 0.11, -0.22, 0.33, -0.44, 0.55, -0.66, 0.77;
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  std::thread spin([&] { ex.spin(); });
+
+  const int code = send_and_get_code(node, "base_link");
+  EXPECT_EQ(code, result_code::kSuccessful);
+
+  const std::vector<double> seen = fake.last_start_joints();
+  ASSERT_EQ(seen.size(), static_cast<size_t>(kinova::kNumJoints))
+      << "planner was left to source the start state itself";
+  for (int i = 0; i < kinova::kNumJoints; ++i)
+    EXPECT_DOUBLE_EQ(seen[i], sup.q_meas[i]) << "joint_" << (i + 1);
 
   ex.cancel();
   spin.join();

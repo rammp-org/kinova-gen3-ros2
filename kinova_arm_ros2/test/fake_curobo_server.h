@@ -1,6 +1,8 @@
 #pragma once
 #include <future>
 #include <memory>
+#include <mutex>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "rammp_curobo_interfaces/action/plan_to_joints.hpp"
@@ -66,6 +68,14 @@ class FakeCuroboServer {
         [this](std::shared_ptr<JointsGoalHandle> gh) { execute<PlanToJoints>(gh); });
   }
 
+  // What the caller actually asked us to plan FROM. Empty means the caller
+  // left start_joints unset, which tells the real cuRobo node to go read
+  // /joint_states itself -- the coupling this records the absence of.
+  std::vector<double> last_start_joints() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return last_start_joints_;
+  }
+
  private:
   // Shared by both tiers; only the Result type differs. PlanToJoints::Result
   // additionally carries goal_mismatch_rad, which stays at its 0.0 default -
@@ -73,6 +83,8 @@ class FakeCuroboServer {
   // `started_` is a one-shot promise, so a single test must drive only one tier.
   template <typename ActionT>
   void execute(std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> gh) {
+    { std::lock_guard<std::mutex> l(seen_m_);
+      last_start_joints_ = gh->get_goal()->start_joints; }
     if (started_) started_->set_value();
     if (gate_.valid()) gate_.wait();
     auto result = std::make_shared<typename ActionT::Result>();
@@ -106,5 +118,7 @@ class FakeCuroboServer {
   std::shared_ptr<std::promise<void>> started_;
   bool reject_cancel_;
   bool bad_width_;
+  mutable std::mutex seen_m_;
+  std::vector<double> last_start_joints_;
 };
 }  // namespace kinova_arm_ros2::test

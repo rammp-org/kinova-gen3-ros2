@@ -47,7 +47,10 @@ cuRobo exposes a ROS **action** — planning only, it never moves the arm:
 
 **The seam fits for free:** our node already publishes `/joint_states` (~100 Hz,
 `SensorDataQoS`, `joint_1..7`), which is exactly what cuRobo reads for its start
-config. So we send `start_joints` empty and let cuRobo pull the live start state.
+config. **Superseded:** we now send `start_joints` explicitly, filled from the
+arm node's own measured state (`CommandSink::on_query_state`). Leaving it empty
+makes the planner subscribe to `/joint_states` and accept a start state up to
+2 s old, which can differ from the one we execute from.
 We depend only on `rammp_curobo_interfaces` — the deliberately dependency-free IDL
 package (no GPU stack) — for the `PlanToPose` type.
 
@@ -128,7 +131,10 @@ The only unit that knows cuRobo exists. Wraps a `rclcpp_action::Client<PlanToPos
   trajectory_msgs::JointTrajectory trajectory;}` — cuRobo's `success`/`message`/
   `trajectory`, plus a synthesized failure for the *aborted*, *rejected*, and
   *server-unavailable* cases (all surface as `ok=false` with a message).
-- Sends `start_joints` **empty** (cuRobo reads our `/joint_states`).
+- Sends `start_joints` **filled** from `CommandSink::on_query_state()`, so the
+  planner never sources the arm's state itself. `handle_goal` refuses the goal
+  outright if no measurement has arrived yet (`stamp_s <= 0`), rather than
+  sending a zeroed configuration that would read as a real one.
 - Runs on a **reentrant callback group** so its async round-trip never blocks the
   action servers (see Threading).
 

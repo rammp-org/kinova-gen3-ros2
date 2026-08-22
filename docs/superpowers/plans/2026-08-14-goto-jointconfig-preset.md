@@ -121,7 +121,7 @@ void CuroboPlanClient::dispatch(ClientT& client, GoalT goal, FeedbackCb on_fb, D
   client->async_send_goal(goal, opts);
 }
 ```
-  *Note on the feedback callback:* both `PlanToPose::Feedback` and `PlanToJoints::Feedback` expose `state`. If the templated feedback type is awkward, keep `plan()`/`plan_to_joints()` as two ~8-line wrappers that build the goal and set `opts.feedback_callback = [on_fb](auto, auto fb){ if (on_fb) on_fb(fb->state); }` locally, and factor only the goal-response/result/cancel wiring. **Prefer whichever compiles cleanly with the least template gymnastics** — the goal is one exactly-once + one type-erased cancel, not maximal templating. `plan()` builds a `PlanToPose::Goal{target}`; `plan_to_joints()` builds a `PlanToJoints::Goal` with `target_joints` set (start_joints empty). `cancel()`:
+  *Note on the feedback callback:* both `PlanToPose::Feedback` and `PlanToJoints::Feedback` expose `state`. If the templated feedback type is awkward, keep `plan()`/`plan_to_joints()` as two ~8-line wrappers that build the goal and set `opts.feedback_callback = [on_fb](auto, auto fb){ if (on_fb) on_fb(fb->state); }` locally, and factor only the goal-response/result/cancel wiring. **Prefer whichever compiles cleanly with the least template gymnastics** — the goal is one exactly-once + one type-erased cancel, not maximal templating. `plan()` builds a `PlanToPose::Goal{target}`; `plan_to_joints()` builds a `PlanToJoints::Goal` with `target_joints` set and `start_joints` filled from the caller. `cancel()`:
 ```cpp
 void CuroboPlanClient::cancel() {
   std::function<void()> c; { std::lock_guard<std::mutex> l(m_); c = active_cancel_; }

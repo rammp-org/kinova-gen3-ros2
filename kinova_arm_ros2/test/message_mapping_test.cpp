@@ -187,3 +187,16 @@ TEST(MessageMapping, ExecuteJointTrajectoryGoalAlsoCarriesTheProfile) {
   EXPECT_TRUE(tg.trajectory.has_accelerations);
   EXPECT_NEAR(tg.trajectory.points[1].qd[0], 1.0, 1e-12);
 }
+
+// The token must survive the mapping, or every goal arrives at the Arbiter
+// unauthenticated and is refused under kEnforced.
+TEST(MessageMapping, CarriesTheArbitrationToken) {
+  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  g.trajectory.points = { pt(0.0, 0.0) };
+  g.token.fill(0);
+  g.token[0]  = 0xAB;
+  g.token[15] = 0xCD;
+  const auto tg = to_trajectory_goal(g);
+  EXPECT_EQ(tg.token[0], 0xAB);
+  EXPECT_EQ(tg.token[15], 0xCD);
+}

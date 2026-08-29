@@ -7,14 +7,17 @@
 #include <thread>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "kinova_arm_ros2/ros2_backend.h"
 #include "kinova_arm_ros2/curobo_plan_client.h"
 #include "kinova_arm_ros2/goal_router.h"
 #include "kinova_arm_ros2/goto_ee_pose_server.h"
 #include "kinova_arm_ros2/goto_joint_config_server.h"
 #include "kinova_arm_ros2/goto_preset_server.h"
+#include "kinova_arm_ros2/control_plane.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
+#include "kinova_lowlevel/interface/arbiter.h"
 #include "kinova_lowlevel/interface/supervisor.h"
 #include "kinova_lowlevel/joint_impedance_mode.h"
 #include "kinova_lowlevel/joint_position_mode.h"
@@ -106,6 +109,26 @@ int main(int argc, char** argv) {
   auto node = std::make_shared<rclcpp::Node>("kinova_arm_node");
   auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node);
 
+  // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with no
+  // setter, so a dynamic parameter would appear to work and silently do nothing.
+  // Defaults to "disabled" so every existing client and script keeps working; that
+  // costs no safety, because estop() latches over BOTH modes.
+  rcl_interfaces::msg::ParameterDescriptor mode_desc;
+  mode_desc.read_only = true;
+  mode_desc.description = "enforced | disabled. Launch-time only; core has no setter.";
+  const std::string mode_str =
+      node->declare_parameter("arbitration_mode", "disabled", mode_desc);
+  if (mode_str != "enforced" && mode_str != "disabled") {
+    RCLCPP_FATAL(node->get_logger(),
+                 "arbitration_mode must be 'enforced' or 'disabled', got '%s'",
+                 mode_str.c_str());
+    return 1;
+  }
+  const auto arb_mode = (mode_str == "enforced") ? interface::ArbitrationMode::kEnforced
+                                                 : interface::ArbitrationMode::kDisabled;
+  const double estop_clear_max_age_s =
+      node->declare_parameter("estop_clear_max_age_s", 1.0);
+
   // Router demuxes the Supervisor's single ActionServerPort by GoalId; the
   // pre-existing ExecuteJointTrajectory backend is the default (fall-through) port.
   kinova_arm_ros2::GoalRouter router(*backend);
@@ -121,10 +144,21 @@ int main(int argc, char** argv) {
                                                   load_presets(*node));
 
   interface::Supervisor sup(pos, imp, tau, exec, snap, pump_dyn, *backend, router);
-  backend->set_command_sink(&sup);
-  goto_server.set_command_sink(&sup);
-  jc_server.set_command_sink(&sup);
-  preset_server.set_command_sink(&sup);
+  // Supervisor implements BOTH CommandSink and StreamSink, so it is passed twice --
+  // the idiom core's own tests use (Arbiter arb{sink, sink, mode, seed}).
+  interface::Arbiter arb(sup, sup, arb_mode);
+  // Declared AFTER arb so it is destroyed FIRST: it must stop accepting ROS calls
+  // before arb stops delegating, and arb before sup goes away. (The servers are
+  // declared before sup and so outlive all of it, as the comment above requires.)
+  kinova_arm_ros2::ControlPlane control_plane(
+      node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
+
+  // Every command path now goes through the Arbiter rather than straight to the
+  // Supervisor. Nothing else about the servers changes.
+  backend->set_command_sink(&arb);
+  goto_server.set_command_sink(&arb);
+  jc_server.set_command_sink(&arb);
+  preset_server.set_command_sink(&arb);
 
   // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
   // defaults to SIGTERM, not SIGINT) — rclcpp's own default handler logs and
@@ -141,9 +175,10 @@ int main(int argc, char** argv) {
   std::thread drain([&]{ CycleSample s; while (!g_stop.load()) { while (ring.pop(s)) {} std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (ring.pop(s)) {} });
 
   RCLCPP_INFO(node->get_logger(),
-              "kinova_arm_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose, "
-              "/go_to_joint_config, /go_to_preset",
-              use_sim ? "sim" : "real");
+              "kinova_arm_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
+              "/go_to_ee_pose, /go_to_joint_config, /go_to_preset; control: "
+              "/acquire_control, /release_control, /revoke_control, /estop, /control_status",
+              use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",
               pos_params.max_ref_speed[0], pos_params.max_ref_speed[1],

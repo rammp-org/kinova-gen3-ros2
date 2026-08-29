@@ -53,6 +53,8 @@ TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal& g) {
     tg.gains.zeta = g.gains.zeta;
   }
   tg.sender_id = g.sender_id;
+  // uint8[16] generates as std::array<uint8_t,16>, which IS interface::Token.
+  tg.token = g.token;
   return tg;
 }
 

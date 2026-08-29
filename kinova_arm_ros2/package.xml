@@ -11,6 +11,9 @@
   <depend>kinova_arm_interfaces</depend>
   <depend>kinova_lowlevel</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>diagnostic_updater</depend>
   <depend>geometry_msgs</depend>
   <depend>trajectory_msgs</depend>
   <depend>control_msgs</depend>

@@ -111,14 +111,62 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 | Topic | Type | QoS | Notes |
 |---|---|---|---|
 | `joint_states` | `sensor_msgs/JointState` | `SensorDataQoS` (**best-effort**) | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz. |
+| `control_status` | `kinova_arm_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | default | REP 107, 1 Hz, via `diagnostic_updater`. Status `kinova_arm_node: Arbitration`; ERROR while e-stopped, WARN when unowned in enforced mode. |
 
-Because the QoS is best-effort, CLI subscribers must match it:
+Because `joint_states` is best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
 
-### Subscribed topics / services
+### Subscribed topics
 
-None. `set_gains` and `query_state` exist on the core's `CommandSink` but are not
-yet exposed as ROS2 services — that's the next plan.
+| Topic | Type | QoS | Notes |
+|---|---|---|---|
+| `/estop` | `kinova_arm_interfaces/EStop` | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
+
+`/estop` is deliberately *not* latched. A `transient_local` subscription is
+incompatible with a volatile publisher, which is what `ros2 topic pub` and rqt
+produce — requesting durability would make an operator's e-stop silently fail to
+connect. This works:
+
+```bash
+ros2 topic pub --once /estop kinova_arm_interfaces/msg/EStop \
+  "{engaged: true, source: 'cli', reason: 'testing'}"
+```
+
+**Staleness is asymmetric, and both branches fail toward "the arm stays stopped":**
+`engaged: true` is never age-checked (a stale stop is still honoured), while
+`engaged: false` is refused if older than `estop_clear_max_age_s` — which stops a
+`ros2 bag` replay from re-enabling a stopped arm. An unstamped clear (all-zero
+stamp, what `ros2 topic pub` sends) is accepted with a warning.
+
+### Control-ownership services
+
+| Service | Type | Notes |
+|---|---|---|
+| `acquire_control` | `AcquireControl` | Mints a token. **SEIZES** — succeeds even when another client holds the arm, halting their in-flight motion (settled `-9`). |
+| `release_control` | `ReleaseControl` | Refused unless the token matches the current owner. |
+| `revoke_control` | `RevokeControl` | Operator override, no token. The recovery path for a crashed owner, since ownership has no lease. |
+
+```bash
+# acquire, then put the returned token on every goal
+ros2 service call /acquire_control kinova_arm_interfaces/srv/AcquireControl \
+  "{owner_id: 'orchestrator'}"
+```
+
+Every motion-commanding message carries a `uint8[16] token`; nothing that *stops*
+the arm or reads state does. With `arbitration_mode:=disabled` (the default) the
+token is ignored, so existing clients need no changes.
+
+> **Arbitration is cooperative coordination, not authorization.** `grant()` verifies
+> nothing about the caller, so anyone can acquire a valid token; it prevents mistakes
+> between known, cooperating participants, not deliberate actors. By operational
+> contract `acquire_control` is called by the task orchestrator and nothing else.
+> ROS action cancels are unauthenticated by protocol and cannot be otherwise. If the
+> domain ever contains unknown actors, the answer is SROS2 / DDS Security, not more
+> tokens. See `docs/superpowers/specs/2026-08-29-ros2-arbitration-tier-design.md`.
+
+`set_gains` and `query_state` exist on the core's `CommandSink` but are still not
+exposed as ROS2 services.
 
 ### Launch files
 
@@ -149,6 +197,24 @@ the rate-limited reference, so the throttle manufactures the very divergence tha
 trips `PATH_TOLERANCE_VIOLATED`. The node therefore seeds this from the URDF and
 logs the result at startup; pass the flag only to go deliberately *slower*, e.g.
 for a cautious first on-robot run.
+
+### ROS parameters
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `arbitration_mode` | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch. |
+| `estop_clear_max_age_s` | `1.0` | Age beyond which an `/estop` *clear* is ignored. `<= 0` disables the check. Engaging is never age-checked. |
+
+```bash
+ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf models/gen3_7dof_2f85.urdf \
+  --ros-args -p arbitration_mode:=enforced
+```
+
+`arbitration_mode` is **read-only on purpose**: core's `ArbitrationMode` is an
+`Arbiter` constructor argument with no setter, so a dynamic parameter would appear
+to work and silently do nothing. It defaults to `disabled` so every existing client
+and script keeps working unchanged — which costs no safety, because `estop()`
+latches over *both* modes; `kDisabled` is the one thing e-stop does not bypass.
 
 Build option `KINOVA_ENABLE_KORTEX` (default `OFF`) selects whether the real
 `KortexTransport` path is compiled in. With it OFF the node is sim-only and exits

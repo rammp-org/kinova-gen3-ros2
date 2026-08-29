@@ -41,31 +41,37 @@ rclcpp_action::GoalResponse Ros2Backend::handle_goal(
 
 rclcpp_action::CancelResponse Ros2Backend::handle_cancel(std::shared_ptr<GoalHandle> gh) {
   if (!sink_) return rclcpp_action::CancelResponse::REJECT;
-  // CancelRequest, not a bare GoalId: arbitration gave cancel a token so that a
-  // stranger cannot stop someone else's motion. Nothing arbitrates in front of
-  // this supervisor (bringup_node wires the backend straight to it), so the zero
-  // token is the un-owned case every Arbiter-less caller uses.
-  const CancelResponse r = sink_->on_trajectory_cancel({gh->get_goal_id(), {}});   // GoalUUID -> GoalId
+  const GoalId id = gh->get_goal_id();   // GoalUUID -> GoalId
+  // Replay the token the goal was ACCEPTED with. This is FUNCTIONAL, not a security
+  // measure: a ROS cancel is unauthenticated by protocol (action_msgs/CancelGoal has
+  // no payload, and a zero goal id cancels everything) -- but without a valid token
+  // the Arbiter refuses the cancel outright under kEnforced and the arm keeps moving.
+  kinova::interface::Token token{};
+  { std::lock_guard<std::mutex> l(m_);
+    auto it = handles_.find(id);
+    if (it != handles_.end()) token = it->second.token; }
+  const CancelResponse r = sink_->on_trajectory_cancel({id, token});
   return (r == CancelResponse::kAccept) ? rclcpp_action::CancelResponse::ACCEPT
                                         : rclcpp_action::CancelResponse::REJECT;
 }
 
 void Ros2Backend::handle_accepted(std::shared_ptr<GoalHandle> gh) {
   const GoalId id = gh->get_goal_id();
-  { std::lock_guard<std::mutex> l(m_); handles_[id] = gh; }
-  sink_->on_trajectory_accepted(id, to_trajectory_goal(*gh->get_goal()));
+  const TrajectoryGoal tg = to_trajectory_goal(*gh->get_goal());
+  { std::lock_guard<std::mutex> l(m_); handles_[id] = Entry{gh, tg.token}; }
+  sink_->on_trajectory_accepted(id, tg);
 }
 
 void Ros2Backend::publish_feedback(const GoalId& id, const TrajectoryFeedback& fb) {
   std::shared_ptr<GoalHandle> gh;
-  { std::lock_guard<std::mutex> l(m_); auto it = handles_.find(id); if (it == handles_.end()) return; gh = it->second; }
+  { std::lock_guard<std::mutex> l(m_); auto it = handles_.find(id); if (it == handles_.end()) return; gh = it->second.gh; }
   auto msg = std::make_shared<Action::Feedback>(to_feedback_msg(id, fb));
   gh->publish_feedback(msg);
 }
 
 void Ros2Backend::settle(const GoalId& id, const TrajectoryResult& r) {
   std::shared_ptr<GoalHandle> gh;
-  { std::lock_guard<std::mutex> l(m_); auto it = handles_.find(id); if (it == handles_.end()) return; gh = it->second; handles_.erase(it); }
+  { std::lock_guard<std::mutex> l(m_); auto it = handles_.find(id); if (it == handles_.end()) return; gh = it->second.gh; handles_.erase(it); }
   auto msg = std::make_shared<Action::Result>(to_result_msg(r));
   if (gh->is_canceling())                      gh->canceled(msg);
   else if (r.error_code == result_code::kSuccessful) gh->succeed(msg);

@@ -36,6 +36,11 @@ class Ros2Backend : public kinova::interface::ActionServerPort,
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_pub_;
   kinova::interface::CommandSink* sink_ = nullptr;
   std::mutex m_;
-  std::map<kinova::interface::GoalId, std::shared_ptr<GoalHandle>> handles_;   // GoalId == GoalUUID
+  // The goal's token, kept so cancel can replay it. A ROS action cancel carries no
+  // payload (action_msgs/CancelGoal is one GoalInfo), so without this a cancel would
+  // reach the Arbiter with a zero token and be REFUSED under kEnforced -- the motion
+  // would keep running while the client believed it had cancelled.
+  struct Entry { std::shared_ptr<GoalHandle> gh; kinova::interface::Token token{}; };
+  std::map<kinova::interface::GoalId, Entry> handles_;   // GoalId == GoalUUID
 };
 }  // namespace kinova_arm_ros2

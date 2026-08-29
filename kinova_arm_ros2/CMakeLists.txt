@@ -9,6 +9,9 @@ find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rammp_curobo_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(diagnostic_updater REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
@@ -43,11 +46,20 @@ target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces sensor_msgs)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
+# The ROS face of core's ArbitrationSink: ownership services, /estop, /control_status
+# and the REP 107 /diagnostics contribution. Holds only an ArbitrationSink&.
+add_library(control_plane src/control_plane.cpp)
+target_include_directories(control_plane PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(control_plane
+  rclcpp kinova_arm_interfaces std_msgs diagnostic_msgs diagnostic_updater)
+target_link_libraries(control_plane kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_arm_node
   ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
-  kinova_lowlevel::kinova_lowlevel)
+  control_plane kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)
@@ -64,6 +76,17 @@ if(BUILD_TESTING)
   ament_add_gtest(message_mapping_test test/message_mapping_test.cpp)
   target_link_libraries(message_mapping_test message_mapping)
   ament_target_dependencies(message_mapping_test kinova_arm_interfaces)
+
+  # Proves the two failures this tier exists to prevent: a cancel silently refused
+  # under kEnforced, and an e-stop that cannot get past a busy arbiter.
+  ament_add_gtest(arbitration_integration_test test/arbitration_integration_test.cpp)
+  target_link_libraries(arbitration_integration_test kinova_lowlevel::kinova_lowlevel)
+
+  ament_add_gtest(control_plane_test test/control_plane_test.cpp)
+  target_include_directories(control_plane_test PRIVATE test)
+  target_link_libraries(control_plane_test control_plane)
+  ament_target_dependencies(control_plane_test
+    rclcpp kinova_arm_interfaces diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(goal_router_test test/goal_router_test.cpp)
   target_link_libraries(goal_router_test goal_router)

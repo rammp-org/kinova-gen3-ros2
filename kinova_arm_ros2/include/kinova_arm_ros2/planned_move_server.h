@@ -124,13 +124,16 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
   rclcpp_action::CancelResponse handle_cancel(std::shared_ptr<GoalHandle> gh) {
     const GoalId id = gh->get_goal_id();
     bool executing = false;
+    kinova::interface::Token token{};
     { std::lock_guard<std::mutex> l(m_);
       auto it = goals_.find(id);
       if (it != goals_.end()) { executing = it->second.executing;
+                                token = it->second.token;
                                 it->second.cancel_requested = true; } }
     if (executing) {
-      // Zero token: no Arbiter in front of the supervisor -- see ros2_backend.cpp.
-      if (sink_) sink_->on_trajectory_cancel({id, {}});   // Supervisor -> kPreempted -> settle()
+      // Replay the goal's own token: a ROS cancel carries no payload, and a zero
+      // token is refused by the Arbiter under kEnforced.
+      if (sink_) sink_->on_trajectory_cancel({id, token});   // Supervisor -> kPreempted -> settle()
     } else {
       // Still planning, OR mid-handover. planner_.cancel() covers the first; the
       // second is covered by start_execution() re-reading cancel_requested AFTER
@@ -143,7 +146,8 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
 
   void handle_accepted(std::shared_ptr<GoalHandle> gh) {
     const GoalId id = gh->get_goal_id();
-    { std::lock_guard<std::mutex> l(m_); goals_[id] = Goal{gh, false}; }
+    { std::lock_guard<std::mutex> l(m_);
+      goals_[id] = Goal{gh, false, false, gh->get_goal()->token}; }
     auto planning = std::make_shared<typename ActionT::Feedback>();
     planning->phase = "planning";
     gh->publish_feedback(planning);
@@ -207,6 +211,7 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
     kinova::interface::TrajectoryGoal tg = to_trajectory_goal(outcome.trajectory);
     tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
     tg.sender_id = gh->get_goal()->sender_id;
+    tg.token     = gh->get_goal()->token;   // the plan inherits the goal's authority
 
     if (sink_->on_trajectory_goal(tg) != kinova::interface::GoalResponse::kAccept) {
       settle_local(gh, kInvalidGoal, "supervisor rejected planned trajectory");
@@ -225,10 +230,12 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
     // supervisor's FIFO ahead of the goal and drained against no active
     // trajectory. Re-issue it now, when it can actually take effect.
     bool canceled = false;
+    kinova::interface::Token cancel_token{};
     { std::lock_guard<std::mutex> l(m_);
       auto it = goals_.find(id);
-      if (it != goals_.end()) canceled = it->second.cancel_requested; }
-    if (canceled) sink_->on_trajectory_cancel({id, {}});
+      if (it != goals_.end()) { canceled = it->second.cancel_requested;
+                                cancel_token = it->second.token; } }
+    if (canceled) sink_->on_trajectory_cancel({id, cancel_token});
   }
 
   void settle_local(std::shared_ptr<GoalHandle> gh, int error_code, const std::string& msg) {
@@ -265,8 +272,11 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
   typename rclcpp_action::Server<ActionT>::SharedPtr server_;
   // cancel_requested latches a cancel that arrived before the supervisor owned
   // the goal, so start_execution() can re-issue it once the handover is done.
+  // token: the goal's arbitration capability, kept so cancel can replay it. A ROS
+  // action cancel carries no payload, so a cancel with a zero token would be REFUSED
+  // by the Arbiter under kEnforced and the motion would run on.
   struct Goal { std::shared_ptr<GoalHandle> gh; bool executing = false;
-                bool cancel_requested = false; };
+                bool cancel_requested = false; kinova::interface::Token token{}; };
   std::mutex m_;
   std::map<GoalId, Goal> goals_;
 };

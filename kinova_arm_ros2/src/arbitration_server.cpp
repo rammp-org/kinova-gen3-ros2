@@ -1,5 +1,5 @@
-// kinova_arm_ros2/src/control_plane.cpp
-#include "kinova_arm_ros2/control_plane.h"
+// kinova_arm_ros2/src/arbitration_server.cpp
+#include "kinova_arm_ros2/arbitration_server.h"
 #include <chrono>
 #include <functional>
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -18,15 +18,15 @@ bool same(const kinova_arm_interfaces::msg::ControlStatus& a,
 }
 }  // namespace
 
-ControlPlane::ControlPlane(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
+ArbitrationServer::ArbitrationServer(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
                            const std::string& hardware_id, double estop_clear_max_age_s)
     : node_(node), arb_(arb), estop_clear_max_age_s_(estop_clear_max_age_s) {
   acquire_srv_ = node_->create_service<AcquireControl>(
-      "acquire_control", std::bind(&ControlPlane::on_acquire, this, _1, _2));
+      "acquire_control", std::bind(&ArbitrationServer::on_acquire, this, _1, _2));
   release_srv_ = node_->create_service<ReleaseControl>(
-      "release_control", std::bind(&ControlPlane::on_release, this, _1, _2));
+      "release_control", std::bind(&ArbitrationServer::on_release, this, _1, _2));
   revoke_srv_ = node_->create_service<RevokeControl>(
-      "revoke_control", std::bind(&ControlPlane::on_revoke, this, _1, _2));
+      "revoke_control", std::bind(&ArbitrationServer::on_revoke, this, _1, _2));
 
   // LATCHED: a client that starts late or reconnects must learn owner/generation/
   // estopped immediately rather than waiting for the next change. Safe because we are
@@ -46,7 +46,7 @@ ControlPlane::ControlPlane(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
   // requesting durability here would make an operator's e-stop silently fail to
   // connect. Leading '/' keeps the topic global rather than node-namespaced.
   estop_sub_ = node_->create_subscription<EStop>(
-      "/estop", rclcpp::QoS(10).reliable(), std::bind(&ControlPlane::on_estop, this, _1),
+      "/estop", rclcpp::QoS(10).reliable(), std::bind(&ArbitrationServer::on_estop, this, _1),
       opts);
 
   status_timer_ = node_->create_wall_timer(std::chrono::milliseconds(100),
@@ -54,18 +54,18 @@ ControlPlane::ControlPlane(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
 
   updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
   updater_->setHardwareID(hardware_id);
-  updater_->add("Arbitration", this, &ControlPlane::diagnostics);
+  updater_->add("Arbitration", this, &ArbitrationServer::diagnostics);
 
   publish_status_if_changed();   // seed the latched topic
 }
 
-void ControlPlane::forget_token() {
+void ArbitrationServer::forget_token() {
   std::lock_guard<std::mutex> l(m_);
   have_retained_ = false;
   retained_token_ = Token{};
 }
 
-void ControlPlane::on_acquire(const std::shared_ptr<AcquireControl::Request> req,
+void ArbitrationServer::on_acquire(const std::shared_ptr<AcquireControl::Request> req,
                               std::shared_ptr<AcquireControl::Response> resp) {
   // Read BEFORE granting: grant() SEIZES. If someone already holds the arm they are
   // about to be dispossessed and their in-flight goal settled -9. In a high-trust
@@ -91,11 +91,11 @@ void ControlPlane::on_acquire(const std::shared_ptr<AcquireControl::Request> req
   publish_status_if_changed();
 }
 
-void ControlPlane::on_release(const std::shared_ptr<ReleaseControl::Request> req,
+void ArbitrationServer::on_release(const std::shared_ptr<ReleaseControl::Request> req,
                               std::shared_ptr<ReleaseControl::Response> resp) {
   // ArbitrationStatus deliberately does NOT carry the token -- publishing a capability
   // on a status topic would defeat it -- so the check is against the token this class
-  // minted. Sound because ControlPlane is the only caller of grant/revoke/estop.
+  // minted. Sound because ArbitrationServer is the only caller of grant/revoke/estop.
   bool ok = false;
   { std::lock_guard<std::mutex> l(m_);
     ok = have_retained_ && req->token == retained_token_; }
@@ -112,7 +112,7 @@ void ControlPlane::on_release(const std::shared_ptr<ReleaseControl::Request> req
   publish_status_if_changed();
 }
 
-void ControlPlane::on_revoke(const std::shared_ptr<RevokeControl::Request> req,
+void ArbitrationServer::on_revoke(const std::shared_ptr<RevokeControl::Request> req,
                              std::shared_ptr<RevokeControl::Response> resp) {
   // No token: this is the recovery path for a crashed owner, and ownership has no lease.
   RCLCPP_WARN(node_->get_logger(), "operator revoke: %s",
@@ -124,7 +124,7 @@ void ControlPlane::on_revoke(const std::shared_ptr<RevokeControl::Request> req,
   publish_status_if_changed();
 }
 
-void ControlPlane::on_estop(const EStop::SharedPtr msg) {
+void ArbitrationServer::on_estop(const EStop::SharedPtr msg) {
   if (msg->engaged) {
     // NEVER age-checked. Refusing an old stop because its clock looked wrong is
     // precisely the failure we must not build: a stale stop is still honoured.
@@ -165,7 +165,7 @@ void ControlPlane::on_estop(const EStop::SharedPtr msg) {
   publish_status_if_changed();
 }
 
-void ControlPlane::publish_status_if_changed() {
+void ArbitrationServer::publish_status_if_changed() {
   const ArbitrationStatus s = arb_.status();
   ControlStatus m;
   m.header.stamp = node_->now();
@@ -181,7 +181,7 @@ void ControlPlane::publish_status_if_changed() {
   status_pub_->publish(m);
 }
 
-void ControlPlane::diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat) {
+void ArbitrationServer::diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat) {
   using diagnostic_msgs::msg::DiagnosticStatus;
   const ArbitrationStatus s = arb_.status();
   const bool enforced = (s.mode == ArbitrationMode::kEnforced);

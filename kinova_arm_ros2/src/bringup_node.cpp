@@ -14,7 +14,7 @@
 #include "kinova_arm_ros2/goto_ee_pose_server.h"
 #include "kinova_arm_ros2/goto_joint_config_server.h"
 #include "kinova_arm_ros2/goto_preset_server.h"
-#include "kinova_arm_ros2/control_plane.h"
+#include "kinova_arm_ros2/arbitration_server.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
 #include "kinova_lowlevel/interface/arbiter.h"
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
   // Declared AFTER arb so it is destroyed FIRST: it must stop accepting ROS calls
   // before arb stops delegating, and arb before sup goes away. (The servers are
   // declared before sup and so outlive all of it, as the comment above requires.)
-  kinova_arm_ros2::ControlPlane control_plane(
+  kinova_arm_ros2::ArbitrationServer arbitration_server(
       node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
 
   // Every command path now goes through the Arbiter rather than straight to the

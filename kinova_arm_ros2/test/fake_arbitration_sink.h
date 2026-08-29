@@ -4,9 +4,9 @@
 #include <vector>
 #include "kinova_lowlevel/interface/ports.h"
 
-// Stand-in for the Arbiter. Records the calls ControlPlane makes and maintains just
+// Stand-in for the Arbiter. Records the calls ArbitrationServer makes and maintains just
 // enough state for status() to be meaningful. No Supervisor, no modes, no robot --
-// which is the whole reason ControlPlane holds only an ArbitrationSink&.
+// which is the whole reason ArbitrationServer holds only an ArbitrationSink&.
 struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
   mutable std::mutex m;
   std::vector<std::string> calls;

@@ -71,7 +71,7 @@ carries no token, and neither does `/revoke_control` (the operator override).
 `set_command_sink()` from `&sup` to `&arb`; nothing else about them changes.
 
 ```
-                    ┌─────────── ControlPlane (new) ───────────┐
+                    ┌───────── ArbitrationServer (new) ────────┐
                     │ /acquire_control  srv → grant(owner_id)  │
                     │ /release_control  srv → revoke() [token] │
                     │ /revoke_control   srv → revoke() [oper.] │
@@ -98,9 +98,9 @@ gate to run over DDS, adding latency to precisely the e-stop path core spent a c
 making lock-free. Re-implementing the gate in the wrapper would duplicate ordering logic
 that is subtle and already reviewed (see the 20-line comment on `Arbiter::estop()`).
 
-### `ControlPlane` (new component)
+### `ArbitrationServer` (new component)
 
-One class, `kinova_arm_ros2::ControlPlane`, owning the ownership/safety ROS surface. It
+One class, `kinova_arm_ros2::ArbitrationServer`, owning the ownership/safety ROS surface. It
 holds an `kinova::interface::ArbitrationSink*` and nothing else from core — it never
 touches `Supervisor` or the modes. Constructed with the node, the arbiter, and the
 resolved `ArbitrationMode` (needed only to populate `arbitration_enabled` in status).
@@ -122,10 +122,10 @@ Destruction is reverse-declaration, and the existing comment already warns that 
 servers must outlive `sup`. Inserting two more objects makes the required order:
 
 ```
-servers…  →  sup  →  arb  →  control_plane
+servers…  →  sup  →  arb  →  arbitration_server
 ```
 
-so teardown runs `control_plane` (stops accepting ROS calls), then `arb` (stops
+so teardown runs `arbitration_server` (stops accepting ROS calls), then `arb` (stops
 delegating), then `sup`, then the servers. Any other order lets a late ROS callback
 reach a half-destroyed chain.
 
@@ -205,8 +205,8 @@ different authority:
 
 **How the wrapper verifies a release token.** `ArbitrationStatus` deliberately does *not*
 carry the token — publishing a capability on a status topic would defeat it — so the check
-cannot be made against `status()`. Instead, `ControlPlane` **retains the token returned by
-the most recent successful `grant()`**, which is sound because `ControlPlane` owns the only
+cannot be made against `status()`. Instead, `ArbitrationServer` **retains the token returned by
+the most recent successful `grant()`**, which is sound because `ArbitrationServer` owns the only
 ROS surface that can change ownership: it is the sole caller of `grant()`, `revoke()`,
 `estop()` and `estop_clear()`. It clears the retained token on every ownership-ending
 transition (release, revoke, e-stop engage), keeping it in step with the Arbiter's own
@@ -310,7 +310,7 @@ The node already runs a `MultiThreadedExecutor`, so this costs only a group.
 **Acquire → command → release**
 
 1. Client calls `/acquire_control` with `owner_id: "dojo_teleop"`.
-2. `ControlPlane` → `arb.grant("dojo_teleop")` → `GrantResult{accepted, token, generation}`.
+2. `ArbitrationServer` → `arb.grant("dojo_teleop")` → `GrantResult{accepted, token, generation}`.
 3. `/control_status` publishes (owned, owner_id, generation bumped).
 
 > **`/acquire_control` seizes ownership — it does not queue or fail when the arm is
@@ -330,7 +330,7 @@ The node already runs a `MultiThreadedExecutor`, so this costs only a group.
 **E-stop**
 
 1. Anyone publishes `EStop{engaged: true, source, reason}` on `/estop`.
-2. `ControlPlane` → `arb.estop()`. Latches immediately, delivers
+2. `ArbitrationServer` → `arb.estop()`. Latches immediately, delivers
    `on_halt(kEmergencyStop)` without waiting for `m_`, then clears ownership under it.
 3. **In-flight ROS goals terminate on their own.** `Supervisor`'s sampler settles both the
    active *and* the queued goal with `result_code::kHalted (-9)` — core's comment:
@@ -420,7 +420,7 @@ observable symptom is someone else's motion aborting with `-9`.
 ### Making mistakes loud
 
 Because mistakes are the actual threat model, the seizure path is the one worth
-instrumenting. `ControlPlane` reads `status()` before delegating to `grant()`, and when it
+instrumenting. `ArbitrationServer` reads `status()` before delegating to `grant()`, and when it
 finds an incumbent it logs at **WARN**, naming both the dispossessed `owner_id` and the
 new one.
 
@@ -444,7 +444,7 @@ cannot be commanded until someone re-acquires.
 
 ## Testing
 
-**Unit — `ControlPlane` against a fake `ArbitrationSink`** (no robot, no `Supervisor`):
+**Unit — `ArbitrationServer` against a fake `ArbitrationSink`** (no robot, no `Supervisor`):
 
 - `/acquire_control` → `grant()` called with the request's `owner_id`; token and
   generation returned verbatim.

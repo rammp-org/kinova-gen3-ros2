@@ -48,18 +48,18 @@ target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowle
 
 # The ROS face of core's ArbitrationSink: ownership services, /estop, /control_status
 # and the REP 107 /diagnostics contribution. Holds only an ArbitrationSink&.
-add_library(control_plane src/control_plane.cpp)
-target_include_directories(control_plane PUBLIC
+add_library(arbitration_server src/arbitration_server.cpp)
+target_include_directories(arbitration_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(control_plane
+ament_target_dependencies(arbitration_server
   rclcpp kinova_arm_interfaces std_msgs diagnostic_msgs diagnostic_updater)
-target_link_libraries(control_plane kinova_lowlevel::kinova_lowlevel)
+target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 
 add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_arm_node
   ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
-  control_plane kinova_lowlevel::kinova_lowlevel)
+  arbitration_server kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)
@@ -82,10 +82,10 @@ if(BUILD_TESTING)
   ament_add_gtest(arbitration_integration_test test/arbitration_integration_test.cpp)
   target_link_libraries(arbitration_integration_test kinova_lowlevel::kinova_lowlevel)
 
-  ament_add_gtest(control_plane_test test/control_plane_test.cpp)
-  target_include_directories(control_plane_test PRIVATE test)
-  target_link_libraries(control_plane_test control_plane)
-  ament_target_dependencies(control_plane_test
+  ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
+  target_include_directories(arbitration_server_test PRIVATE test)
+  target_link_libraries(arbitration_server_test arbitration_server)
+  ament_target_dependencies(arbitration_server_test
     rclcpp kinova_arm_interfaces diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(goal_router_test test/goal_router_test.cpp)

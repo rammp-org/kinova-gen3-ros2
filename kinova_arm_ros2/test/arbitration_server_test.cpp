@@ -7,7 +7,7 @@
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
-#include "kinova_arm_ros2/control_plane.h"
+#include "kinova_arm_ros2/arbitration_server.h"
 #include "fake_arbitration_sink.h"
 using namespace std::chrono_literals;
 
@@ -30,15 +30,15 @@ kinova::interface::Token mktoken(uint8_t x) {
   kinova::interface::Token t{}; t[0] = x; return t;
 }
 
-class ControlPlaneTest : public ::testing::Test {
+class ArbitrationServerTest : public ::testing::Test {
  protected:
   // The executor must NOT be a member: members are constructed before SetUp runs,
   // and building one before rclcpp::init throws "context argument is null".
   void SetUp() override {
     rclcpp::init(0, nullptr);
-    node_ = std::make_shared<rclcpp::Node>("control_plane_test");
+    node_ = std::make_shared<rclcpp::Node>("arbitration_server_test");
     sink_.next_token = mktoken(0xAB);
-    plane_ = std::make_unique<kinova_arm_ros2::ControlPlane>(node_, sink_, "test", 1.0);
+    plane_ = std::make_unique<kinova_arm_ros2::ArbitrationServer>(node_, sink_, "test", 1.0);
     ex_ = std::make_unique<rclcpp::executors::MultiThreadedExecutor>();
     ex_->add_node(node_);
   }
@@ -61,7 +61,7 @@ class ControlPlaneTest : public ::testing::Test {
     return fut.get();
   }
 
-  // Publishes on /estop and spins until ControlPlane has had a chance to handle it.
+  // Publishes on /estop and spins until ArbitrationServer has had a chance to handle it.
   void publish_estop(bool engaged, const rclcpp::Time& stamp, const std::string& src) {
     auto pub = node_->create_publisher<kinova_arm_interfaces::msg::EStop>(
         "/estop", rclcpp::QoS(10).reliable());
@@ -96,14 +96,14 @@ class ControlPlaneTest : public ::testing::Test {
 
   rclcpp::Node::SharedPtr node_;
   FakeArbitrationSink sink_;
-  std::unique_ptr<kinova_arm_ros2::ControlPlane> plane_;
+  std::unique_ptr<kinova_arm_ros2::ArbitrationServer> plane_;
   std::unique_ptr<rclcpp::executors::MultiThreadedExecutor> ex_;
 };
 }  // namespace
 
 // ---------------------------------------------------------------- ownership services
 
-TEST_F(ControlPlaneTest, AcquireGrantsAndReturnsTheToken) {
+TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
   using Srv = kinova_arm_interfaces::srv::AcquireControl;
   auto req = std::make_shared<Srv::Request>();
   req->owner_id = "orchestrator";
@@ -115,7 +115,7 @@ TEST_F(ControlPlaneTest, AcquireGrantsAndReturnsTheToken) {
   EXPECT_EQ(sink_.log(), std::vector<std::string>{"grant:orchestrator"});
 }
 
-TEST_F(ControlPlaneTest, ReleaseWithMatchingTokenRevokes) {
+TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -130,9 +130,9 @@ TEST_F(ControlPlaneTest, ReleaseWithMatchingTokenRevokes) {
   EXPECT_EQ(sink_.log().back(), "revoke");
 }
 
-// ArbitrationStatus deliberately does not carry the token, so ControlPlane checks
+// ArbitrationStatus deliberately does not carry the token, so ArbitrationServer checks
 // against the one it minted. A stranger's token must not release someone else's arm.
-TEST_F(ControlPlaneTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
+TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -147,7 +147,7 @@ TEST_F(ControlPlaneTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
   EXPECT_EQ(sink_.log(), std::vector<std::string>{"grant:orchestrator"});   // no revoke
 }
 
-TEST_F(ControlPlaneTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
+TEST_F(ArbitrationServerTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
   using Srv = kinova_arm_interfaces::srv::RevokeControl;
   auto req = std::make_shared<Srv::Request>();
   req->reason = "client hung";
@@ -159,13 +159,13 @@ TEST_F(ControlPlaneTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
 
 // ---------------------------------------------------------------------- /estop policy
 
-TEST_F(ControlPlaneTest, EstopEngageCallsEstop) {
+TEST_F(ArbitrationServerTest, EstopEngageCallsEstop) {
   publish_estop(true, node_->now(), "operator");
   ASSERT_FALSE(sink_.log().empty());
   EXPECT_EQ(sink_.log().back(), "estop");
 }
 
-TEST_F(ControlPlaneTest, FreshEstopClearCallsEstopClear) {
+TEST_F(ArbitrationServerTest, FreshEstopClearCallsEstopClear) {
   publish_estop(true, node_->now(), "operator");
   publish_estop(false, node_->now(), "operator");
   ASSERT_FALSE(sink_.log().empty());
@@ -174,7 +174,7 @@ TEST_F(ControlPlaneTest, FreshEstopClearCallsEstopClear) {
 
 // A bag replay, or a clear delayed behind a network hiccup, must not re-enable a
 // stopped arm. estop_clear_max_age_s is 1.0 in this fixture.
-TEST_F(ControlPlaneTest, StaleEstopClearIsIgnored) {
+TEST_F(ArbitrationServerTest, StaleEstopClearIsIgnored) {
   publish_estop(true, node_->now(), "operator");
   publish_estop(false, node_->now() - rclcpp::Duration::from_seconds(30.0), "replay");
   ASSERT_FALSE(sink_.log().empty());
@@ -183,7 +183,7 @@ TEST_F(ControlPlaneTest, StaleEstopClearIsIgnored) {
 
 // The asymmetry, asserted so nobody later "tidies" it into a symmetric check:
 // a stale STOP is still honoured. Both branches must fail toward "arm stays stopped".
-TEST_F(ControlPlaneTest, StaleEstopEngageIsStillHonoured) {
+TEST_F(ArbitrationServerTest, StaleEstopEngageIsStillHonoured) {
   publish_estop(true, node_->now() - rclcpp::Duration::from_seconds(30.0), "replay");
   ASSERT_FALSE(sink_.log().empty());
   EXPECT_EQ(sink_.log().back(), "estop");
@@ -191,7 +191,7 @@ TEST_F(ControlPlaneTest, StaleEstopEngageIsStillHonoured) {
 
 // `ros2 topic pub` leaves the stamp at zero. An e-stop control that cannot be driven
 // from the CLI is worse than one that can be replayed.
-TEST_F(ControlPlaneTest, UnstampedEstopClearIsAccepted) {
+TEST_F(ArbitrationServerTest, UnstampedEstopClearIsAccepted) {
   publish_estop(true, node_->now(), "operator");
   publish_estop(false, rclcpp::Time(0, 0, node_->get_clock()->get_clock_type()), "cli");
   ASSERT_FALSE(sink_.log().empty());
@@ -200,7 +200,7 @@ TEST_F(ControlPlaneTest, UnstampedEstopClearIsAccepted) {
 
 // Engaging the e-stop clears ownership inside the Arbiter, so the token we retained
 // is dead and a later release must not be honoured.
-TEST_F(ControlPlaneTest, EstopForgetsTheRetainedToken) {
+TEST_F(ArbitrationServerTest, EstopForgetsTheRetainedToken) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -219,13 +219,13 @@ TEST_F(ControlPlaneTest, EstopForgetsTheRetainedToken) {
 
 // The 10 Hz timer must NOT republish an unchanged status, or "on change" means
 // "at 10 Hz forever" and the header stamp is the only thing that ever differs.
-TEST_F(ControlPlaneTest, StatusIsNotRepublishedWhileUnchanged) {
+TEST_F(ArbitrationServerTest, StatusIsNotRepublishedWhileUnchanged) {
   const auto got = collect_status(700ms);
   EXPECT_LE(got.size(), 1u) << "status republished " << got.size()
                             << " times with nothing changing";
 }
 
-TEST_F(ControlPlaneTest, StatusPublishesOnOwnershipChange) {
+TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -240,7 +240,7 @@ TEST_F(ControlPlaneTest, StatusPublishesOnOwnershipChange) {
 // A late subscriber must learn the current state without waiting for a change --
 // this is what /control_status being latched buys, and what lets a reconnecting
 // client discover it was dispossessed.
-TEST_F(ControlPlaneTest, LateSubscriberReceivesLatchedStatus) {
+TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -254,7 +254,7 @@ TEST_F(ControlPlaneTest, LateSubscriberReceivesLatchedStatus) {
 // Acquiring while someone else holds the arm SEIZES it: grant() succeeds, the
 // incumbent is dispossessed, and generation bumps. Asserted so the behaviour is a
 // decision rather than a surprise.
-TEST_F(ControlPlaneTest, AcquireSeizesFromAnIncumbent) {
+TEST_F(ArbitrationServerTest, AcquireSeizesFromAnIncumbent) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto first = std::make_shared<Acq::Request>();
   first->owner_id = "teleop";
@@ -275,7 +275,7 @@ TEST_F(ControlPlaneTest, AcquireSeizesFromAnIncumbent) {
 
 // REP 107: reporting is on /diagnostics using diagnostic_msgs/DiagnosticArray at 1 Hz.
 // Level must be ERROR while e-stopped -- this is what a monitoring dashboard reads.
-TEST_F(ControlPlaneTest, DiagnosticsReportsErrorWhileEstopped) {
+TEST_F(ArbitrationServerTest, DiagnosticsReportsErrorWhileEstopped) {
   publish_estop(true, node_->now(), "operator");
 
   std::vector<diagnostic_msgs::msg::DiagnosticArray> got;

@@ -7,7 +7,7 @@ services, a broadcast e-stop, tokens on every motion-commanding message, and the
 diagnostics surfaces that make it observable.
 
 **Architecture:** Insert core's `interface::Arbiter` (a `CommandSink` decorator) between
-the four existing action servers and the `Supervisor`. A new `ControlPlane` class owns the
+the four existing action servers and the `Supervisor`. A new `ArbitrationServer` class owns the
 ROS surface for `ArbitrationSink` and holds nothing else from core, so it unit-tests
 against a fake with no robot. Tokens ride on goals; cancel replays the goal's stored token
 because the ROS action protocol cannot carry one.
@@ -66,7 +66,7 @@ because the ROS action protocol cannot carry one.
 #
 # Deliberately NOT std_msgs/Bool: std_msgs primitives "do not convey semantic meaning
 # about their contents" and are "NOT intended for long-term usage" (std_msgs docs).
-# The stamp is load-bearing -- see the staleness policy in ControlPlane::on_estop.
+# The stamp is load-bearing -- see the staleness policy in ArbitrationServer::on_estop.
 std_msgs/Header header   # stamp: an all-zero stamp means "unstamped" and is accepted
 bool   engaged           # true = engage the stop, false = clear it
 string source            # who published it (node name / operator id), for the log
@@ -187,21 +187,21 @@ git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, token
 
 ---
 
-### Task 2: `ControlPlane` — ownership services
+### Task 2: `ArbitrationServer` — ownership services
 
 **Files:**
-- Create: `kinova_arm_ros2/include/kinova_arm_ros2/control_plane.h`
-- Create: `kinova_arm_ros2/src/control_plane.cpp`
+- Create: `kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h`
+- Create: `kinova_arm_ros2/src/arbitration_server.cpp`
 - Create: `kinova_arm_ros2/test/fake_arbitration_sink.h`
-- Create: `kinova_arm_ros2/test/control_plane_test.cpp`
+- Create: `kinova_arm_ros2/test/arbitration_server_test.cpp`
 - Modify: `kinova_arm_ros2/CMakeLists.txt`
 - Modify: `kinova_arm_ros2/package.xml`
 
 **Interfaces:**
 - Consumes: Task 1's `srv::AcquireControl`, `srv::ReleaseControl`, `srv::RevokeControl`,
   `msg::ControlStatus`, `msg::EStop`.
-- Produces: `kinova_arm_ros2::ControlPlane`, constructed as
-  `ControlPlane(rclcpp::Node::SharedPtr, kinova::interface::ArbitrationSink&, const std::string& hardware_id, double estop_clear_max_age_s)`,
+- Produces: `kinova_arm_ros2::ArbitrationServer`, constructed as
+  `ArbitrationServer(rclcpp::Node::SharedPtr, kinova::interface::ArbitrationSink&, const std::string& hardware_id, double estop_clear_max_age_s)`,
   with one public method `void publish_status_if_changed()`. Task 8 constructs it.
   Also produces `FakeArbitrationSink` (test-only) used by Tasks 3–5.
 
@@ -215,9 +215,9 @@ git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, token
 #include <vector>
 #include "kinova_lowlevel/interface/ports.h"
 
-// Stand-in for the Arbiter. Records the calls ControlPlane makes and maintains just
+// Stand-in for the Arbiter. Records the calls ArbitrationServer makes and maintains just
 // enough state for status() to be meaningful. No Supervisor, no modes, no robot --
-// which is the whole reason ControlPlane holds only an ArbitrationSink&.
+// which is the whole reason ArbitrationServer holds only an ArbitrationSink&.
 struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
   mutable std::mutex m;
   std::vector<std::string> calls;
@@ -247,14 +247,14 @@ struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
 
 - [ ] **Step 2: Write the failing test**
 
-`kinova_arm_ros2/test/control_plane_test.cpp`:
+`kinova_arm_ros2/test/arbitration_server_test.cpp`:
 ```cpp
 #include <gtest/gtest.h>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
-#include "kinova_arm_ros2/control_plane.h"
+#include "kinova_arm_ros2/arbitration_server.h"
 #include "fake_arbitration_sink.h"
 using namespace std::chrono_literals;
 
@@ -277,13 +277,13 @@ kinova::interface::Token mktoken(uint8_t x) {
   kinova::interface::Token t{}; t[0] = x; return t;
 }
 
-class ControlPlaneTest : public ::testing::Test {
+class ArbitrationServerTest : public ::testing::Test {
  protected:
   void SetUp() override {
     if (!rclcpp::ok()) rclcpp::init(0, nullptr);
-    node_ = std::make_shared<rclcpp::Node>("control_plane_test");
+    node_ = std::make_shared<rclcpp::Node>("arbitration_server_test");
     sink_.next_token = mktoken(0xAB);
-    plane_ = std::make_unique<kinova_arm_ros2::ControlPlane>(node_, sink_, "test", 1.0);
+    plane_ = std::make_unique<kinova_arm_ros2::ArbitrationServer>(node_, sink_, "test", 1.0);
     ex_.add_node(node_);
   }
   // Calls a service and returns the response, or nullptr on timeout.
@@ -299,12 +299,12 @@ class ControlPlaneTest : public ::testing::Test {
   }
   rclcpp::Node::SharedPtr node_;
   FakeArbitrationSink sink_;
-  std::unique_ptr<kinova_arm_ros2::ControlPlane> plane_;
+  std::unique_ptr<kinova_arm_ros2::ArbitrationServer> plane_;
   rclcpp::executors::MultiThreadedExecutor ex_;
 };
 }  // namespace
 
-TEST_F(ControlPlaneTest, AcquireGrantsAndReturnsTheToken) {
+TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
   using Srv = kinova_arm_interfaces::srv::AcquireControl;
   auto req = std::make_shared<Srv::Request>();
   req->owner_id = "orchestrator";
@@ -316,7 +316,7 @@ TEST_F(ControlPlaneTest, AcquireGrantsAndReturnsTheToken) {
   EXPECT_EQ(sink_.log(), std::vector<std::string>{"grant:orchestrator"});
 }
 
-TEST_F(ControlPlaneTest, ReleaseWithMatchingTokenRevokes) {
+TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -331,9 +331,9 @@ TEST_F(ControlPlaneTest, ReleaseWithMatchingTokenRevokes) {
   EXPECT_EQ(sink_.log().back(), "revoke");
 }
 
-// ArbitrationStatus deliberately does not carry the token, so ControlPlane checks
+// ArbitrationStatus deliberately does not carry the token, so ArbitrationServer checks
 // against the one it minted. A stranger's token must not release someone else's arm.
-TEST_F(ControlPlaneTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
+TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -348,7 +348,7 @@ TEST_F(ControlPlaneTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
   EXPECT_EQ(sink_.log(), std::vector<std::string>{"grant:orchestrator"});   // no revoke
 }
 
-TEST_F(ControlPlaneTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
+TEST_F(ArbitrationServerTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
   using Srv = kinova_arm_interfaces::srv::RevokeControl;
   auto req = std::make_shared<Srv::Request>();
   req->reason = "client hung";
@@ -362,13 +362,13 @@ TEST_F(ControlPlaneTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
 - [ ] **Step 3: Run the test to verify it fails**
 
 Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2`
-Expected: FAIL — `kinova_arm_ros2/control_plane.h: No such file or directory`.
+Expected: FAIL — `kinova_arm_ros2/arbitration_server.h: No such file or directory`.
 
 - [ ] **Step 4: Write the header**
 
-`kinova_arm_ros2/include/kinova_arm_ros2/control_plane.h`:
+`kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h`:
 ```cpp
-// kinova_arm_ros2/include/kinova_arm_ros2/control_plane.h
+// kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h
 #pragma once
 #include <memory>
 #include <mutex>
@@ -391,7 +391,7 @@ namespace kinova_arm_ros2 {
 // ControlMode, no Dynamics -- so it is unit-testable against a fake with no robot,
 // no URDF and no threads. That is the same reason the Arbiter itself is a decorator
 // rather than part of the Supervisor.
-class ControlPlane {
+class ArbitrationServer {
  public:
   using AcquireControl = kinova_arm_interfaces::srv::AcquireControl;
   using ReleaseControl = kinova_arm_interfaces::srv::ReleaseControl;
@@ -399,7 +399,7 @@ class ControlPlane {
   using EStop          = kinova_arm_interfaces::msg::EStop;
   using ControlStatus  = kinova_arm_interfaces::msg::ControlStatus;
 
-  ControlPlane(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
+  ArbitrationServer(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
                const std::string& hardware_id, double estop_clear_max_age_s);
 
   // Publish only if the arbiter's status differs from what was last sent. Called by
@@ -441,10 +441,10 @@ class ControlPlane {
 
 - [ ] **Step 5: Write the implementation**
 
-`kinova_arm_ros2/src/control_plane.cpp`:
+`kinova_arm_ros2/src/arbitration_server.cpp`:
 ```cpp
-// kinova_arm_ros2/src/control_plane.cpp
-#include "kinova_arm_ros2/control_plane.h"
+// kinova_arm_ros2/src/arbitration_server.cpp
+#include "kinova_arm_ros2/arbitration_server.h"
 #include <chrono>
 #include <functional>
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -463,15 +463,15 @@ bool same(const kinova_arm_interfaces::msg::ControlStatus& a,
 }
 }  // namespace
 
-ControlPlane::ControlPlane(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
+ArbitrationServer::ArbitrationServer(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
                            const std::string& hardware_id, double estop_clear_max_age_s)
     : node_(node), arb_(arb), estop_clear_max_age_s_(estop_clear_max_age_s) {
   acquire_srv_ = node_->create_service<AcquireControl>(
-      "acquire_control", std::bind(&ControlPlane::on_acquire, this, _1, _2));
+      "acquire_control", std::bind(&ArbitrationServer::on_acquire, this, _1, _2));
   release_srv_ = node_->create_service<ReleaseControl>(
-      "release_control", std::bind(&ControlPlane::on_release, this, _1, _2));
+      "release_control", std::bind(&ArbitrationServer::on_release, this, _1, _2));
   revoke_srv_ = node_->create_service<RevokeControl>(
-      "revoke_control", std::bind(&ControlPlane::on_revoke, this, _1, _2));
+      "revoke_control", std::bind(&ArbitrationServer::on_revoke, this, _1, _2));
 
   // LATCHED: a client that starts late or reconnects must learn owner/generation/
   // estopped immediately rather than waiting for the next change. Safe because we are
@@ -491,7 +491,7 @@ ControlPlane::ControlPlane(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
   // requesting durability here would make an operator's e-stop silently fail to
   // connect. Leading '/' keeps the topic global rather than node-namespaced.
   estop_sub_ = node_->create_subscription<EStop>(
-      "/estop", rclcpp::QoS(10).reliable(), std::bind(&ControlPlane::on_estop, this, _1),
+      "/estop", rclcpp::QoS(10).reliable(), std::bind(&ArbitrationServer::on_estop, this, _1),
       opts);
 
   status_timer_ = node_->create_wall_timer(std::chrono::milliseconds(100),
@@ -499,18 +499,18 @@ ControlPlane::ControlPlane(rclcpp::Node::SharedPtr node, ArbitrationSink& arb,
 
   updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
   updater_->setHardwareID(hardware_id);
-  updater_->add("Arbitration", this, &ControlPlane::diagnostics);
+  updater_->add("Arbitration", this, &ArbitrationServer::diagnostics);
 
   publish_status_if_changed();   // seed the latched topic
 }
 
-void ControlPlane::forget_token() {
+void ArbitrationServer::forget_token() {
   std::lock_guard<std::mutex> l(m_);
   have_retained_ = false;
   retained_token_ = Token{};
 }
 
-void ControlPlane::on_acquire(const std::shared_ptr<AcquireControl::Request> req,
+void ArbitrationServer::on_acquire(const std::shared_ptr<AcquireControl::Request> req,
                               std::shared_ptr<AcquireControl::Response> resp) {
   // Read BEFORE granting: grant() SEIZES. If someone already holds the arm they are
   // about to be dispossessed and their in-flight goal settled -9. In a high-trust
@@ -536,11 +536,11 @@ void ControlPlane::on_acquire(const std::shared_ptr<AcquireControl::Request> req
   publish_status_if_changed();
 }
 
-void ControlPlane::on_release(const std::shared_ptr<ReleaseControl::Request> req,
+void ArbitrationServer::on_release(const std::shared_ptr<ReleaseControl::Request> req,
                               std::shared_ptr<ReleaseControl::Response> resp) {
   // ArbitrationStatus deliberately does NOT carry the token -- publishing a capability
   // on a status topic would defeat it -- so the check is against the token this class
-  // minted. Sound because ControlPlane is the only caller of grant/revoke/estop.
+  // minted. Sound because ArbitrationServer is the only caller of grant/revoke/estop.
   bool ok = false;
   { std::lock_guard<std::mutex> l(m_);
     ok = have_retained_ && req->token == retained_token_; }
@@ -557,7 +557,7 @@ void ControlPlane::on_release(const std::shared_ptr<ReleaseControl::Request> req
   publish_status_if_changed();
 }
 
-void ControlPlane::on_revoke(const std::shared_ptr<RevokeControl::Request> req,
+void ArbitrationServer::on_revoke(const std::shared_ptr<RevokeControl::Request> req,
                              std::shared_ptr<RevokeControl::Response> resp) {
   // No token: this is the recovery path for a crashed owner, and ownership has no lease.
   RCLCPP_WARN(node_->get_logger(), "operator revoke: %s",
@@ -569,7 +569,7 @@ void ControlPlane::on_revoke(const std::shared_ptr<RevokeControl::Request> req,
   publish_status_if_changed();
 }
 
-void ControlPlane::on_estop(const EStop::SharedPtr msg) {
+void ArbitrationServer::on_estop(const EStop::SharedPtr msg) {
   if (msg->engaged) {
     // NEVER age-checked. Refusing an old stop because its clock looked wrong is
     // precisely the failure we must not build: a stale stop is still honoured.
@@ -610,7 +610,7 @@ void ControlPlane::on_estop(const EStop::SharedPtr msg) {
   publish_status_if_changed();
 }
 
-void ControlPlane::publish_status_if_changed() {
+void ArbitrationServer::publish_status_if_changed() {
   const ArbitrationStatus s = arb_.status();
   ControlStatus m;
   m.header.stamp = node_->now();
@@ -626,7 +626,7 @@ void ControlPlane::publish_status_if_changed() {
   status_pub_->publish(m);
 }
 
-void ControlPlane::diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat) {
+void ArbitrationServer::diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat) {
   using diagnostic_msgs::msg::DiagnosticStatus;
   const ArbitrationStatus s = arb_.status();
   const bool enforced = (s.mode == ArbitrationMode::kEnforced);
@@ -662,29 +662,29 @@ find_package(std_msgs REQUIRED)
 ```
 and after the `ros2_backend` library block:
 ```cmake
-add_library(control_plane src/control_plane.cpp)
-target_include_directories(control_plane PUBLIC
+add_library(arbitration_server src/arbitration_server.cpp)
+target_include_directories(arbitration_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(control_plane
+ament_target_dependencies(arbitration_server
   rclcpp kinova_arm_interfaces diagnostic_updater diagnostic_msgs std_msgs)
-target_link_libraries(control_plane kinova_lowlevel::kinova_lowlevel)
+target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 ```
 and inside the `if(BUILD_TESTING)` block:
 ```cmake
-  ament_add_gtest(control_plane_test test/control_plane_test.cpp)
-  target_include_directories(control_plane_test PRIVATE test)
-  target_link_libraries(control_plane_test control_plane)
-  ament_target_dependencies(control_plane_test
+  ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
+  target_include_directories(arbitration_server_test PRIVATE test)
+  target_link_libraries(arbitration_server_test arbitration_server)
+  ament_target_dependencies(arbitration_server_test
     rclcpp kinova_arm_interfaces diagnostic_updater diagnostic_msgs)
 ```
-and add `control_plane` to the `kinova_arm_node` `target_link_libraries` list.
+and add `arbitration_server` to the `kinova_arm_node` `target_link_libraries` list.
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && cd /tmp/kinova-ros2-ws && \
-  colcon test --packages-select kinova_arm_ros2 --ctest-args -R control_plane_test && \
+  colcon test --packages-select kinova_arm_ros2 --ctest-args -R arbitration_server_test && \
   colcon test-result --all --verbose'"
 ```
 Expected: 4 tests, 0 failures.
@@ -692,12 +692,12 @@ Expected: 4 tests, 0 failures.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/control_plane.h \
-        kinova_arm_ros2/src/control_plane.cpp \
-        kinova_arm_ros2/test/control_plane_test.cpp \
+git add kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h \
+        kinova_arm_ros2/src/arbitration_server.cpp \
+        kinova_arm_ros2/test/arbitration_server_test.cpp \
         kinova_arm_ros2/test/fake_arbitration_sink.h \
         kinova_arm_ros2/CMakeLists.txt kinova_arm_ros2/package.xml
-git commit -m "feat(ros2): ControlPlane — acquire/release/revoke over the ArbitrationSink"
+git commit -m "feat(ros2): ArbitrationServer — acquire/release/revoke over the ArbitrationSink"
 ```
 
 ---
@@ -705,19 +705,19 @@ git commit -m "feat(ros2): ControlPlane — acquire/release/revoke over the Arbi
 ### Task 3: `/estop` staleness policy
 
 **Files:**
-- Modify: `kinova_arm_ros2/test/control_plane_test.cpp`
+- Modify: `kinova_arm_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
-- Consumes: `ControlPlane` and `FakeArbitrationSink` from Task 2. The implementation
+- Consumes: `ArbitrationServer` and `FakeArbitrationSink` from Task 2. The implementation
   already shipped in Task 2 Step 5; this task proves the asymmetry and pins it.
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `control_plane_test.cpp`, and add a publisher helper to the fixture first — put
-this method inside `ControlPlaneTest`:
+Append to `arbitration_server_test.cpp`, and add a publisher helper to the fixture first — put
+this method inside `ArbitrationServerTest`:
 ```cpp
-  // Publishes on /estop and spins until ControlPlane has had a chance to handle it.
+  // Publishes on /estop and spins until ArbitrationServer has had a chance to handle it.
   void publish_estop(bool engaged, const rclcpp::Time& stamp, const std::string& src) {
     auto pub = node_->create_publisher<kinova_arm_interfaces::msg::EStop>(
         "/estop", rclcpp::QoS(10).reliable());
@@ -736,12 +736,12 @@ this method inside `ControlPlaneTest`:
 ```
 and the tests:
 ```cpp
-TEST_F(ControlPlaneTest, EstopEngageCallsEstop) {
+TEST_F(ArbitrationServerTest, EstopEngageCallsEstop) {
   publish_estop(true, node_->now(), "operator");
   EXPECT_EQ(sink_.log().back(), "estop");
 }
 
-TEST_F(ControlPlaneTest, FreshEstopClearCallsEstopClear) {
+TEST_F(ArbitrationServerTest, FreshEstopClearCallsEstopClear) {
   publish_estop(true, node_->now(), "operator");
   publish_estop(false, node_->now(), "operator");
   EXPECT_EQ(sink_.log().back(), "estop_clear");
@@ -749,7 +749,7 @@ TEST_F(ControlPlaneTest, FreshEstopClearCallsEstopClear) {
 
 // A bag replay, or a clear delayed behind a network hiccup, must not re-enable a
 // stopped arm. estop_clear_max_age_s is 1.0 in this fixture.
-TEST_F(ControlPlaneTest, StaleEstopClearIsIgnored) {
+TEST_F(ArbitrationServerTest, StaleEstopClearIsIgnored) {
   publish_estop(true, node_->now(), "operator");
   publish_estop(false, node_->now() - rclcpp::Duration::from_seconds(30.0), "replay");
   EXPECT_EQ(sink_.log().back(), "estop");        // still stopped; no estop_clear
@@ -757,14 +757,14 @@ TEST_F(ControlPlaneTest, StaleEstopClearIsIgnored) {
 
 // The asymmetry, asserted so nobody later "tidies" it into a symmetric check:
 // a stale STOP is still honoured. Both branches must fail toward "arm stays stopped".
-TEST_F(ControlPlaneTest, StaleEstopEngageIsStillHonoured) {
+TEST_F(ArbitrationServerTest, StaleEstopEngageIsStillHonoured) {
   publish_estop(true, node_->now() - rclcpp::Duration::from_seconds(30.0), "replay");
   EXPECT_EQ(sink_.log().back(), "estop");
 }
 
 // `ros2 topic pub` leaves the stamp at zero. An e-stop control that cannot be driven
 // from the CLI is worse than one that can be replayed.
-TEST_F(ControlPlaneTest, UnstampedEstopClearIsAccepted) {
+TEST_F(ArbitrationServerTest, UnstampedEstopClearIsAccepted) {
   publish_estop(true, node_->now(), "operator");
   publish_estop(false, rclcpp::Time(0, 0, RCL_ROS_TIME), "cli");
   EXPECT_EQ(sink_.log().back(), "estop_clear");
@@ -772,7 +772,7 @@ TEST_F(ControlPlaneTest, UnstampedEstopClearIsAccepted) {
 
 // Engaging the e-stop clears ownership inside the Arbiter, so the token we retained
 // is dead and a later release must not be honoured against a new owner.
-TEST_F(ControlPlaneTest, EstopForgetsTheRetainedToken) {
+TEST_F(ArbitrationServerTest, EstopForgetsTheRetainedToken) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -791,14 +791,14 @@ TEST_F(ControlPlaneTest, EstopForgetsTheRetainedToken) {
 - [ ] **Step 2: Run the tests**
 
 Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then the
-`control_plane_test` command from Task 2 Step 7.
+`arbitration_server_test` command from Task 2 Step 7.
 Expected: 10 tests, 0 failures. (If `StaleEstopClearIsIgnored` fails, the age branch in
 `on_estop` is wrong — it must `return` *before* `arb_.estop_clear()`.)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/control_plane_test.cpp
+git add kinova_arm_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): /estop staleness is asymmetric — stale stops honoured, stale clears refused"
 ```
 
@@ -807,15 +807,15 @@ git commit -m "test(ros2): /estop staleness is asymmetric — stale stops honour
 ### Task 4: `/control_status` on-change publishing and the seizure warning
 
 **Files:**
-- Modify: `kinova_arm_ros2/test/control_plane_test.cpp`
+- Modify: `kinova_arm_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
-- Consumes: `ControlPlane` from Task 2 (implementation already present).
+- Consumes: `ArbitrationServer` from Task 2 (implementation already present).
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add this helper method to `ControlPlaneTest`:
+Add this helper method to `ArbitrationServerTest`:
 ```cpp
   // Collects /control_status messages. transient_local matches the publisher, so a
   // subscriber created after the fact still receives the latest state.
@@ -838,13 +838,13 @@ and the tests:
 ```cpp
 // The 10 Hz timer must NOT republish an unchanged status, or "on change" means
 // "at 10 Hz forever" and the header stamp is the only thing that ever differs.
-TEST_F(ControlPlaneTest, StatusIsNotRepublishedWhileUnchanged) {
+TEST_F(ArbitrationServerTest, StatusIsNotRepublishedWhileUnchanged) {
   const auto got = collect_status(600ms);
   EXPECT_LE(got.size(), 1u) << "status republished " << got.size()
                             << " times with nothing changing";
 }
 
-TEST_F(ControlPlaneTest, StatusPublishesOnOwnershipChange) {
+TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -859,7 +859,7 @@ TEST_F(ControlPlaneTest, StatusPublishesOnOwnershipChange) {
 // A late subscriber must learn the current state without waiting for a change --
 // this is what /control_status being latched buys, and what lets a reconnecting
 // client discover it was dispossessed.
-TEST_F(ControlPlaneTest, LateSubscriberReceivesLatchedStatus) {
+TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
@@ -873,7 +873,7 @@ TEST_F(ControlPlaneTest, LateSubscriberReceivesLatchedStatus) {
 // Acquiring while someone else holds the arm SEIZES it: grant() succeeds, the
 // incumbent is dispossessed, and generation bumps. Asserted so the behaviour is a
 // decision rather than a surprise.
-TEST_F(ControlPlaneTest, AcquireSeizesFromAnIncumbent) {
+TEST_F(ArbitrationServerTest, AcquireSeizesFromAnIncumbent) {
   using Acq = kinova_arm_interfaces::srv::AcquireControl;
   auto first = std::make_shared<Acq::Request>();
   first->owner_id = "teleop";
@@ -893,13 +893,13 @@ TEST_F(ControlPlaneTest, AcquireSeizesFromAnIncumbent) {
 
 - [ ] **Step 2: Run the tests**
 
-Run: build, then the `control_plane_test` command from Task 2 Step 7.
+Run: build, then the `arbitration_server_test` command from Task 2 Step 7.
 Expected: 14 tests, 0 failures.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/control_plane_test.cpp
+git add kinova_arm_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): /control_status publishes on change, latches, and records seizure"
 ```
 
@@ -908,10 +908,10 @@ git commit -m "test(ros2): /control_status publishes on change, latches, and rec
 ### Task 5: REP 107 `/diagnostics`
 
 **Files:**
-- Modify: `kinova_arm_ros2/test/control_plane_test.cpp`
+- Modify: `kinova_arm_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
-- Consumes: `ControlPlane` from Task 2 (implementation already present).
+- Consumes: `ArbitrationServer` from Task 2 (implementation already present).
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing test**
@@ -919,7 +919,7 @@ git commit -m "test(ros2): /control_status publishes on change, latches, and rec
 ```cpp
 // REP 107: reporting is on /diagnostics using diagnostic_msgs/DiagnosticArray at 1 Hz.
 // Level must be ERROR while e-stopped -- this is what a monitoring dashboard reads.
-TEST_F(ControlPlaneTest, DiagnosticsReportsErrorWhileEstopped) {
+TEST_F(ArbitrationServerTest, DiagnosticsReportsErrorWhileEstopped) {
   publish_estop(true, node_->now(), "operator");
 
   std::vector<diagnostic_msgs::msg::DiagnosticArray> got;
@@ -951,7 +951,7 @@ Add `#include "diagnostic_msgs/msg/diagnostic_array.hpp"` to the test's includes
 
 - [ ] **Step 2: Run the test**
 
-Run: build, then the `control_plane_test` command from Task 2 Step 7.
+Run: build, then the `arbitration_server_test` command from Task 2 Step 7.
 Expected: 15 tests, 0 failures.
 
 > **If it fails on the name:** the test matches `Arbitration` as a substring precisely
@@ -962,7 +962,7 @@ Expected: 15 tests, 0 failures.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/control_plane_test.cpp
+git add kinova_arm_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): REP 107 diagnostics — ERROR while e-stopped, counts as KeyValues"
 ```
 
@@ -1171,7 +1171,7 @@ git commit -m "feat(ros2): PlannedMoveServer carries the goal token and replays 
 - Modify: `kinova_arm_ros2/src/bringup_node.cpp`
 
 **Interfaces:**
-- Consumes: `ControlPlane` (Task 2), core's `interface::Arbiter`.
+- Consumes: `ArbitrationServer` (Task 2), core's `interface::Arbiter`.
 - Produces: the running node exposes `/acquire_control`, `/release_control`,
   `/revoke_control`, `/estop`, `/control_status`, `/diagnostics`, and gates all four
   actions through the Arbiter.
@@ -1184,7 +1184,7 @@ After `#include "kinova_lowlevel/interface/supervisor.h"`:
 ```
 and after `#include "kinova_arm_ros2/goto_preset_server.h"`:
 ```cpp
-#include "kinova_arm_ros2/control_plane.h"
+#include "kinova_arm_ros2/arbitration_server.h"
 ```
 
 - [ ] **Step 2: Declare the parameters**
@@ -1211,10 +1211,10 @@ Immediately after `auto node = std::make_shared<rclcpp::Node>("kinova_arm_node")
 ```
 Add `#include "rcl_interfaces/msg/parameter_descriptor.hpp"` to the includes.
 
-- [ ] **Step 3: Insert the Arbiter and ControlPlane**
+- [ ] **Step 3: Insert the Arbiter and ArbitrationServer**
 
 Replace the four `set_command_sink(&sup)` lines. Declaration order matters — destruction
-is reverse, and `control_plane` must stop accepting ROS calls before `arb` stops
+is reverse, and `arbitration_server` must stop accepting ROS calls before `arb` stops
 delegating, which must happen before `sup` goes away:
 ```cpp
   interface::Supervisor sup(pos, imp, tau, exec, snap, pump_dyn, *backend, router);
@@ -1223,7 +1223,7 @@ delegating, which must happen before `sup` goes away:
   interface::Arbiter arb(sup, sup, arb_mode);
   // Declared after arb so it is destroyed FIRST: it must stop accepting ROS calls
   // before arb stops delegating, and arb before sup goes away.
-  kinova_arm_ros2::ControlPlane control_plane(
+  kinova_arm_ros2::ArbitrationServer arbitration_server(
       node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
   // (`ip` and `use_sim` are the existing locals from the --ip / --sim arg parsing.)
 
@@ -1270,7 +1270,7 @@ with `arbitration_enabled: false`.
 
 ```bash
 git add kinova_arm_ros2/src/bringup_node.cpp
-git commit -m "feat(ros2): wire the Arbiter and ControlPlane into the node"
+git commit -m "feat(ros2): wire the Arbiter and ArbitrationServer into the node"
 ```
 
 ---
@@ -1474,7 +1474,7 @@ Two items in the spec's testing section are **not** rebuilt here, on purpose:
 - **"`/estop` has its own callback group."** Task 9 proves the property that matters (the
   halt is delivered before the arbiter mutex is contended) at the `Arbiter` level. That
   the ROS subscription is on a dedicated `MutuallyExclusive` group is verified by reading
-  `control_plane.cpp`; asserting it from a test would mean reaching into rclcpp internals
+  `arbitration_server.cpp`; asserting it from a test would mean reaching into rclcpp internals
   for little added confidence.
 
 ## Documentation (fold into Task 9's commit or its own)

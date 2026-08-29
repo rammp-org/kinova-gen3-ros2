@@ -1,4 +1,4 @@
-// kinova_arm_ros2/include/kinova_arm_ros2/control_plane.h
+// kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h
 #pragma once
 #include <memory>
 #include <mutex>
@@ -21,7 +21,7 @@ namespace kinova_arm_ros2 {
 // ControlMode, no Dynamics -- so it is unit-testable against a fake with no robot,
 // no URDF and no threads. That is the same reason the Arbiter itself is a decorator
 // rather than part of the Supervisor.
-class ControlPlane {
+class ArbitrationServer {
  public:
   using AcquireControl = kinova_arm_interfaces::srv::AcquireControl;
   using ReleaseControl = kinova_arm_interfaces::srv::ReleaseControl;
@@ -29,7 +29,7 @@ class ControlPlane {
   using EStop          = kinova_arm_interfaces::msg::EStop;
   using ControlStatus  = kinova_arm_interfaces::msg::ControlStatus;
 
-  ControlPlane(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
+  ArbitrationServer(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
                const std::string& hardware_id, double estop_clear_max_age_s);
 
   // Publish only if the arbiter's status differs from what was last sent. Called by

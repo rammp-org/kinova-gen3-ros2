@@ -1,10 +1,12 @@
 # Goal — move to a 7-joint configuration; cuRobo plans collision-free (plan_to_joints).
 float64[7] target_joints   # rad, joint_1..joint_7
 string     sender_id       # arbitration hook, mirrors ExecuteJointTrajectory
+uint8[16] token                    # arbitration capability from /acquire_control
 ---
 # Result
 int32   error_code   # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4,
-                     # PREEMPTED=-6, PLANNING_FAILED=-7
+                     # PREEMPTED=-6, PLANNING_FAILED=-7,
+                     # NOT_AUTHORIZED=-8, HALTED=-9
 string  error_string
 trajectory_msgs/JointTrajectoryPoint final_error   # joint-space final error
 ---

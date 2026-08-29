@@ -7,9 +7,10 @@ uint8   control_mode        # 0 = POSITION, 1 = IMPEDANCE
 uint8   preemption          # 0 = QUEUE,    1 = LATEST_WINS
 JointImpedanceGains gains   # used iff control_mode == IMPEDANCE
 string  sender_id
+uint8[16] token             # arbitration capability from /acquire_control; zeros = none
 ---
 # ---------- Result ----------
-int32   error_code          # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4, GOAL_TOLERANCE_VIOLATED=-5, PREEMPTED=-6
+int32   error_code          # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4, GOAL_TOLERANCE_VIOLATED=-5, PREEMPTED=-6, NOT_AUTHORIZED=-8, HALTED=-9
 string  error_string
 trajectory_msgs/JointTrajectoryPoint final_error
 ---

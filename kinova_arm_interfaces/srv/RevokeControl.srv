@@ -1,0 +1,6 @@
+# Operator override: take the arm from whoever holds it. Deliberately carries NO
+# token -- this is the recovery path for a crashed owner, since ownership has no lease.
+string reason
+---
+bool   revoked
+string message

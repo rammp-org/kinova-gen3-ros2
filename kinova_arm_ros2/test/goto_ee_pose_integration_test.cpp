@@ -35,11 +35,15 @@ struct FakeSupervisor : public CommandSink {
     r.final_error = kinova::JointVec::Zero();
     port.settle(id, r);   // simulate immediate successful execution
   }
-  CancelResponse on_trajectory_cancel(const GoalId& id) override {
+  CancelResponse on_trajectory_cancel(const CancelRequest& req) override {
     TrajectoryResult r; r.error_code = result_code::kPreempted;
-    port.settle(id, r); return CancelResponse::kAccept;
+    port.settle(req.id, r); return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
+  // Ownership revocation and /estop both land here; recorded, not acted on.
+  bool halted = false;
+  HaltReason halt_reason{};
+  void on_halt(HaltReason why) override { halted = true; halt_reason = why; }
   // The measured configuration the arm is standing in. stamp_s must be > 0:
   // the supervisor only stores a snapshot after a SUCCESSFUL feedback read, so
   // a zero stamp means "no measurement yet", not "the arm is at zero".
@@ -92,14 +96,15 @@ struct OrderingSupervisor : public CommandSink {
   void on_trajectory_accepted(const GoalId&, const TrajectoryGoal&) override {
     note("accepted");   // deliberately does NOT settle: the motion is "running"
   }
-  CancelResponse on_trajectory_cancel(const GoalId& id) override {
+  CancelResponse on_trajectory_cancel(const CancelRequest& req) override {
     note("cancel");
     TrajectoryResult r; r.error_code = result_code::kPreempted;
     r.final_error = kinova::JointVec::Zero();
-    port.settle(id, r);
+    port.settle(req.id, r);
     return CancelResponse::kAccept;
   }
   GainsResult on_set_gains(const GainsRequest&) override { return {}; }
+  void on_halt(HaltReason) override { note("halt"); }
   // stamp_s > 0 marks the state as actually measured. The server refuses goals
   // when it is zero, because Supervisor::pump_loop only stores a snapshot after
   // a successful feedback read and {q=Zero, stamp_s=0} would otherwise be

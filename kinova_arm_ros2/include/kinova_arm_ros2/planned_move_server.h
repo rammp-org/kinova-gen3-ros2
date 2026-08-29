@@ -129,7 +129,8 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
       if (it != goals_.end()) { executing = it->second.executing;
                                 it->second.cancel_requested = true; } }
     if (executing) {
-      if (sink_) sink_->on_trajectory_cancel(id);   // Supervisor -> kPreempted -> settle()
+      // Zero token: no Arbiter in front of the supervisor -- see ros2_backend.cpp.
+      if (sink_) sink_->on_trajectory_cancel({id, {}});   // Supervisor -> kPreempted -> settle()
     } else {
       // Still planning, OR mid-handover. planner_.cancel() covers the first; the
       // second is covered by start_execution() re-reading cancel_requested AFTER
@@ -227,7 +228,7 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
     { std::lock_guard<std::mutex> l(m_);
       auto it = goals_.find(id);
       if (it != goals_.end()) canceled = it->second.cancel_requested; }
-    if (canceled) sink_->on_trajectory_cancel(id);
+    if (canceled) sink_->on_trajectory_cancel({id, {}});
   }
 
   void settle_local(std::shared_ptr<GoalHandle> gh, int error_code, const std::string& msg) {

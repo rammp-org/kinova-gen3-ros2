@@ -1,4 +1,14 @@
 # kinova_arm.repos — colcon workspace source list.
+# WARNING (2026-08-29): main is NOT enough to build this repo right now. The
+# Supervisor constructor gained a JointTorqueMode& in the streaming tier
+# (core PR #29, branch feat/streaming-tier), which is still UNMERGED, and
+# bringup_node.cpp passes it. Against core main that line does not compile.
+# Until #29 lands, container builds need the override:
+#     make build CORE_REF=feat/streaming-tier
+# The rsync dev loop (scripts/abra_colcon.sh) is unaffected -- it copies the
+# local core working tree, not this pin. Drop this note and keep `main` once
+# #29 is merged.
+#
 # NOTE (2026-08): the CONTAINER build (docker/Dockerfile) does vcs-import this.
 # The bare-metal dev loop does not — abra has no GitHub key, so scripts/abra_colcon.sh
 # rsyncs a local core working tree in instead, which also picks up uncommitted

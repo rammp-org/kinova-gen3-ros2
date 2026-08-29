@@ -41,7 +41,11 @@ rclcpp_action::GoalResponse Ros2Backend::handle_goal(
 
 rclcpp_action::CancelResponse Ros2Backend::handle_cancel(std::shared_ptr<GoalHandle> gh) {
   if (!sink_) return rclcpp_action::CancelResponse::REJECT;
-  const CancelResponse r = sink_->on_trajectory_cancel(gh->get_goal_id());   // GoalUUID -> GoalId
+  // CancelRequest, not a bare GoalId: arbitration gave cancel a token so that a
+  // stranger cannot stop someone else's motion. Nothing arbitrates in front of
+  // this supervisor (bringup_node wires the backend straight to it), so the zero
+  // token is the un-owned case every Arbiter-less caller uses.
+  const CancelResponse r = sink_->on_trajectory_cancel({gh->get_goal_id(), {}});   // GoalUUID -> GoalId
   return (r == CancelResponse::kAccept) ? rclcpp_action::CancelResponse::ACCEPT
                                         : rclcpp_action::CancelResponse::REJECT;
 }

@@ -18,6 +18,7 @@
 #include "kinova_lowlevel/interface/supervisor.h"
 #include "kinova_lowlevel/joint_impedance_mode.h"
 #include "kinova_lowlevel/joint_position_mode.h"
+#include "kinova_lowlevel/joint_torque_mode.h"
 #include "kinova_lowlevel/rt_executor.h"
 #include "kinova_lowlevel/sim_transport.h"
 #include "kinova_lowlevel/telemetry.h"
@@ -94,6 +95,11 @@ int main(int argc, char** argv) {
   if (max_ref_speed > 0.0) pos_params.max_ref_speed.setConstant(max_ref_speed);
   else                     dyn.velocity_limits(pos_params.max_ref_speed);
   JointPositionMode pos(dyn, pos_params); JointImpedanceMode imp(dyn);
+  // The Supervisor holds all three modes because the streaming tier can open a
+  // session in any of them. This node drives only trajectories (position and
+  // impedance), so tau is never entered here -- but the supervisor needs it to
+  // construct, and it defaults to gravity compensation with no tau_ff set.
+  JointTorqueMode tau(dyn);
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
@@ -114,7 +120,7 @@ int main(int argc, char** argv) {
   kinova_arm_ros2::GoToPresetServer preset_server(node, router, planner, cb_group,
                                                   load_presets(*node));
 
-  interface::Supervisor sup(pos, imp, exec, snap, pump_dyn, *backend, router);
+  interface::Supervisor sup(pos, imp, tau, exec, snap, pump_dyn, *backend, router);
   backend->set_command_sink(&sup);
   goto_server.set_command_sink(&sup);
   jc_server.set_command_sink(&sup);

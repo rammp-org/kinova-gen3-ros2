@@ -168,6 +168,72 @@ token is ignored, so existing clients need no changes.
 `set_gains` and `query_state` exist on the core's `CommandSink` but are still not
 exposed as ROS2 services.
 
+### Streaming
+
+Teleop and reactive control drive the arm through a **session**: you name a
+*controller* (a control law), and the driver replies with the *channels* (topics)
+to publish on.
+
+| Service | Type | Notes |
+|---|---|---|
+| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below. |
+| `open_stream` | `OpenStream` | `controller, timeout_s, token` → `accepted, channels[], error_code, message` |
+| `close_stream` | `CloseStream` | `token` → `closed, message` |
+
+| Controller | Channel | Available |
+|---|---|---|
+| `joint_position` | `/setpoint/joint_position` | yes |
+| `joint_impedance` | `/setpoint/joint_position` | yes |
+| `ee_pose_impedance` | `/setpoint/pose` | yes |
+| `joint_torque` | `/setpoint/joint_torque` | yes |
+| `joint_velocity` | `/setpoint/joint_velocity` | no — needs core's `JointVelocityMode` |
+| `ee_twist` | `/setpoint/twist` | no — needs core's `JointVelocityMode` |
+| `cartesian_impedance` | `/setpoint/pose`, `/setpoint/wrench` | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
+
+`available` is computed live from core's `pair_supported()`, so these rows light up
+when core grows the mode — no change here.
+
+```bash
+ros2 service call /acquire_control kinova_arm_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
+ros2 service call /list_controllers kinova_arm_interfaces/srv/ListControllers "{}"
+# create your publisher and let discovery settle BEFORE opening -- see below
+ros2 service call /open_stream kinova_arm_interfaces/srv/OpenStream \
+  "{controller: 'joint_impedance', timeout_s: 0.1, token: [...]}"
+# publish on the returned channel, faster than timeout_s
+ros2 service call /close_stream kinova_arm_interfaces/srv/CloseStream "{token: [...]}"
+```
+
+**Create your publisher before you open.** DDS discovery can take hundreds of
+milliseconds and a session deadline is typically 100 ms. Open first and your early
+setpoints go nowhere, so the session expires before it ever drives the arm. This is
+why `list_controllers` reports channels at all.
+
+**Four rules that bite:**
+
+- One session at a time; a second `open_stream` is refused, not queued.
+- The controller is fixed for the session's lifetime. Changing what you stream means
+  close-then-reopen, which re-pays the 250 ms mode settle.
+- Streams and trajectory goals refuse each other in both directions.
+- A setpoint on the wrong channel is dropped, counted, and **does not refresh the
+  deadline** — publishing hard on the wrong topic will not keep a session alive.
+
+**Setpoint topics are best-effort, depth 1.** That is core's semantics, not a
+tuning choice: setpoints are absolute and latest-wins, so a dropped intermediate is
+correct and a *late* one is harmful. CLI subscribers must match the QoS:
+
+```bash
+ros2 topic echo --qos-reliability best_effort /setpoint/joint_position
+```
+
+`/stream_status` (reliable, latched, on change) reports core's actual session — not
+this node's record of it — so a session torn down on deadline expiry or by an e-stop
+shows up immediately. Its `rejected_count` counts setpoints the **session** refused
+(wrong channel); token failures are counted by the Arbiter and appear on
+`/control_status` instead.
+
+`/setpoint/wrench` exists so the surface is complete, but no controller consumes it
+yet; messages are dropped with a throttled warning.
+
 ### Launch files
 
 There are none. The node takes plain CLI args and is started with `ros2 run`;

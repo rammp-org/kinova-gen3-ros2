@@ -15,6 +15,7 @@
 #include "kinova_arm_ros2/goto_joint_config_server.h"
 #include "kinova_arm_ros2/goto_preset_server.h"
 #include "kinova_arm_ros2/arbitration_server.h"
+#include "kinova_arm_ros2/stream_server.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
 #include "kinova_lowlevel/interface/arbiter.h"
@@ -152,6 +153,9 @@ int main(int argc, char** argv) {
   // declared before sup and so outlive all of it, as the comment above requires.)
   kinova_arm_ros2::ArbitrationServer arbitration_server(
       node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
+  // Wired to the Arbiter, not the Supervisor: that is how setpoint tokens get checked
+  // at all. Declared here so it is destroyed before arb stops delegating.
+  kinova_arm_ros2::StreamServer stream_server(node, arb);
 
   // Every command path now goes through the Arbiter rather than straight to the
   // Supervisor. Nothing else about the servers changes.
@@ -177,7 +181,9 @@ int main(int argc, char** argv) {
   RCLCPP_INFO(node->get_logger(),
               "kinova_arm_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
               "/go_to_ee_pose, /go_to_joint_config, /go_to_preset; control: "
-              "/acquire_control, /release_control, /revoke_control, /estop, /control_status",
+              "/acquire_control, /release_control, /revoke_control, /estop, /control_status; "
+              "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "
+              "/stream_status",
               use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",

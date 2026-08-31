@@ -55,11 +55,18 @@ ament_target_dependencies(arbitration_server
   rclcpp kinova_arm_interfaces std_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 
+# The ROS face of core's StreamSink: session services, setpoint topics, /stream_status.
+add_library(stream_server src/stream_server.cpp)
+target_include_directories(stream_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(stream_server rclcpp kinova_arm_interfaces geometry_msgs std_msgs)
+target_link_libraries(stream_server kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_arm_node
   ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
-  arbitration_server kinova_lowlevel::kinova_lowlevel)
+  arbitration_server stream_server kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)
@@ -81,6 +88,11 @@ if(BUILD_TESTING)
   # under kEnforced, and an e-stop that cannot get past a busy arbiter.
   ament_add_gtest(arbitration_integration_test test/arbitration_integration_test.cpp)
   target_link_libraries(arbitration_integration_test kinova_lowlevel::kinova_lowlevel)
+
+  ament_add_gtest(stream_server_test test/stream_server_test.cpp)
+  target_include_directories(stream_server_test PRIVATE test)
+  target_link_libraries(stream_server_test stream_server)
+  ament_target_dependencies(stream_server_test rclcpp kinova_arm_interfaces geometry_msgs)
 
   ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
   target_include_directories(arbitration_server_test PRIVATE test)

@@ -46,6 +46,9 @@ struct RecordingSink : public CommandSink, public StreamSink {
   void on_setpoint_joint_torque(const JointSetpoint&) override {}
   void on_setpoint_pose(const PoseSetpoint&) override {}
   void on_setpoint_twist(const TwistSetpoint&) override {}
+  // Ungated in the Arbiter, so it must exist here even though these tests never
+  // read it -- see core PR #31.
+  StreamStatus on_query_stream() override { return {}; }
 };
 
 GoalId mkid(uint8_t x) { GoalId id{}; id[0] = x; return id; }

@@ -4,7 +4,10 @@
 # (core PR #29, branch feat/streaming-tier), which is still UNMERGED, and
 # bringup_node.cpp passes it. Against core main that line does not compile.
 # Until #29 lands, container builds need the override:
-#     make build CORE_REF=feat/streaming-tier
+#     make build CORE_REF=feat/stream-status-port
+# (that branch is #29 plus core PR #31, which adds StreamSink::on_query_stream --
+#  the wrapper's StreamSink fake implements it, so plain feat/streaming-tier no
+#  longer compiles here. Once #31 merges into #29, feat/streaming-tier works again.)
 # The rsync dev loop (scripts/abra_colcon.sh) is unaffected -- it copies the
 # local core working tree, not this pin. Drop this note and keep `main` once
 # #29 is merged.

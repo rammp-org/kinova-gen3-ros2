@@ -1,13 +1,19 @@
 # kinova_arm.repos — colcon workspace source list.
-# WARNING (2026-08-29): main is NOT enough to build this repo right now. The
-# Supervisor constructor gained a JointTorqueMode& in the streaming tier
-# (core PR #29, branch feat/streaming-tier), which is still UNMERGED, and
-# bringup_node.cpp passes it. Against core main that line does not compile.
-# Until #29 lands, container builds need the override:
-#     make build CORE_REF=feat/stream-status-port
-# (that branch is #29 plus core PR #31, which adds StreamSink::on_query_stream --
-#  the wrapper's StreamSink fake implements it, so plain feat/streaming-tier no
-#  longer compiles here. Once #31 merges into #29, feat/streaming-tier works again.)
+# WARNING (2026-08-31): main is NOT enough to build this repo. Core PR #29 has
+# merged, so main now has the streaming tier -- but this repo needs TWO further
+# core PRs that are open SIBLINGS off main, so no single published PR branch is
+# sufficient either:
+#
+#   #31 feat/stream-status-port  -- StreamSink::on_query_stream(); /stream_status
+#                                   reports core's real session instead of ours
+#   #32 feat/velocity-mode       -- JointVelocityMode + the EE-pose-into-position
+#                                   path; Supervisor's ctor gains JointVelocityMode&
+#
+# A merge of the two is published for exactly this reason. Container builds need:
+#     make build CORE_REF=integration/velocity-and-stream-status
+#
+# Once #31 and #32 both merge, drop the override and this note -- plain `main`
+# works again, and that integration branch should be deleted.
 # The rsync dev loop (scripts/abra_colcon.sh) is unaffected -- it copies the
 # local core working tree, not this pin. Drop this note and keep `main` once
 # #29 is merged.

@@ -1,0 +1,14 @@
+# Open a streaming session on a controller. The (kind, control mode) pair is fixed for
+# the session's lifetime -- changing what you stream means close-then-reopen, which
+# re-pays the 250 ms mode settle.
+#
+# Call /list_controllers first: you must create your publisher and let DDS discovery
+# settle BEFORE opening, or your first setpoints go nowhere and the session expires.
+string    controller
+float64   timeout_s     # MUST be > 0; an unbounded stream has no safe-stop
+uint8[16] token
+---
+bool     accepted
+string[] channels       # where to publish -- the driver tells you
+int32    error_code     # 0, or -10 STREAM_REJECTED
+string   message

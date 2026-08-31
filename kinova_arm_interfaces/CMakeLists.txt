@@ -19,5 +19,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/AcquireControl.srv"
   "srv/ReleaseControl.srv"
   "srv/RevokeControl.srv"
+  "msg/JointSetpoint.msg"
+  "msg/PoseSetpoint.msg"
+  "msg/TwistSetpoint.msg"
+  "msg/WrenchSetpoint.msg"
+  "msg/StreamStatus.msg"
+  "msg/ControllerCapability.msg"
+  "srv/OpenStream.srv"
+  "srv/CloseStream.srv"
+  "srv/ListControllers.srv"
   DEPENDENCIES builtin_interfaces std_msgs trajectory_msgs control_msgs action_msgs geometry_msgs)
 ament_package()

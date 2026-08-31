@@ -8,6 +8,7 @@
 #                                   reports core's real session instead of ours
 #   #32 feat/velocity-mode       -- JointVelocityMode + the EE-pose-into-position
 #                                   path; Supervisor's ctor gains JointVelocityMode&
+#   #33 feat/ee-twist-and-...    -- ArmState::ee_twist, for /ee_state
 #
 # A merge of the two is published for exactly this reason. Container builds need:
 #     make build CORE_REF=integration/velocity-and-stream-status

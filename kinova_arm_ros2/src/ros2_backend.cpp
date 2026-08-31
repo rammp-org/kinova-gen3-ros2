@@ -2,6 +2,7 @@
 #include "kinova_arm_ros2/ros2_backend.h"
 #include <functional>
 #include "kinova_lowlevel/joint_types.h"
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
 namespace kinova_arm_ros2 {
 using namespace kinova::interface;
 using std::placeholders::_1; using std::placeholders::_2;
@@ -14,6 +15,14 @@ Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
       std::bind(&Ros2Backend::handle_accepted, this, _1));
   state_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
       "joint_states", rclcpp::SensorDataQoS());
+  // Same QoS as /joint_states: it is the same data at the same rate from the same
+  // pump tick, so a subscriber matching one matches the other.
+  ee_pub_ = node_->create_publisher<kinova_arm_interfaces::msg::EeState>(
+      "ee_state", rclcpp::SensorDataQoS());
+
+  updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
+  updater_->setHardwareID("kinova_gen3");
+  updater_->add("Arm", this, &Ros2Backend::diagnostics);
 }
 
 rclcpp_action::GoalResponse Ros2Backend::handle_goal(
@@ -92,5 +101,41 @@ void Ros2Backend::publish_state(const ArmState& s) {
     msg.effort[i] = s.tau[i];
   }
   state_pub_->publish(msg);
+
+  kinova_arm_interfaces::msg::EeState ee;
+  ee.header.stamp = msg.header.stamp;          // same tick as the joint state above
+  ee.pose.position.x = s.ee_pose.p.x();
+  ee.pose.position.y = s.ee_pose.p.y();
+  ee.pose.position.z = s.ee_pose.p.z();
+  ee.pose.orientation.w = s.ee_pose.R.w();
+  ee.pose.orientation.x = s.ee_pose.R.x();
+  ee.pose.orientation.y = s.ee_pose.R.y();
+  ee.pose.orientation.z = s.ee_pose.R.z();
+  ee.twist.linear.x  = s.ee_twist[0];           // core packs [linear; angular]
+  ee.twist.linear.y  = s.ee_twist[1];
+  ee.twist.linear.z  = s.ee_twist[2];
+  ee.twist.angular.x = s.ee_twist[3];
+  ee.twist.angular.y = s.ee_twist[4];
+  ee.twist.angular.z = s.ee_twist[5];
+  ee_pub_->publish(ee);
+
+  fault_.store(s.fault);
+  arm_stamp_s_.store(s.stamp_s);
+  ever_published_.store(true);
+}
+
+void Ros2Backend::diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat) {
+  using diagnostic_msgs::msg::DiagnosticStatus;
+  const bool ever = ever_published_.load();
+  const bool fault = fault_.load();
+  // STALE rather than OK when nothing has arrived: an arm we have never heard from
+  // is not a healthy arm, and reporting OK for it is the failure mode REP 107's
+  // levels exist to avoid.
+  if (!ever)      stat.summary(DiagnosticStatus::STALE, "no feedback from the arm yet");
+  else if (fault) stat.summary(DiagnosticStatus::ERROR, "arm reports a fault");
+  else            stat.summary(DiagnosticStatus::OK, "OK");
+  stat.add("fault", fault);
+  stat.add("driver_uptime_s", arm_stamp_s_.load());
+  stat.add("feedback_received", ever);
 }
 }  // namespace kinova_arm_ros2

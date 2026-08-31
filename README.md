@@ -112,10 +112,23 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 |---|---|---|---|
 | `joint_states` | `sensor_msgs/JointState` | `SensorDataQoS` (**best-effort**) | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz. |
 | `control_status` | `kinova_arm_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately. |
-| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | default | REP 107, 1 Hz, via `diagnostic_updater`. Status `kinova_arm_node: Arbitration`; ERROR while e-stopped, WARN when unowned in enforced mode. |
+| `ee_state` | `kinova_arm_interfaces/EeState` | `SensorDataQoS` (**best-effort**) | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | default | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_arm_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_arm_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives). |
 
-Because `joint_states` is best-effort, CLI subscribers must match it:
+Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
+
+**`ee_state` pose and twist are model-derived, not read from the arm.** Pose is `fk(q)`
+and twist is `J(q)·qd`, computed together in the driver's pump — so they agree with each
+other and with the model cuRobo plans against. The arm's own `tool_pose`/`tool_twist`
+feedback exists but sits in KORTEX's configured tool frame, which carries an offset the
+URDF does not know about; mixing the two would give a pose and a twist that disagree by
+an unknown transform. The frame is **`LOCAL_WORLD_ALIGNED`** — world-aligned at the tool,
+not the body frame.
+
+There is deliberately **no wrench**. The driver has no force estimate of its own, and the
+arm's `tool_external_wrench` is in that same tool frame; publishing a zero in sim or a
+frame-mismatched value on hardware would be worse than publishing nothing.
 
 ### Subscribed topics
 

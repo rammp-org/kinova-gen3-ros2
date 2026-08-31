@@ -43,7 +43,8 @@ target_link_libraries(planned_move_servers INTERFACE
 
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces sensor_msgs)
+ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces sensor_msgs
+  geometry_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
 # The ROS face of core's ArbitrationSink: ownership services, /estop, /control_status

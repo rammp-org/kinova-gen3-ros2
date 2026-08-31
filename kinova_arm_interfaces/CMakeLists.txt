@@ -25,6 +25,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WrenchSetpoint.msg"
   "msg/StreamStatus.msg"
   "msg/ControllerCapability.msg"
+  "msg/EeState.msg"
   "srv/OpenStream.srv"
   "srv/CloseStream.srv"
   "srv/ListControllers.srv"

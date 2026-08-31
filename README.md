@@ -184,14 +184,26 @@ to publish on.
 |---|---|---|
 | `joint_position` | `/setpoint/joint_position` | yes |
 | `joint_impedance` | `/setpoint/joint_position` | yes |
-| `ee_pose_impedance` | `/setpoint/pose` | yes |
+| `ee_pose_impedance` | `/setpoint/pose` | yes — compliant; in-loop IK via `JointImpedanceMode` |
+| `ee_pose_position` | `/setpoint/pose` | yes — **stiff**; no compliance, full servo authority |
 | `joint_torque` | `/setpoint/joint_torque` | yes |
-| `joint_velocity` | `/setpoint/joint_velocity` | no — needs core's `JointVelocityMode` |
-| `ee_twist` | `/setpoint/twist` | no — needs core's `JointVelocityMode` |
+| `joint_velocity` | `/setpoint/joint_velocity` | yes — **stiff by contract**: tracks the rate, does not yield to contact |
+| `ee_twist` | `/setpoint/twist` | yes — damped least squares with null-space posture |
 | `cartesian_impedance` | `/setpoint/pose`, `/setpoint/wrench` | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
 
 `available` is computed live from core's `pair_supported()`, so these rows light up
-when core grows the mode — no change here.
+when core grows the mode. That is not theoretical: `joint_velocity` and `ee_twist`
+flipped to available when core landed `JointVelocityMode`, with no change on this side
+beyond the test expectation.
+
+**Velocity and `ee_pose_position` are stiff.** Neither yields to contact — the servo
+chases the command at full authority, and nothing absorbs a mistake. `joint_impedance`
+and `ee_pose_impedance` are the compliant options.
+
+Note that `SimTransport` is a static echo with no velocity plant, so a velocity or twist
+session commands correctly in sim but produces **no motion**. That the setpoints are
+landing is still observable: they refresh the session deadline, so `/stream_status` stays
+`open` past `timeout_s` only while they are actually arriving.
 
 ```bash
 ros2 service call /acquire_control kinova_arm_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"

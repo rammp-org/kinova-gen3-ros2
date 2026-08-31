@@ -7,6 +7,7 @@
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_arm_ros2/stream_server.h"
+#include "kinova_lowlevel/interface/streaming_session.h"
 #include "fake_stream_sink.h"
 using namespace std::chrono_literals;
 
@@ -90,7 +91,7 @@ TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
   using Srv = kinova_arm_interfaces::srv::ListControllers;
   auto resp = call<Srv>("list_controllers", std::make_shared<Srv::Request>());
   ASSERT_NE(resp, nullptr);
-  EXPECT_EQ(resp->controllers.size(), 7u);
+  EXPECT_EQ(resp->controllers.size(), 8u);
 
   auto find = [&](const std::string& n)
       -> const kinova_arm_interfaces::msg::ControllerCapability* {
@@ -104,10 +105,23 @@ TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
   EXPECT_EQ(imp->channels[0], "joint_position");
 
   // Availability is computed from core's pair_supported(), so these track core rather
-  // than a hand-maintained list: they light up when JointVelocityMode lands.
+  // than a hand-maintained list. They were false until core landed JointVelocityMode
+  // (core PR #32) and became true here with no change to this repo beyond the
+  // expectation below -- which is the property the registry exists to have.
   const auto* vel = find("joint_velocity");
   ASSERT_NE(vel, nullptr);
-  EXPECT_FALSE(vel->available);
+  EXPECT_TRUE(vel->available);
+  const auto* twist = find("ee_twist");
+  ASSERT_NE(twist, nullptr);
+  EXPECT_TRUE(twist->available);
+
+  // EE pose into POSITION mode -- distinct from ee_pose_impedance. Position mode has
+  // no compliance, so the servo chases the pose at full authority.
+  const auto* stiff = find("ee_pose_position");
+  ASSERT_NE(stiff, nullptr);
+  EXPECT_TRUE(stiff->available);
+  ASSERT_EQ(stiff->channels.size(), 1u);
+  EXPECT_EQ(stiff->channels[0], "pose");
 
   // Unavailable for two independent reasons: core has no kEeWrench, AND a two-channel
   // controller needs multi-channel sessions.
@@ -279,4 +293,45 @@ TEST_F(StreamServerTest, StatusIsNotRepublishedWhileUnchanged) {
   const auto got = collect_status(700ms);
   EXPECT_LE(got.size(), 1u) << "status republished " << got.size()
                             << " times with nothing changing";
+}
+
+
+// The registry must stay in step with core in BOTH directions. Availability is already
+// computed from pair_supported(), so a pair core RETIRES turns a row unavailable on its
+// own -- but a pair core ADDS is invisible until someone adds a row, and the surface
+// silently fails to expose a capability the driver has.
+//
+// Core PR #32 is exactly that case: it made kEePose x kPosition supported, and nothing
+// in this repo would have noticed. This test fails naming the missing pair instead.
+TEST(StreamServerRegistry, EverySupportedCorePairHasAController) {
+  using kinova::interface::SetpointKind;
+  using kinova::interface::ControlModeKind;
+  const SetpointKind kinds[] = {SetpointKind::kJointPosition, SetpointKind::kEePose,
+                                SetpointKind::kJointVelocity, SetpointKind::kEeTwist,
+                                SetpointKind::kJointTorque};
+  const ControlModeKind modes[] = {ControlModeKind::kPosition, ControlModeKind::kImpedance,
+                                   ControlModeKind::kVelocity, ControlModeKind::kTorque};
+
+  for (auto k : kinds) {
+    for (auto m : modes) {
+      if (!kinova::interface::pair_supported(k, m)) continue;
+      bool covered = false;
+      for (const auto& r : kinova_arm_ros2::StreamServer::registry())
+        if (r.core_backed && r.kind == k && r.mode == m) { covered = true; break; }
+      EXPECT_TRUE(covered)
+          << "core supports (kind=" << static_cast<int>(k)
+          << ", mode=" << static_cast<int>(m)
+          << ") but no controller in StreamServer::registry() exposes it";
+    }
+  }
+}
+
+// The other direction: a row claiming to be core-backed must name a pair core actually
+// supports, or /list_controllers advertises something open_stream will refuse.
+TEST(StreamServerRegistry, EveryAvailableControllerMapsToASupportedPair) {
+  for (const auto& r : kinova_arm_ros2::StreamServer::registry()) {
+    if (!kinova_arm_ros2::StreamServer::available(r)) continue;
+    EXPECT_TRUE(kinova::interface::pair_supported(r.kind, r.mode))
+        << "controller '" << r.name << "' reports available but its pair is unsupported";
+  }
 }

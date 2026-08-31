@@ -50,6 +50,8 @@ const std::vector<StreamServer::ControllerRow>& StreamServer::registry() {
        SetpointKind::kJointPosition, ControlModeKind::kImpedance},
     {"ee_pose_impedance",   {"pose"},           true,
        SetpointKind::kEePose,        ControlModeKind::kImpedance},
+    {"ee_pose_position",    {"pose"},           true,
+       SetpointKind::kEePose,        ControlModeKind::kPosition},
     {"joint_torque",        {"joint_torque"},   true,
        SetpointKind::kJointTorque,   ControlModeKind::kTorque},
     {"joint_velocity",      {"joint_velocity"}, true,

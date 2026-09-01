@@ -264,6 +264,73 @@ yet; messages are dropped with a throttled warning.
 There are none. The node takes plain CLI args and is started with `ros2 run`;
 adding a launch file has not been needed yet.
 
+## Robot model and TF
+
+`kinova_arm_description` holds the robot model and the launch plumbing. Start everything
+with:
+
+```bash
+ros2 launch kinova_arm_description bringup.launch.py sim:=true
+# or against the arm:
+ros2 launch kinova_arm_description bringup.launch.py sim:=false ip:=192.168.1.10
+```
+
+That runs the driver and `robot_state_publisher` on the **same model**, which is the
+point of the package. For TF only, without owning the arm:
+
+```bash
+ros2 launch kinova_arm_description description.launch.py
+```
+
+### The model is generated, not vendored
+
+`urdf/kinova_arm.urdf.xacro` composes `kortex_description`'s arm with
+`robotiq_description`'s 2F-85, and CMake expands it at build time into **two** URDFs:
+
+| file | DOF | for |
+|---|---|---|
+| `kinova_arm_7dof.urdf` | 7 | the driver, and `robot_state_publisher` by default |
+| `kinova_arm.urdf` | 13 | a moving gripper; `articulated:=true` |
+
+Two, because they cannot be one:
+
+- **Core's `Dynamics` asserts `nv == 7`** and aborts otherwise
+  (`URDF nv=13 != kNumJoints=7`). `JointVec` is a fixed-size 7-vector.
+- **`robot_state_publisher` publishes nothing until it has every movable joint.** Given
+  7 of the articulated model's 13 it emits no `/tf` at all — not a partial tree. It does
+  **not** derive mimic joints, so publishing only the actuated knuckle is not enough
+  either. Since the driver publishes seven joint states, the 7-DOF model is the one that
+  actually produces TF today.
+
+Freezing the gripper drops its degrees of freedom, **not its mass** — Pinocchio lumps a
+fixed joint's body into its parent — so gravity compensation is unaffected. That is
+almost certainly why the hand-edited model this replaces had every Robotiq joint fixed.
+
+Set `articulated:=true` once something publishes the gripper's six joints, either the
+driver computing the mimics itself or `joint_state_publisher` in the chain.
+
+### The invariant
+
+**The driver publishes `joint_1 … joint_7` and the model must agree.** It did not
+before: the old URDF used `gen3_joint_1 … gen3_joint_7`, so `robot_state_publisher`
+matched nothing and held TF at the default configuration while the arm really moved.
+Nothing errored. `test_tf_updates.py` asserts the transform *changes*, not merely that
+it exists.
+
+`--ee-frame` exists for the same reason. `Dynamics` resolves the EE frame by name and
+throws if it is absent; core defaults to `gen3_end_effector_link` for its own tests,
+while the generated model uses `end_effector_link`, which the launch passes.
+
+### Known gaps
+
+- The **wrist camera and its 0.5 kg mount are not in the generated model** — they were in
+  the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
+  the resulting 0.436 kg difference so it cannot be forgotten; if the physical arm
+  carries them, gravity compensation is under-modelled by that much at the wrist.
+- The **gripper joint is not published**, so the gripper renders at its default opening.
+- Model configuration (`gripper`, `camera`, `prefix`) is a **build-time** xacro arg, not
+  a launch argument.
+
 ## Node arguments
 
 | Flag | Default | Meaning |

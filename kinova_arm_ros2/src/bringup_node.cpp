@@ -64,16 +64,23 @@ std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& node) {
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   std::string urdf = "models/gen3_7dof_2f85.urdf", ip;
+  // Dynamics resolves the EE frame BY NAME and throws if it is absent, so the
+  // default has to match whichever model is loaded. Core's own default is
+  // gen3_end_effector_link, matching the hand-edited models/ URDF its tests use;
+  // kinova_arm_description generates end_effector_link. Overridable rather than
+  // hard-coded so both models work from this one binary.
+  std::string ee_frame = "gen3_end_effector_link";
   bool use_sim = false; int cpu = -1, prio = 80; double rate = 1000.0;
   double max_ref_speed = 0.0;          // <=0 => seed from the URDF velocity limits
   for (int i = 1; i < argc; ++i) { std::string a = argv[i];
     auto nxt = [&]{ return std::string(argv[++i]); };
     if (a == "--sim") use_sim = true; else if (a == "--ip") ip = nxt();
     else if (a == "--urdf") urdf = nxt(); else if (a == "--cpu") cpu = std::stoi(nxt());
+    else if (a == "--ee-frame") ee_frame = nxt();
     else if (a == "--rt-priority") prio = std::stoi(nxt()); else if (a == "--rate") rate = std::stod(nxt());
     else if (a == "--max-ref-speed") max_ref_speed = std::stod(nxt()); }
 
-  Dynamics dyn(urdf), pump_dyn(urdf);
+  Dynamics dyn(urdf, ee_frame), pump_dyn(urdf, ee_frame);
   std::unique_ptr<Transport> base;
   if (use_sim) { JointFeedback init; base = std::make_unique<SimTransport>(init); }
   else {

@@ -143,7 +143,23 @@ measurement", not zero — zero would be indistinguishable from "not moving".
 >
 > So the two fields part company:
 >
-> - **velocity becomes real** once core surfaces gripper feedback through `ArmState`.
+> - **velocity stays NaN too.** *(Amended 2026-09-01, after the measurement.)* This bullet
+>   originally said velocity becomes real once core surfaces gripper feedback. It does not.
+>   `MotorFeedback::velocity` was measured on the arm to be the **commanded speed echoed
+>   back** while the gripper considers itself moving, and 0 otherwise — unsigned, and
+>   identical opening and closing. While the fingers were being physically stopped by an
+>   object, the position increments shrank while that field held exactly the commanded
+>   0.5000; across runs `|velocity| / |dpos/dt|` was 0.625 closing on air versus 1.060
+>   closing on the object at the same commanded speed. A real measurement gives one
+>   constant.
+>
+>   Core has therefore **removed** `GripperFeedback::velocity` outright rather than
+>   documenting it — a field carrying no information the caller already has is worse than
+>   no field, because it looks like a measurement and someone eventually publishes it as
+>   one. There is nothing for this package to surface.
+>
+>   If a gripper velocity is genuinely wanted in `/joint_states`, differentiate `position`
+>   and say in the README that it is a derived rate, not a reported one.
 > - **effort stays NaN permanently.** `sensor_msgs/JointState.effort` is documented as
 >   N·m or N, and core's gripper effort is a normalized 0..1 fraction derived from motor
 >   current. Putting it there would mislabel it — the same mistake this package refuses

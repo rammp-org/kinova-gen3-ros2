@@ -130,6 +130,14 @@ There is deliberately **no wrench**. The driver has no force estimate of its own
 arm's `tool_external_wrench` is in that same tool frame; publishing a zero in sim or a
 frame-mismatched value on hardware would be worse than publishing nothing.
 
+The same judgement applies to the gripper, once it is published: its effort is a
+normalized 0..1 fraction derived from motor current, and `sensor_msgs/JointState.effort`
+is documented as N·m or N. So the gripper's **effort stays NaN in `/joint_states`
+permanently** — the fraction belongs on a future `/gripper_state` where its units can be
+stated, next to the raw current in amps. There is no force *feedback* on this hardware to
+report: the gripper's `force` is a current ceiling on the command side, and
+`MotorFeedback` has no force field at all.
+
 ### Subscribed topics
 
 | Topic | Type | QoS | Notes |

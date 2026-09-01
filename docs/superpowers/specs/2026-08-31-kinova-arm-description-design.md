@@ -131,11 +131,26 @@ robotiq_85_left_knuckle_joint = gripper * 0.8      // [0,1] -> [0.0, 0.8] rad
 ```
 
 **Velocity and effort are NaN**, which is the `sensor_msgs` convention for "no
-measurement", not zero — zero would be indistinguishable from "not moving". They are
-temporary: `GripperCyclicMessage`'s motor feedback already carries `velocity()` and
-`force()` on the wire, and core reads only `position()`. Filling them in is a small core
-change whenever the gripper tier lands. Some consumers handle NaN poorly; the README says
-so.
+measurement", not zero — zero would be indistinguishable from "not moving".
+
+> **Corrected 2026-09-01**, against core's `2026-09-01-gripper-tier-design.md`. This spec
+> originally claimed `GripperCyclicMessage`'s motor feedback carries `velocity()` and
+> `force()`, and that filling both in was a small future core change. **That was wrong
+> about force.** `MotorFeedback` has no force field — it carries `current_motor`. The
+> `force()` accessor in that header belongs to `MotorCommand`, where force is a current
+> *ceiling*, not a setpoint. `GripperMode` has no force mode at all, so no force servo
+> exists on this hardware by any path.
+>
+> So the two fields part company:
+>
+> - **velocity becomes real** once core surfaces gripper feedback through `ArmState`.
+> - **effort stays NaN permanently.** `sensor_msgs/JointState.effort` is documented as
+>   N·m or N, and core's gripper effort is a normalized 0..1 fraction derived from motor
+>   current. Putting it there would mislabel it — the same mistake this package refuses
+>   for the tool wrench on `EeState`. Normalized effort belongs on a future
+>   `/gripper_state`, where its units can be stated, alongside the raw current in amps.
+
+Some consumers handle NaN poorly; the README says so.
 
 Two honest limits, documented rather than hidden:
 
@@ -195,9 +210,17 @@ an eyeball.
 ## Out of scope
 
 - **Gripper commanding.** This publishes gripper *state* into `/joint_states` once core
-  supplies it; commanding is its own tier and its own spec.
-- **Filling in gripper velocity and effort.** Needs core to read `velocity()` and
-  `force()` from `GripperCyclicMessage`.
+  supplies it; commanding is its own tier and its own spec. Core's contract for it is
+  settled in `kinova-gen3-driver`'s `2026-09-01-gripper-tier-design.md`; its Plan 1 (types,
+  `GripperController`, KORTEX reading velocity/current/presence) has landed, and the
+  `GripperSink` port this repo would talk to has not.
+- **Filling in gripper velocity.** Blocked on core surfacing `GripperFeedback` through
+  `ArmState` — `publish_state` receives nothing else, so there is currently no gripper
+  data to publish. Effort is NOT pending; see the correction above.
+- **Publishing all six Robotiq joints.** `/joint_states` needs every movable joint before
+  `robot_state_publisher` emits any TF, and it does not derive mimics, so the driver must
+  expand the one actuated angle through the ±1 multipliers itself. That is what flips
+  `articulated:=true` from a switch nobody can use into the default.
 - **Real2sim URDF tuning.** Mass, friction and tool-frame calibration against the real
   arm. This package makes it *possible* by giving the model a reproducible source, and the
   parity harness above is the natural place to hang it, but the calibration itself is

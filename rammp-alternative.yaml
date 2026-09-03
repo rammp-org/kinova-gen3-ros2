@@ -1,0 +1,36 @@
+# The arm driver.
+#
+# The container is defined in deploy/compose.yaml, not inline: this module is
+# two containers, and the compose-file path is the only one sheppy interpolates
+# ${VAR} on. See docs/interface.md for the actions and services this fragment
+# has no way to declare.
+id: kinova_gen3_driver
+tier: experimental
+kind: docker
+# Keys the params file written by sheppy, so our parameters land on this node
+# rather than the /** wildcard. arbitration_mode is READ-ONLY at launch, so a
+# params file at startup is the only path by which it can ever be set.
+ros_node_name: kinova_gen3_node
+compose:
+  file: deploy/compose.yaml
+  service: kinova_gen3_driver
+params:
+  arbitration_mode: disabled
+  estop_clear_max_age_s: 1.0
+  expect_gripper: true
+publishes:
+  - /joint_states
+  - /ee_state
+  - /control_status
+  - /stream_status
+  - /gripper_state
+  - /diagnostics
+subscribes:
+  - /estop
+  - /setpoint/joint_position
+  - /setpoint/joint_velocity
+  - /setpoint/joint_torque
+  - /setpoint/pose
+  - /setpoint/twist
+  - /setpoint/wrench
+  - /setpoint/gripper

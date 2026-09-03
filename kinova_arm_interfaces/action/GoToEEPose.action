@@ -1,10 +1,12 @@
 # Goal — move the tool (tool_frame) to a base_link pose; cuRobo plans collision-free.
 geometry_msgs/PoseStamped target   # frame_id MUST be base_link (rejected otherwise)
 string sender_id                   # arbitration hook, mirrors ExecuteJointTrajectory
+uint8[16] token                    # arbitration capability from /acquire_control
 ---
 # Result
 int32   error_code   # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4,
-                     # PREEMPTED=-6, PLANNING_FAILED=-7
+                     # PREEMPTED=-6, PLANNING_FAILED=-7,
+                     # NOT_AUTHORIZED=-8, HALTED=-9
 string  error_string
 trajectory_msgs/JointTrajectoryPoint final_error   # joint-space final error
 ---

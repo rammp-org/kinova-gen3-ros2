@@ -111,19 +111,245 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 | Topic | Type | QoS | Notes |
 |---|---|---|---|
 | `joint_states` | `sensor_msgs/JointState` | `SensorDataQoS` (**best-effort**) | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz. |
+| `control_status` | `kinova_arm_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately. |
+| `ee_state` | `kinova_arm_interfaces/EeState` | `SensorDataQoS` (**best-effort**) | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate. |
+| `stream_status` | `kinova_arm_interfaces/StreamStatus` | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | default | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_arm_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_arm_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives). |
 
-Because the QoS is best-effort, CLI subscribers must match it:
+Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
 
-### Subscribed topics / services
+**`ee_state` pose and twist are model-derived, not read from the arm.** Pose is `fk(q)`
+and twist is `J(q)·qd`, computed together in the driver's pump — so they agree with each
+other and with the model cuRobo plans against. The arm's own `tool_pose`/`tool_twist`
+feedback exists but sits in KORTEX's configured tool frame, which carries an offset the
+URDF does not know about; mixing the two would give a pose and a twist that disagree by
+an unknown transform. The frame is **`LOCAL_WORLD_ALIGNED`** — world-aligned at the tool,
+not the body frame.
 
-None. `set_gains` and `query_state` exist on the core's `CommandSink` but are not
-yet exposed as ROS2 services — that's the next plan.
+There is deliberately **no wrench**. The driver has no force estimate of its own, and the
+arm's `tool_external_wrench` is in that same tool frame; publishing a zero in sim or a
+frame-mismatched value on hardware would be worse than publishing nothing.
+
+The same judgement applies to the gripper, once it is published: its effort is a
+normalized 0..1 fraction derived from motor current, and `sensor_msgs/JointState.effort`
+is documented as N·m or N. So the gripper's **effort stays NaN in `/joint_states`
+permanently** — the fraction belongs on a future `/gripper_state` where its units can be
+stated, next to the raw current in amps. There is no force *feedback* on this hardware to
+report: the gripper's `force` is a current ceiling on the command side, and
+`MotorFeedback` has no force field at all.
+
+### Subscribed topics
+
+| Topic | Type | QoS | Notes |
+|---|---|---|---|
+| `/estop` | `kinova_arm_interfaces/EStop` | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
+| `/setpoint/joint_position` | `kinova_arm_interfaces/JointSetpoint` | best-effort, depth 1 | Joint angles, **rad**. |
+| `/setpoint/joint_velocity` | `kinova_arm_interfaces/JointSetpoint` | best-effort, depth 1 | Joint rates, **rad/s**. |
+| `/setpoint/joint_torque` | `kinova_arm_interfaces/JointSetpoint` | best-effort, depth 1 | Joint torques, **N·m**. |
+| `/setpoint/pose` | `kinova_arm_interfaces/PoseSetpoint` | best-effort, depth 1 | Target tool pose, base frame. |
+| `/setpoint/twist` | `kinova_arm_interfaces/TwistSetpoint` | best-effort, depth 1 | Target tool twist, base frame, `[linear; angular]`. |
+| `/setpoint/wrench` | `kinova_arm_interfaces/WrenchSetpoint` | best-effort, depth 1 | Target tool wrench. **No controller consumes this** — setpoints are dropped with a throttled warning. |
+
+The three `JointSetpoint` topics share one message shape and the **topic** carries the units.
+All six are subscribed unconditionally, but a setpoint is only applied while a matching
+streaming session is open and its token matches — see [Streaming](#streaming) for the
+controller-to-channel map and the open/close handshake.
+
+`/estop` is deliberately *not* latched. A `transient_local` subscription is
+incompatible with a volatile publisher, which is what `ros2 topic pub` and rqt
+produce — requesting durability would make an operator's e-stop silently fail to
+connect. This works:
+
+```bash
+ros2 topic pub --once /estop kinova_arm_interfaces/msg/EStop \
+  "{engaged: true, source: 'cli', reason: 'testing'}"
+```
+
+**Staleness is asymmetric, and both branches fail toward "the arm stays stopped":**
+`engaged: true` is never age-checked (a stale stop is still honoured), while
+`engaged: false` is refused if older than `estop_clear_max_age_s` — which stops a
+`ros2 bag` replay from re-enabling a stopped arm. An unstamped clear (all-zero
+stamp, what `ros2 topic pub` sends) is accepted with a warning.
+
+### Control-ownership services
+
+| Service | Type | Notes |
+|---|---|---|
+| `acquire_control` | `AcquireControl` | Mints a token. **SEIZES** — succeeds even when another client holds the arm, halting their in-flight motion (settled `-9`). |
+| `release_control` | `ReleaseControl` | Refused unless the token matches the current owner. |
+| `revoke_control` | `RevokeControl` | Operator override, no token. The recovery path for a crashed owner, since ownership has no lease. |
+
+```bash
+# acquire, then put the returned token on every goal
+ros2 service call /acquire_control kinova_arm_interfaces/srv/AcquireControl \
+  "{owner_id: 'orchestrator'}"
+```
+
+Every motion-commanding message carries a `uint8[16] token`; nothing that *stops*
+the arm or reads state does. With `arbitration_mode:=disabled` (the default) the
+token is ignored, so existing clients need no changes.
+
+> **Arbitration is cooperative coordination, not authorization.** `grant()` verifies
+> nothing about the caller, so anyone can acquire a valid token; it prevents mistakes
+> between known, cooperating participants, not deliberate actors. By operational
+> contract `acquire_control` is called by the task orchestrator and nothing else.
+> ROS action cancels are unauthenticated by protocol and cannot be otherwise. If the
+> domain ever contains unknown actors, the answer is SROS2 / DDS Security, not more
+> tokens. See `docs/superpowers/specs/2026-08-29-ros2-arbitration-tier-design.md`.
+
+`set_gains` and `query_state` exist on the core's `CommandSink` but are still not
+exposed as ROS2 services.
+
+### Streaming
+
+Teleop and reactive control drive the arm through a **session**: you name a
+*controller* (a control law), and the driver replies with the *channels* (topics)
+to publish on.
+
+| Service | Type | Notes |
+|---|---|---|
+| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below. |
+| `open_stream` | `OpenStream` | `controller, timeout_s, token` → `accepted, channels[], error_code, message` |
+| `close_stream` | `CloseStream` | `token` → `closed, message` |
+
+| Controller | Channel | Available |
+|---|---|---|
+| `joint_position` | `/setpoint/joint_position` | yes |
+| `joint_impedance` | `/setpoint/joint_position` | yes |
+| `ee_pose_impedance` | `/setpoint/pose` | yes — compliant; in-loop IK via `JointImpedanceMode` |
+| `ee_pose_position` | `/setpoint/pose` | yes — **stiff**; no compliance, full servo authority |
+| `joint_torque` | `/setpoint/joint_torque` | yes |
+| `joint_velocity` | `/setpoint/joint_velocity` | yes — **stiff by contract**: tracks the rate, does not yield to contact |
+| `ee_twist` | `/setpoint/twist` | yes — damped least squares with null-space posture |
+| `cartesian_impedance` | `/setpoint/pose`, `/setpoint/wrench` | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
+
+`available` is computed live from core's `pair_supported()`, so these rows light up
+when core grows the mode. That is not theoretical: `joint_velocity` and `ee_twist`
+flipped to available when core landed `JointVelocityMode`, with no change on this side
+beyond the test expectation.
+
+**Velocity and `ee_pose_position` are stiff.** Neither yields to contact — the servo
+chases the command at full authority, and nothing absorbs a mistake. `joint_impedance`
+and `ee_pose_impedance` are the compliant options.
+
+Note that `SimTransport` is a static echo with no velocity plant, so a velocity or twist
+session commands correctly in sim but produces **no motion**. That the setpoints are
+landing is still observable: they refresh the session deadline, so `/stream_status` stays
+`open` past `timeout_s` only while they are actually arriving.
+
+```bash
+ros2 service call /acquire_control kinova_arm_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
+ros2 service call /list_controllers kinova_arm_interfaces/srv/ListControllers "{}"
+# create your publisher and let discovery settle BEFORE opening -- see below
+ros2 service call /open_stream kinova_arm_interfaces/srv/OpenStream \
+  "{controller: 'joint_impedance', timeout_s: 0.1, token: [...]}"
+# publish on the returned channel, faster than timeout_s
+ros2 service call /close_stream kinova_arm_interfaces/srv/CloseStream "{token: [...]}"
+```
+
+**Create your publisher before you open.** DDS discovery can take hundreds of
+milliseconds and a session deadline is typically 100 ms. Open first and your early
+setpoints go nowhere, so the session expires before it ever drives the arm. This is
+why `list_controllers` reports channels at all.
+
+**Four rules that bite:**
+
+- One session at a time; a second `open_stream` is refused, not queued.
+- The controller is fixed for the session's lifetime. Changing what you stream means
+  close-then-reopen, which re-pays the 250 ms mode settle.
+- Streams and trajectory goals refuse each other in both directions.
+- A setpoint on the wrong channel is dropped, counted, and **does not refresh the
+  deadline** — publishing hard on the wrong topic will not keep a session alive.
+
+**Setpoint topics are best-effort, depth 1.** That is core's semantics, not a
+tuning choice: setpoints are absolute and latest-wins, so a dropped intermediate is
+correct and a *late* one is harmful. CLI subscribers must match the QoS:
+
+```bash
+ros2 topic echo --qos-reliability best_effort /setpoint/joint_position
+```
+
+`/stream_status` (reliable, latched, on change) reports core's actual session — not
+this node's record of it — so a session torn down on deadline expiry or by an e-stop
+shows up immediately. Its `rejected_count` counts setpoints the **session** refused
+(wrong channel); token failures are counted by the Arbiter and appear on
+`/control_status` instead.
+
+`/setpoint/wrench` exists so the surface is complete, but no controller consumes it
+yet; messages are dropped with a throttled warning.
 
 ### Launch files
 
 There are none. The node takes plain CLI args and is started with `ros2 run`;
 adding a launch file has not been needed yet.
+
+## Robot model and TF
+
+`kinova_arm_description` holds the robot model and the launch plumbing. Start everything
+with:
+
+```bash
+ros2 launch kinova_arm_description bringup.launch.py sim:=true
+# or against the arm:
+ros2 launch kinova_arm_description bringup.launch.py sim:=false ip:=192.168.1.10
+```
+
+That runs the driver and `robot_state_publisher` on the **same model**, which is the
+point of the package. For TF only, without owning the arm:
+
+```bash
+ros2 launch kinova_arm_description description.launch.py
+```
+
+### The model is generated, not vendored
+
+`urdf/kinova_arm.urdf.xacro` composes `kortex_description`'s arm with
+`robotiq_description`'s 2F-85, and CMake expands it at build time into **two** URDFs:
+
+| file | DOF | for |
+|---|---|---|
+| `kinova_arm_7dof.urdf` | 7 | the driver, and `robot_state_publisher` by default |
+| `kinova_arm.urdf` | 13 | a moving gripper; `articulated:=true` |
+
+Two, because they cannot be one:
+
+- **Core's `Dynamics` asserts `nv == 7`** and aborts otherwise
+  (`URDF nv=13 != kNumJoints=7`). `JointVec` is a fixed-size 7-vector.
+- **`robot_state_publisher` publishes nothing until it has every movable joint.** Given
+  7 of the articulated model's 13 it emits no `/tf` at all — not a partial tree. It does
+  **not** derive mimic joints, so publishing only the actuated knuckle is not enough
+  either. Since the driver publishes seven joint states, the 7-DOF model is the one that
+  actually produces TF today.
+
+Freezing the gripper drops its degrees of freedom, **not its mass** — Pinocchio lumps a
+fixed joint's body into its parent — so gravity compensation is unaffected. That is
+almost certainly why the hand-edited model this replaces had every Robotiq joint fixed.
+
+Set `articulated:=true` once something publishes the gripper's six joints, either the
+driver computing the mimics itself or `joint_state_publisher` in the chain.
+
+### The invariant
+
+**The driver publishes `joint_1 … joint_7` and the model must agree.** It did not
+before: the old URDF used `gen3_joint_1 … gen3_joint_7`, so `robot_state_publisher`
+matched nothing and held TF at the default configuration while the arm really moved.
+Nothing errored. `test_tf_updates.py` asserts the transform *changes*, not merely that
+it exists.
+
+`--ee-frame` exists for the same reason. `Dynamics` resolves the EE frame by name and
+throws if it is absent; core defaults to `gen3_end_effector_link` for its own tests,
+while the generated model uses `end_effector_link`, which the launch passes.
+
+### Known gaps
+
+- The **wrist camera and its 0.5 kg mount are not in the generated model** — they were in
+  the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
+  the resulting 0.436 kg difference so it cannot be forgotten; if the physical arm
+  carries them, gravity compensation is under-modelled by that much at the wrist.
+- The **gripper joint is not published**, so the gripper renders at its default opening.
+- Model configuration (`gripper`, `camera`, `prefix`) is a **build-time** xacro arg, not
+  a launch argument.
 
 ## Node arguments
 
@@ -149,6 +375,24 @@ the rate-limited reference, so the throttle manufactures the very divergence tha
 trips `PATH_TOLERANCE_VIOLATED`. The node therefore seeds this from the URDF and
 logs the result at startup; pass the flag only to go deliberately *slower*, e.g.
 for a cautious first on-robot run.
+
+### ROS parameters
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `arbitration_mode` | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch. |
+| `estop_clear_max_age_s` | `1.0` | Age beyond which an `/estop` *clear* is ignored. `<= 0` disables the check. Engaging is never age-checked. |
+
+```bash
+ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf models/gen3_7dof_2f85.urdf \
+  --ros-args -p arbitration_mode:=enforced
+```
+
+`arbitration_mode` is **read-only on purpose**: core's `ArbitrationMode` is an
+`Arbiter` constructor argument with no setter, so a dynamic parameter would appear
+to work and silently do nothing. It defaults to `disabled` so every existing client
+and script keeps working unchanged — which costs no safety, because `estop()`
+latches over *both* modes; `kDisabled` is the one thing e-stop does not bypass.
 
 Build option `KINOVA_ENABLE_KORTEX` (default `OFF`) selects whether the real
 `KortexTransport` path is compiled in. With it OFF the node is sim-only and exits

@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>kinova_arm_description</name>
+  <version>0.1.0</version>
+  <description>Kinova Gen3 7-DOF robot model, composed from upstream descriptions.</description>
+  <maintainer email="swapnil.pande98@gmail.com">Swapnil Pande</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <!-- xacro is needed at BUILD time: CMakeLists expands the model for core's Pinocchio,
+       which cannot read xacro. -->
+  <build_depend>xacro</build_depend>
+  <build_depend>kortex_description</build_depend>
+  <build_depend>robotiq_description</build_depend>
+  <build_depend>realsense2_description</build_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>kortex_description</exec_depend>
+  <exec_depend>robotiq_description</exec_depend>
+  <exec_depend>realsense2_description</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

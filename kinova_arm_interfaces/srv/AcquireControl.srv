@@ -1,0 +1,9 @@
+# Acquire control of the arm. SEIZES: if another owner holds the arm this succeeds
+# anyway, halting their in-flight motion (settled -9). By operational contract this
+# is called by the task orchestrator and nothing else.
+string owner_id      # human-readable label; mirrors the actions' sender_id
+---
+bool      accepted
+uint8[16] token      # the capability; put it on every motion-commanding goal
+uint64    generation
+string    message

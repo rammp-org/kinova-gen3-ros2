@@ -37,11 +37,18 @@ struct FakeSupervisor : public kinova::interface::CommandSink {
     port.settle(id, r);   // simulate immediate successful execution
   }
   kinova::interface::CancelResponse on_trajectory_cancel(
-      const kinova::interface::GoalId& id) override {
+      const kinova::interface::CancelRequest& req) override {
     kinova::interface::TrajectoryResult r;
     r.error_code = kinova::interface::result_code::kPreempted;
-    port.settle(id, r);
+    port.settle(req.id, r);
     return kinova::interface::CancelResponse::kAccept;
+  }
+  // Ownership revocation and /estop both land here. Nothing arbitrates in front
+  // of this fake, so it only records that the halt arrived.
+  bool halted = false;
+  kinova::interface::HaltReason halt_reason{};
+  void on_halt(kinova::interface::HaltReason why) override {
+    halted = true; halt_reason = why;
   }
   kinova::interface::GainsResult on_set_gains(
       const kinova::interface::GainsRequest&) override { return {}; }

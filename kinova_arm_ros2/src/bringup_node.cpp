@@ -7,17 +7,23 @@
 #include <thread>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "kinova_arm_ros2/ros2_backend.h"
 #include "kinova_arm_ros2/curobo_plan_client.h"
 #include "kinova_arm_ros2/goal_router.h"
 #include "kinova_arm_ros2/goto_ee_pose_server.h"
 #include "kinova_arm_ros2/goto_joint_config_server.h"
 #include "kinova_arm_ros2/goto_preset_server.h"
+#include "kinova_arm_ros2/arbitration_server.h"
+#include "kinova_arm_ros2/stream_server.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
+#include "kinova_lowlevel/interface/arbiter.h"
 #include "kinova_lowlevel/interface/supervisor.h"
 #include "kinova_lowlevel/joint_impedance_mode.h"
 #include "kinova_lowlevel/joint_position_mode.h"
+#include "kinova_lowlevel/joint_torque_mode.h"
+#include "kinova_lowlevel/joint_velocity_mode.h"
 #include "kinova_lowlevel/rt_executor.h"
 #include "kinova_lowlevel/sim_transport.h"
 #include "kinova_lowlevel/telemetry.h"
@@ -58,16 +64,23 @@ std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& node) {
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   std::string urdf = "models/gen3_7dof_2f85.urdf", ip;
+  // Dynamics resolves the EE frame BY NAME and throws if it is absent, so the
+  // default has to match whichever model is loaded. Core's own default is
+  // gen3_end_effector_link, matching the hand-edited models/ URDF its tests use;
+  // kinova_arm_description generates end_effector_link. Overridable rather than
+  // hard-coded so both models work from this one binary.
+  std::string ee_frame = "gen3_end_effector_link";
   bool use_sim = false; int cpu = -1, prio = 80; double rate = 1000.0;
   double max_ref_speed = 0.0;          // <=0 => seed from the URDF velocity limits
   for (int i = 1; i < argc; ++i) { std::string a = argv[i];
     auto nxt = [&]{ return std::string(argv[++i]); };
     if (a == "--sim") use_sim = true; else if (a == "--ip") ip = nxt();
     else if (a == "--urdf") urdf = nxt(); else if (a == "--cpu") cpu = std::stoi(nxt());
+    else if (a == "--ee-frame") ee_frame = nxt();
     else if (a == "--rt-priority") prio = std::stoi(nxt()); else if (a == "--rate") rate = std::stod(nxt());
     else if (a == "--max-ref-speed") max_ref_speed = std::stod(nxt()); }
 
-  Dynamics dyn(urdf), pump_dyn(urdf);
+  Dynamics dyn(urdf, ee_frame), pump_dyn(urdf, ee_frame);
   std::unique_ptr<Transport> base;
   if (use_sim) { JointFeedback init; base = std::make_unique<SimTransport>(init); }
   else {
@@ -94,11 +107,41 @@ int main(int argc, char** argv) {
   if (max_ref_speed > 0.0) pos_params.max_ref_speed.setConstant(max_ref_speed);
   else                     dyn.velocity_limits(pos_params.max_ref_speed);
   JointPositionMode pos(dyn, pos_params); JointImpedanceMode imp(dyn);
+  // The Supervisor holds all three modes because the streaming tier can open a
+  // session in any of them. This node drives only trajectories (position and
+  // impedance), so tau is never entered here -- but the supervisor needs it to
+  // construct, and it defaults to gravity compensation with no tau_ff set.
+  JointTorqueMode tau(dyn);
+  // The Supervisor holds every mode a streaming session can open in. Velocity mode is
+  // STIFF by contract -- it tracks the commanded rate and does not yield to contact --
+  // and its max_qd is seeded from the URDF when left non-finite, so the default here
+  // is already the hardware's rating rather than a guess.
+  JointVelocityMode vel(dyn);
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
   auto node = std::make_shared<rclcpp::Node>("kinova_arm_node");
   auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node);
+
+  // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with no
+  // setter, so a dynamic parameter would appear to work and silently do nothing.
+  // Defaults to "disabled" so every existing client and script keeps working; that
+  // costs no safety, because estop() latches over BOTH modes.
+  rcl_interfaces::msg::ParameterDescriptor mode_desc;
+  mode_desc.read_only = true;
+  mode_desc.description = "enforced | disabled. Launch-time only; core has no setter.";
+  const std::string mode_str =
+      node->declare_parameter("arbitration_mode", "disabled", mode_desc);
+  if (mode_str != "enforced" && mode_str != "disabled") {
+    RCLCPP_FATAL(node->get_logger(),
+                 "arbitration_mode must be 'enforced' or 'disabled', got '%s'",
+                 mode_str.c_str());
+    return 1;
+  }
+  const auto arb_mode = (mode_str == "enforced") ? interface::ArbitrationMode::kEnforced
+                                                 : interface::ArbitrationMode::kDisabled;
+  const double estop_clear_max_age_s =
+      node->declare_parameter("estop_clear_max_age_s", 1.0);
 
   // Router demuxes the Supervisor's single ActionServerPort by GoalId; the
   // pre-existing ExecuteJointTrajectory backend is the default (fall-through) port.
@@ -114,11 +157,36 @@ int main(int argc, char** argv) {
   kinova_arm_ros2::GoToPresetServer preset_server(node, router, planner, cb_group,
                                                   load_presets(*node));
 
-  interface::Supervisor sup(pos, imp, exec, snap, pump_dyn, *backend, router);
-  backend->set_command_sink(&sup);
-  goto_server.set_command_sink(&sup);
-  jc_server.set_command_sink(&sup);
-  preset_server.set_command_sink(&sup);
+  // Core takes a SupervisorDeps aggregate rather than positional arguments, so the
+  // mode/port wiring reads by name. `grip` is left NULL deliberately: null means this
+  // robot has no gripper, which core treats as a real configuration -- gripper commands
+  // become no-ops and on_query_gripper reports present=false. This node does not expose
+  // a gripper surface yet, so absent is the honest answer rather than a half-wired one.
+  interface::SupervisorDeps deps;
+  deps.pos = &pos;  deps.imp = &imp;  deps.tau = &tau;  deps.vel = &vel;
+  deps.exec = &exec;  deps.snap = &snap;  deps.pump_dyn = &pump_dyn;
+  deps.stream = backend.get();        // Ros2Backend publishes /joint_states + /ee_state
+  deps.action = &router;              // GoalRouter demuxes the single ActionServerPort
+  interface::Supervisor sup(deps);
+  // Supervisor implements CommandSink, StreamSink AND GripperSink, so it is passed
+  // three times -- the idiom core's own tests use
+  // (Arbiter arb{sink, sink, sink, mode, seed}).
+  interface::Arbiter arb(sup, sup, sup, arb_mode);
+  // Declared AFTER arb so it is destroyed FIRST: it must stop accepting ROS calls
+  // before arb stops delegating, and arb before sup goes away. (The servers are
+  // declared before sup and so outlive all of it, as the comment above requires.)
+  kinova_arm_ros2::ArbitrationServer arbitration_server(
+      node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
+  // Wired to the Arbiter, not the Supervisor: that is how setpoint tokens get checked
+  // at all. Declared here so it is destroyed before arb stops delegating.
+  kinova_arm_ros2::StreamServer stream_server(node, arb);
+
+  // Every command path now goes through the Arbiter rather than straight to the
+  // Supervisor. Nothing else about the servers changes.
+  backend->set_command_sink(&arb);
+  goto_server.set_command_sink(&arb);
+  jc_server.set_command_sink(&arb);
+  preset_server.set_command_sink(&arb);
 
   // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
   // defaults to SIGTERM, not SIGINT) — rclcpp's own default handler logs and
@@ -135,9 +203,12 @@ int main(int argc, char** argv) {
   std::thread drain([&]{ CycleSample s; while (!g_stop.load()) { while (ring.pop(s)) {} std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (ring.pop(s)) {} });
 
   RCLCPP_INFO(node->get_logger(),
-              "kinova_arm_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose, "
-              "/go_to_joint_config, /go_to_preset",
-              use_sim ? "sim" : "real");
+              "kinova_arm_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
+              "/go_to_ee_pose, /go_to_joint_config, /go_to_preset; control: "
+              "/acquire_control, /release_control, /revoke_control, /estop, /control_status; "
+              "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "
+              "/stream_status",
+              use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",
               pos_params.max_ref_speed[0], pos_params.max_ref_speed[1],

@@ -713,7 +713,8 @@ void CuroboPlanClient::plan(const geometry_msgs::msg::Pose& target,
   }
 
   PlanToPose::Goal goal;
-  goal.target = target;   // start_joints left empty -> cuRobo reads our /joint_states
+  goal.target = target;
+  goal.start_joints = start_joints;   // plan from where the arm actually is
 
   rclcpp_action::Client<PlanToPose>::SendGoalOptions opts;
   opts.goal_response_callback = [this, fire](std::shared_ptr<GoalHandle> gh) {

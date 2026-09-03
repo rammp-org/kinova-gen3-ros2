@@ -85,7 +85,8 @@ float64[] start_joints`; Result `bool success, string message,
 trajectory_msgs/JointTrajectory trajectory, float64 planning_time, float64
 goal_mismatch_rad`; Feedback `string state`). New method:
 `void plan_to_joints(const std::vector<double>& target_joints, FeedbackCb, DoneCb)`
-returning the same `Outcome{ok,message,trajectory}` (start_joints left empty → cuRobo
+returning the same `Outcome{ok,message,trajectory}` (start_joints filled from the
+arm node's measured state; the empty form would make cuRobo
 reads our `/joint_states`).
 
 The existing `plan()` and the new `plan_to_joints()` share a **private templated

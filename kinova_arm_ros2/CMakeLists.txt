@@ -106,9 +106,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(gripper_server_test test/gripper_server_test.cpp)
   target_include_directories(gripper_server_test PRIVATE test)
-  target_link_libraries(gripper_server_test gripper_server)
+  target_link_libraries(gripper_server_test gripper_server ros2_backend)
   ament_target_dependencies(gripper_server_test
-    rclcpp kinova_arm_interfaces diagnostic_msgs diagnostic_updater)
+    rclcpp kinova_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
   target_include_directories(arbitration_server_test PRIVATE test)

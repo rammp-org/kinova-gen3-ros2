@@ -1,7 +1,9 @@
 // kinova_arm_ros2/src/ros2_backend.cpp
 #include "kinova_arm_ros2/ros2_backend.h"
 #include <functional>
+#include <limits>
 #include "kinova_lowlevel/joint_types.h"
+#include "kinova_arm_ros2/message_mapping.h"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 namespace kinova_arm_ros2 {
 using namespace kinova::interface;
@@ -100,6 +102,29 @@ void Ros2Backend::publish_state(const ArmState& s) {
     msg.velocity[i] = s.qd[i];
     msg.effort[i] = s.tau[i];
   }
+
+  if (gripper_ != nullptr) {
+    // ONE joint: the 2F-85 is underactuated -- one revolute DOF and five <mimic> joints
+    // at +/-1, which robot_state_publisher derives itself (verified 2026-09-03).
+    // Publishing the dependents too would duplicate what the model already states.
+    //
+    // Published REGARDLESS of `present`: omitting an independent movable joint makes RSP
+    // emit no TF for the whole robot, so a missing gripper would break the ARM's TF.
+    // /gripper_state carries the truth about presence instead.
+    //
+    // This is a second snap_ load inside core, so the value can be up to one 1 kHz
+    // feedback frame newer than `s`. Irrelevant for TF; noted because the conformance
+    // suite's same-pump-tick invariant covers joint_states and ee_state, not this column.
+    const auto g = gripper_->on_query_gripper();
+    msg.name.push_back("robotiq_85_left_knuckle_joint");
+    msg.position.push_back(gripper_to_knuckle_rad(g.position));
+    // NaN, never 0: sensor_msgs' convention for "no measurement". Zero would be
+    // indistinguishable from "not moving" / "no load". Core has no gripper velocity at
+    // all (it removed the field), and its effort is a 0..1 current fraction, not N*m.
+    msg.velocity.push_back(std::numeric_limits<double>::quiet_NaN());
+    msg.effort.push_back(std::numeric_limits<double>::quiet_NaN());
+  }
+
   state_pub_->publish(msg);
 
   kinova_arm_interfaces::msg::EeState ee;

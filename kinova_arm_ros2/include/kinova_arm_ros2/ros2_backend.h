@@ -22,6 +22,9 @@ class Ros2Backend : public kinova::interface::ActionServerPort,
 
   explicit Ros2Backend(rclcpp::Node::SharedPtr node);
   void set_command_sink(kinova::interface::CommandSink* sink) { sink_ = sink; }
+  // Null until bringup wires it -- and null is a real configuration, not an omission:
+  // a robot with no gripper publishes seven joints exactly as before this tier.
+  void set_gripper_sink(kinova::interface::GripperSink* sink) { gripper_ = sink; }
 
   // ActionServerPort (called by the supervisor sampler thread):
   void publish_feedback(const kinova::interface::GoalId&, const kinova::interface::TrajectoryFeedback&) override;
@@ -52,6 +55,7 @@ class Ros2Backend : public kinova::interface::ActionServerPort,
   std::atomic<double> arm_stamp_s_{0.0};
   std::atomic<bool>   ever_published_{false};
   kinova::interface::CommandSink* sink_ = nullptr;
+  kinova::interface::GripperSink* gripper_ = nullptr;
   std::mutex m_;
   // The goal's token, kept so cancel can replay it. A ROS action cancel carries no
   // payload (action_msgs/CancelGoal is one GoalInfo), so without this a cancel would

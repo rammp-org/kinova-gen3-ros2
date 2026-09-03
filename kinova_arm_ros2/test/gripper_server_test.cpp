@@ -64,3 +64,50 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
   EXPECT_FLOAT_EQ(got.effort, 0.05f);
   EXPECT_TRUE(got.present);
 }
+
+#include "kinova_arm_ros2/ros2_backend.h"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include <cmath>
+
+// The joint is published even when present == false. Omitting it would leave
+// robot_state_publisher without a value for an independent movable joint, and RSP then
+// emits NO TF for the ENTIRE robot -- a missing gripper would break the arm's TF.
+TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
+  FakeGripperSink sink;
+  sink.state.position = 0.5f; sink.state.present = false;
+  auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node_);
+  backend->set_gripper_sink(&sink);
+
+  sensor_msgs::msg::JointState got;
+  bool seen = false;
+  auto sub = node_->create_subscription<sensor_msgs::msg::JointState>(
+      "/joint_states", rclcpp::SensorDataQoS(),
+      [&](sensor_msgs::msg::JointState::SharedPtr m) { got = *m; seen = true; });
+  spin_for(200ms);
+
+  kinova::interface::ArmState s;
+  for (int i = 0; i < 20 && !seen; ++i) { backend->publish_state(s); spin_for(20ms); }
+
+  ASSERT_TRUE(seen);
+  ASSERT_EQ(got.name.size(), 8u);
+  EXPECT_EQ(got.name[7], "robotiq_85_left_knuckle_joint");
+  EXPECT_DOUBLE_EQ(got.position[7], 0.4);          // 0.5 * 0.8
+  EXPECT_TRUE(std::isnan(got.velocity[7]));        // core removed the field entirely
+  EXPECT_TRUE(std::isnan(got.effort[7]));          // 0..1 fraction, not N*m
+}
+
+// Without a sink wired, the message is exactly what it was before this tier.
+TEST_F(GripperServerTest, NoGripperSinkMeansSevenJointsAsBefore) {
+  auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node_);
+  sensor_msgs::msg::JointState got;
+  bool seen = false;
+  auto sub = node_->create_subscription<sensor_msgs::msg::JointState>(
+      "/joint_states", rclcpp::SensorDataQoS(),
+      [&](sensor_msgs::msg::JointState::SharedPtr m) { got = *m; seen = true; });
+  spin_for(200ms);
+
+  kinova::interface::ArmState s;
+  for (int i = 0; i < 20 && !seen; ++i) { backend->publish_state(s); spin_for(20ms); }
+  ASSERT_TRUE(seen);
+  EXPECT_EQ(got.name.size(), 7u);
+}

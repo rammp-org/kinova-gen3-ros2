@@ -50,10 +50,10 @@ ROS_FLAGS := --network host --ipc host -e ROS_DOMAIN_ID=0 -e RMW_IMPLEMENTATION=
 RT_FLAGS  := --cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1
 RUN       := docker run --rm $(ROS_FLAGS) $(RT_FLAGS)
 
-.PHONY: build build-real sim e2e shell stage-kortex real
+.PHONY: build build-real sim e2e shell stage-kortex real run check smoke lint
 
 build:                     ## Build the sim image
-	docker build -f docker/Dockerfile $(CORE_ARG) -t $(IMAGE) .
+	docker build $(CORE_ARG) -t $(IMAGE) .
 
 sim: build                 ## Run the node in sim, foreground
 	$(RUN) -it --name kinova_gen3_sim $(IMAGE) $(NODE) --sim $(NODE_ARGS)
@@ -71,6 +71,27 @@ e2e: build                 ## Sim integration check (success + path-tolerance ab
 	  echo "--- node scheduling policy (expect SCHED_FIFO/80) ---"; \
 	  docker exec kinova_gen3_e2e chrt -p 1
 
+# --- the RAMMP module standard's targets -------------------------------------
+# These four are what `rammp-module-template` expects every module to answer to.
+# The targets above stay: they carry the RT run flags and the KORTEX staging
+# step, which the standard has no place for and which are the difference
+# between a working arm and a confusing failure.
+
+run:                       ## Run the sim image, the way the standard does
+	$(RUN) -it $(IMAGE) $(NODE) --sim $(NODE_ARGS)
+
+# Validated against sheppy itself rather than a copied script -- see
+# scripts/check_fragments.py for why.
+check:                     ## Validate the fragments
+	uv run --with pyyaml --with "sheppy @ git+https://github.com/rammp-org/sheppy@main" \
+	  python3 scripts/check_fragments.py rammp-alternative*.yaml
+
+smoke:                     ## Does it publish, and does it exit on SIGTERM?
+	SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh $(IMAGE)
+
+lint:                      ## pre-commit run --all-files
+	pre-commit run --all-files
+
 shell:                     ## Interactive shell in the image
 	$(RUN) -it $(IMAGE) bash
 
@@ -85,7 +106,7 @@ stage-kortex:              ## Copy the aarch64 KORTEX SDK into docker/vendor/
 # want ahead of an attended session so the ~minutes of build are not happening
 # with the arm powered and someone holding the e-stop.
 build-real: stage-kortex   ## Build the KORTEX-enabled image only
-	docker build -f docker/Dockerfile $(CORE_ARG) --build-arg KINOVA_ENABLE_KORTEX=ON \
+	docker build $(CORE_ARG) --build-arg KINOVA_ENABLE_KORTEX=ON \
 	  --build-arg KORTEX_SDK_DIR=$(KORTEX_SDK_DIR) -t $(IMAGE_REAL) .
 
 # ATTENDED ONLY — docs/on-robot-runbook.md. e-stop in hand.

@@ -484,11 +484,23 @@ void GripperServer::publish_state(const builtin_interfaces::msg::Time& stamp) {
 
 - [ ] **Step 6: Register the source and the test in CMakeLists.txt**
 
-In `kinova_arm_ros2/CMakeLists.txt`, add `src/gripper_server.cpp` to the same `add_library` that already lists `src/stream_server.cpp`. Then add a test target next to the existing `stream_server_test` registration, following its exact form:
+In `kinova_arm_ros2/CMakeLists.txt`, add a `gripper_server` library. This repo uses ONE
+LIBRARY PER SOURCE FILE (`message_mapping`, `goal_router`, `ros2_backend`,
+`arbitration_server`, `stream_server` are each their own `add_library`) — there is no
+combined library to append to. It must link `message_mapping`, because
+`to_gripper_setpoint`/`to_gripper_state_msg` live there; `ros2_backend` links it the same
+way at line 48. Omitting that link fails at the link step, not at compile:
+`undefined reference to kinova_arm_ros2::to_gripper_setpoint(...)`.
+
+Then add a test target next to the existing `stream_server_test` registration, following its
+exact form:
 
 ```cmake
+add_library(gripper_server src/gripper_server.cpp)
+target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_lowlevel)
+
 ament_add_gtest(gripper_server_test test/gripper_server_test.cpp)
-target_link_libraries(gripper_server_test ros2_backend)
+target_link_libraries(gripper_server_test gripper_server)
 ament_target_dependencies(gripper_server_test rclcpp kinova_arm_interfaces)
 target_include_directories(gripper_server_test PRIVATE test)
 ```

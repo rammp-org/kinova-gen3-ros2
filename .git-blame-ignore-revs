@@ -6,3 +6,6 @@
 
 # style: apply the org clang-format
 2ab7361fbadab56dbe7dab9276a0d58ff4b76aeb
+
+# style: apply ruff and mdformat
+a8cef42c1e218b4d321cbbdd0cdeefa2be907b6e

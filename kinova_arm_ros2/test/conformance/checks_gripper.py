@@ -19,15 +19,40 @@ KNUCKLE = "robotiq_85_left_knuckle_joint"
 
 @REGISTRY.add(SEC, "/gripper_state publishes and is self-consistent")
 def check_gripper_state(ctx):
-    g = ctx.latest("gripper_state", timeout=6.0, fresh=True)
-    if g is None:
+    g0 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
+    if g0 is None:
         return Result("", FAIL, "no /gripper_state")
-    if not (0.0 <= g.position <= 1.0):
-        return Result("", FAIL, f"position {g.position} outside [0,1]")
-    if not (0.0 <= g.effort <= 1.0):
-        return Result("", FAIL, f"effort {g.effort} outside [0,1] -- it is a fraction")
-    return Result("", PASS, f"present={g.present} position={g.position:.3f} "
-                            f"effort={g.effort:.3f} current={g.current:.3f}A")
+    if not (0.0 <= g0.position <= 1.0):
+        return Result("", FAIL, f"position {g0.position} outside [0,1]")
+    if not (0.0 <= g0.effort <= 1.0):
+        return Result("", FAIL, f"effort {g0.effort} outside [0,1] -- it is a fraction")
+    # Range checks alone pass vacuously on a stuck publisher emitting a default
+    # GripperState{} forever. Take a second sample after a real wait and require the
+    # header stamp to have advanced -- /gripper_state publishes at 20 Hz, so a live
+    # publisher clears this easily and a stuck one cannot.
+    ctx.spin(0.5)
+    g1 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
+    if g1 is None:
+        return Result("", FAIL, "no /gripper_state on the second sample")
+    t0 = (g0.header.stamp.sec, g0.header.stamp.nanosec)
+    t1 = (g1.header.stamp.sec, g1.header.stamp.nanosec)
+    if t1 <= t0:
+        return Result("", FAIL, f"header.stamp did not advance ({t0} -> {t1}) -- the "
+                                f"publisher looks stuck, not live")
+    # Cross-surface check: /gripper_state.position and the knuckle joint in
+    # /joint_states describe the same physical quantity through two independent paths,
+    # related by the 0.8 rad scale factor. A mis-scaled or mis-wired mapping would pass
+    # the range checks above but disagree here.
+    js = ctx.latest("joint_states", timeout=6.0, fresh=True)
+    if js is None or KNUCKLE not in js.name:
+        return Result("", FAIL, f"{KNUCKLE} missing from /joint_states")
+    q = js.position[list(js.name).index(KNUCKLE)]
+    if abs(q - g1.position * 0.8) >= 0.02:
+        return Result("", FAIL, f"/joint_states {KNUCKLE}={q:.4f} disagrees with "
+                                f"/gripper_state position*0.8={g1.position * 0.8:.4f}")
+    return Result("", PASS, f"present={g1.present} position={g1.position:.3f} "
+                            f"effort={g1.effort:.3f} current={g1.current:.3f}A, "
+                            f"stamp advanced {t0}->{t1}, matches joint_states")
 
 
 @REGISTRY.add(SEC, "the actuated joint appears in /joint_states, within its URDF limits")

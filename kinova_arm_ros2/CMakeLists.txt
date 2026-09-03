@@ -63,6 +63,15 @@ target_include_directories(stream_server PUBLIC
 ament_target_dependencies(stream_server rclcpp kinova_arm_interfaces geometry_msgs std_msgs)
 target_link_libraries(stream_server kinova_lowlevel::kinova_lowlevel)
 
+# The ROS face of core's GripperSink: /setpoint/gripper in, /gripper_state out, plus the
+# REP 107 /diagnostics contribution. Holds only a GripperSink&.
+add_library(gripper_server src/gripper_server.cpp)
+target_include_directories(gripper_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(gripper_server
+  rclcpp kinova_arm_interfaces diagnostic_msgs diagnostic_updater)
+target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_arm_node
@@ -94,6 +103,12 @@ if(BUILD_TESTING)
   target_include_directories(stream_server_test PRIVATE test)
   target_link_libraries(stream_server_test stream_server)
   ament_target_dependencies(stream_server_test rclcpp kinova_arm_interfaces geometry_msgs)
+
+  ament_add_gtest(gripper_server_test test/gripper_server_test.cpp)
+  target_include_directories(gripper_server_test PRIVATE test)
+  target_link_libraries(gripper_server_test gripper_server)
+  ament_target_dependencies(gripper_server_test
+    rclcpp kinova_arm_interfaces diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
   target_include_directories(arbitration_server_test PRIVATE test)

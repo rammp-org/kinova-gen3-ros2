@@ -88,3 +88,69 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   - coordinated two-joint (j5 +0.40, j6 −0.40) over 2.5s → SUCCEEDED, both on target
     (j5 0.960→1.360, j6 2.042→1.642). Multi-joint client: `--joint 5,6 --delta 0.4,-0.4`
     (note: put a positive delta first — argparse treats a leading `-` value as a flag).
+- **2026-09-01 (attended, e-stop):** First **containerized** real-arm run, and the first time
+  the conformance suite pointed at hardware rather than sim. Image built with
+  `make build-real CORE_REF=integration/velocity-and-stream-status` (core `6c741d0`) — the
+  container path was chosen deliberately over `scripts/abra_colcon.sh`, because the local core
+  working tree sits on the unpushed `feat/gripper-tier-spec`, which is ahead of anything the
+  ROS surface can build against. Node run with `arbitration_mode:=enforced`.
+  **28/28 passed, 0 failed, 0 skipped.** No faults, dropped samples, or major page faults in the
+  telemetry drain. `/ee_state` read p=(0.457, 0.001, 0.434), |p|=0.630 m at home.
+  - First attempt aborted before any conformance check completed and the node exited. **The
+    cause was not captured** — that container ran with `--rm`, so its logs died with it. Run
+    the node WITHOUT `--rm` on hardware; a lost log costs a whole attended session.
+    Confirmed: the arm was parked folded up with **joint 4 at -2.660018 rad, 1.8e-5 rad outside
+    its [-2.66, 2.66] URDF limit**, and the operator independently observed the arm against a
+    joint limit. Suspected, not proven: that pose breaks a premise the streaming section rests
+    on — it streams the arm's own *measured* configuration back at it, assuming that commanding
+    the arm where it already is must be admissible, which stops being true when the measured
+    pose sits microradians past a limit. Re-run from home (joint 4 at -2.269, 0.39 rad of
+    margin) passed clean. To settle it, reproduce at the limit with logs kept. Worth hardening
+    either way: the runner could clamp the echoed setpoint into limits, or the driver could
+    admit an epsilon-outside-limit setpoint that equals the measured pose.
+- **2026-09-01 (attended, e-stop) — velocity-mode teleop, two findings.** Hand-flying the EE
+  streaming controllers with an Xbox pad (`test/teleop_xbox.py`, throwaway) surfaced a real
+  hardware behaviour and a real driver crash. Same image as the conformance run above
+  (core `6c741d0`), node in `arbitration_mode:=enforced`.
+
+  **1. A zero velocity command does not hold joint 2 — the arm creeps.** An `ee_twist`
+  session streaming zero twist, hands off the sticks, drifted the tool ~22 cm and rotated
+  the shoulder +1.475 rad before it was stopped. Isolated afterwards with
+  `test/zero_setpoint_probe.py`, which streams a hard zero on each controller in turn:
+
+  | controller | DLS solve | posture term | per-joint drift, 6 s |
+  |---|---|---|---|
+  | `joint_velocity` | no (passthrough) | no | `+0.000 +0.227 +0.000 -0.000 +0.000 -0.000 +0.000` |
+  | `ee_twist` | yes | yes | `+0.000 +0.234 +0.000 +0.000 +0.000 +0.000 -0.000` |
+
+  Only joint 2 moves, ~0.038 rad/s, in the gravity direction; the other six hold at exactly
+  0.000. `joint_velocity` is the documented passthrough — no solve, no null-space posture
+  bias — and it drifts identically, which rules out the solver and the posture term as the
+  cause. At 0.038 rad/s the incident's +1.475 rad is ~39 s of creep, matching the session
+  length. Conclusion: the actuator's own velocity servo is not rejecting the shoulder's
+  gravity load at a zero command. Not a software fault in this driver. Raised with Kinova.
+
+  Consequence for clients: **velocity mode is not a hold.** Zero velocity means "stop
+  driving", not "stay put". Do not park an arm in `joint_velocity` or `ee_twist` and stream
+  zeros. `ee_pose_position` holds; use it for hand-flying.
+
+  Note the guide's "**Stiff by contract.** It does not yield to contact and makes no attempt
+  to" reads as a hold guarantee and should be qualified — the arm does not hold its own
+  weight at the shoulder.
+
+  **2. An external servoing-mode change kills the node.** Jogging the arm from the Kinova
+  web app while the driver was connected took it out of low-level servoing; the driver's
+  next write threw and nothing caught it:
+
+      terminate called after throwing an instance of 'Kinova::Api::KDetailedException'
+        what():  Device error, Error sub type=WRONG_SERVOING_MODE
+        description: Wrong servoing mode, must be low level servoing mode
+
+  Container exited 133 (`std::terminate`). Crash was 6m41s AFTER the arm had already
+  stopped, so it is independent of finding 1 — confirmed from `docker inspect` timestamps
+  against the teleop log. A KORTEX device error should be handled and surfaced on
+  `/diagnostics`, not abort the process.
+
+  Process note: the first container was run with `--rm`, which destroyed the logs of an
+  earlier exit and cost a diagnosis. The crash above was only readable because the second
+  run kept them. Never use `--rm` on hardware.

@@ -309,25 +309,28 @@ ros2 launch kinova_arm_description description.launch.py
 
 | file | DOF | for |
 |---|---|---|
-| `kinova_arm_7dof.urdf` | 7 | the driver, and `robot_state_publisher` by default |
-| `kinova_arm.urdf` | 13 | a moving gripper; `articulated:=true` |
+| `kinova_arm_7dof.urdf` | 7 | the driver (core's `Dynamics` asserts `nv == 7`) |
+| `kinova_arm.urdf` | 13 | `robot_state_publisher` by default (`articulated:=true`) |
 
 Two, because they cannot be one:
 
 - **Core's `Dynamics` asserts `nv == 7`** and aborts otherwise
   (`URDF nv=13 != kNumJoints=7`). `JointVec` is a fixed-size 7-vector.
-- **`robot_state_publisher` publishes nothing until it has every movable joint.** Given
-  7 of the articulated model's 13 it emits no `/tf` at all — not a partial tree. It does
-  **not** derive mimic joints, so publishing only the actuated knuckle is not enough
-  either. Since the driver publishes seven joint states, the 7-DOF model is the one that
-  actually produces TF today.
+- **`robot_state_publisher` DOES derive `<mimic>` joint transforms from the joint they
+  mimic** — verified 2026-09-03 with a two-joint URDF: publishing only the driver joint
+  moved the mimic link by exactly -0.6 rad for a +0.6 rad drive. The articulated model
+  has 13 movable joints but only **eight independent** ones — seven arm joints plus
+  `robotiq_85_left_knuckle_joint` — and the driver publishes all eight as of the gripper
+  tier, so `robot_state_publisher` derives the other five and `articulated` now defaults
+  to `true`.
 
 Freezing the gripper drops its degrees of freedom, **not its mass** — Pinocchio lumps a
 fixed joint's body into its parent — so gravity compensation is unaffected. That is
 almost certainly why the hand-edited model this replaces had every Robotiq joint fixed.
 
-Set `articulated:=true` once something publishes the gripper's six joints, either the
-driver computing the mimics itself or `joint_state_publisher` in the chain.
+It is safe on a gripper-less build: if the model was built with `gripper:=false`, the
+knuckle joint is not in it and `robot_state_publisher` ignores joint states for joints
+it does not know.
 
 ### The invariant
 

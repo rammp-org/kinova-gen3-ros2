@@ -225,18 +225,30 @@ an eyeball.
 
 ## Out of scope
 
-- **Gripper commanding.** This publishes gripper *state* into `/joint_states` once core
-  supplies it; commanding is its own tier and its own spec. Core's contract for it is
-  settled in `kinova-gen3-driver`'s `2026-09-01-gripper-tier-design.md`; its Plan 1 (types,
-  `GripperController`, KORTEX reading velocity/current/presence) has landed, and the
-  `GripperSink` port this repo would talk to has not.
-- **Filling in gripper velocity.** Blocked on core surfacing `GripperFeedback` through
-  `ArmState` — `publish_state` receives nothing else, so there is currently no gripper
-  data to publish. Effort is NOT pending; see the correction above.
-- **Publishing all six Robotiq joints.** `/joint_states` needs every movable joint before
-  `robot_state_publisher` emits any TF, and it does not derive mimics, so the driver must
-  expand the one actuated angle through the ±1 multipliers itself. That is what flips
-  `articulated:=true` from a switch nobody can use into the default.
+- **Gripper commanding.** This publishes gripper *state* into `/joint_states`; commanding
+  is its own tier and its own spec.
+
+> **Corrected 2026-09-03.** Three bullets here were stale or wrong and have been removed.
+> Recorded rather than silently deleted, because two of them would have caused real work:
+>
+> - *"the `GripperSink` port this repo would talk to has not [landed]"* — it has. Core
+>   `main` carries `GripperSink` (`on_gripper_setpoint` / `on_query_gripper`),
+>   `GripperSetpoint`, `GripperState` and `GripperController` since #35.
+> - *"Filling in gripper velocity ... blocked on core surfacing `GripperFeedback` through
+>   `ArmState`"* — gripper state never arrives on `ArmState`. It is a separate **pull**,
+>   `GripperSink::on_query_gripper()`, so nothing is blocked. And velocity is not pending
+>   at all: core **removed** the field, having measured it to be the commanded speed
+>   echoed back rather than a measurement. Gripper velocity is NaN permanently, for the
+>   same reason effort is.
+> - *"[`robot_state_publisher`] does not derive mimics, so the driver must expand the one
+>   actuated angle through the ±1 multipliers itself"* — **false, and it contradicted the
+>   "Gripper joint state" section above.** Verified empirically on 2026-09-03 with a
+>   two-joint URDF (one revolute driver, one `<mimic multiplier="-1">`): publishing only
+>   the driver joint moved the mimic link by exactly −0.6 rad for a +0.6 rad drive. RSP
+>   derives mimics. The original decision stands: **publish the single actuated joint.**
+>   TF was also emitted while one of the two movable joints was never published, so the
+>   companion claim — no TF until every movable joint is present — holds only for
+>   *independent* joints; mimics do not count against it.
 - **Real2sim URDF tuning.** Mass, friction and tool-frame calibration against the real
   arm. This package makes it *possible* by giving the model a reproducible source, and the
   parity harness above is the natural place to hang it, but the calibration itself is

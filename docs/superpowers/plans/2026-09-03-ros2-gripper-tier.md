@@ -974,7 +974,10 @@ uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
      /ros_entrypoint.sh python3 -u run_conformance.py 2>&1 | tail -20; \
    docker rm -f kg >/dev/null'
 ```
-Expected: all sections pass; the gripper section's "tokened setpoint moves" check reports SKIPPED-INLINE in sim if `present` is false.
+Expected: all sections pass. NOTE: `SimTransport` sets `gripper.present = true`
+unconditionally (`sim_transport.cpp:27,39`), so in sim the "tokened setpoint moves" check
+does NOT skip — it runs the move path against the simulated gripper. A SKIP there means
+something is wrong with the wiring, not that you are in sim.
 
 - [ ] **Step 5: Update the conformance README**
 

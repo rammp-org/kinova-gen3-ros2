@@ -21,21 +21,25 @@
 - Builds and tests run on the remote arm64 machine via `hil.py`. `/tmp/kinova-ros2-ws` there is STALE and not synced — never verify against it.
 - Do NOT run `hil.py unlock` or touch the `dojo` guard. If a target is locked, report BLOCKED.
 - Commit messages end with:
+
 ```
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01RXbb4Ew5jSLgeT8W33tjLt
 ```
 
----
+______________________________________________________________________
 
 ### Task 1: Lint configuration, and the isolated reformat
 
 **Files:**
+
 - Create: `.pre-commit-config.yaml`, `.clang-format`, `.hadolint.yaml`, `.git-blame-ignore-revs`
 - Modify: every `.cpp`/`.h` under `kinova_gen3_ros2/` (formatting only, second commit)
 
 **Interfaces:**
+
 - Consumes: nothing.
+
 - Produces: a repo where `pre-commit run --all-files` passes.
 
 - [ ] **Step 1: Copy the two configs verbatim**
@@ -106,6 +110,7 @@ git commit -m "chore: ignore the clang-format reformat in git blame"
 - [ ] **Step 6: Verify the reformat changed nothing semantic**
 
 Run:
+
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
@@ -116,6 +121,7 @@ uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
   'docker run --rm --network host --ipc host -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp kinova-gen3-ros2:humble bash -lc "cd /ros2_ws && colcon test --packages-select kinova_gen3_ros2 >/dev/null 2>&1; colcon test-result | tail -2"'
 ```
+
 Expected: build clean, and `94 tests, 0 errors, 0 failures`. A formatting change that alters a test result is not a formatting change.
 
 - [ ] **Step 7: Verify pre-commit is now clean**
@@ -123,16 +129,19 @@ Expected: build clean, and `94 tests, 0 errors, 0 failures`. A formatting change
 Run: `pre-commit run --all-files`
 Expected: every hook passes. If `mdformat` or `end-of-file-fixer` rewrites docs, stage and amend into the config commit — those are not code and do not belong in the reformat commit.
 
----
+______________________________________________________________________
 
 ### Task 2: Dockerfile to the root, and the standard Makefile targets
 
 **Files:**
+
 - Move: `docker/Dockerfile` → `Dockerfile`
 - Modify: `Makefile`
 
 **Interfaces:**
+
 - Consumes: nothing from Task 1.
+
 - Produces: `make build|run|check|smoke|lint` targets; `docker build .` works with no `-f`.
 
 - [ ] **Step 1: Move the Dockerfile**
@@ -178,15 +187,18 @@ git add Dockerfile Makefile
 git commit -m "chore: Dockerfile to the repo root, plus the standard make targets"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: The two-container contract
 
 **Files:**
+
 - Create: `deploy/compose.yaml`, `rammp-alternative.yaml`, `rammp-alternative.curobo.yaml`, `scripts/check_fragments.py`
 
 **Interfaces:**
+
 - Consumes: the `check` target from Task 2.
+
 - Produces: fragments that `make check` validates.
 
 - [ ] **Step 1: Write `deploy/compose.yaml`**
@@ -233,6 +245,7 @@ services:
 - [ ] **Step 2: Write the two fragments**
 
 `rammp-alternative.yaml`:
+
 ```yaml
 # The arm driver. See deploy/compose.yaml for the container definition, and
 # docs/interface.md for the actions and services this fragment cannot express.
@@ -266,6 +279,7 @@ subscribes:
 ```
 
 `rammp-alternative.curobo.yaml`:
+
 ```yaml
 # The planner this module calls. Owned by rammp-org/RAMMP-CuRobo; declared here
 # only because sheppy cannot express "and also start that one", and running the
@@ -356,15 +370,18 @@ git add deploy/compose.yaml rammp-alternative.yaml rammp-alternative.curobo.yaml
 git commit -m "feat: declare the contract -- both containers, validated by sheppy"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Smoke test and CI
 
 **Files:**
+
 - Create: `scripts/smoke.sh`, `.github/workflows/lint.yml`, `.github/workflows/build.yml`
 
 **Interfaces:**
+
 - Consumes: `Dockerfile` at root (Task 2), `make check` (Task 3).
+
 - Produces: CI that lints, validates, smokes and publishes.
 
 - [ ] **Step 1: Copy and adapt `smoke.sh`**
@@ -476,10 +493,12 @@ jobs:
 - [ ] **Step 4: Verify the smoke test locally before trusting CI**
 
 Run:
+
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
   'cd /home/abra/kinova_gen3_ros2 && SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:humble'
 ```
+
 Expected: passes — the log matches, the container is still running, and it exits on SIGTERM.
 
 - [ ] **Step 5: Commit**
@@ -489,15 +508,18 @@ git add scripts/smoke.sh .github/workflows/
 git commit -m "ci: lint, fragment validation, smoke and an arm64-only publish"
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: The interface page and the branch model
 
 **Files:**
+
 - Create: `docs/interface.md`, `CONTRIBUTING.md`
 
 **Interfaces:**
+
 - Consumes: the fragments from Task 3.
+
 - Produces: the page `rammp-docs` pulls, and the documented workflow.
 
 - [ ] **Step 1: Write `docs/interface.md`**
@@ -529,7 +551,7 @@ git add docs/interface.md CONTRIBUTING.md
 git commit -m "docs: the interface page rammp-docs pulls, and the branch model"
 ```
 
----
+______________________________________________________________________
 
 ## Final verification
 

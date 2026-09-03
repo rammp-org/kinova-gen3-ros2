@@ -102,13 +102,13 @@ Mirrors the wiring proven by `trajectory_run` / `teleop_socket_server`, but the
 command source is the action server instead of a CLI/socket:
 
 1. Parse args (`--sim` | `--ip <addr>`, `--urdf`, RT params).
-2. Construct the transport (`SimTransport` or `KortexTransport`), wrap in
+1. Construct the transport (`SimTransport` or `KortexTransport`), wrap in
    `FeedbackTap` + `Seqlock<JointFeedback>`.
-3. Construct `Dynamics` (one for the RT/mode side, one for the pump),
+1. Construct `Dynamics` (one for the RT/mode side, one for the pump),
    `JointPositionMode` + `JointImpedanceMode`, `SampleRing`, `RtExecutor`.
-4. Construct `Ros2Backend`; construct the `Supervisor` against the backend's
+1. Construct `Ros2Backend`; construct the `Supervisor` against the backend's
    driven ports; register the supervisor's `CommandSink` with the backend.
-5. `supervisor.start()`; run the RT loop on the main thread (`exec.run`), spin the
+1. `supervisor.start()`; run the RT loop on the main thread (`exec.run`), spin the
    rclcpp executor + telemetry drain on their own threads. Clean shutdown joins
    all non-RT threads before `transport.safe_shutdown()`.
 
@@ -123,8 +123,7 @@ the core's exported target are valid — no cross-machine relocation problem.
 
 - **Sim build:** `colcon build` — core built without the KORTEX flag; the node
   links `SimTransport`. This is the CI/default path and Milestone A.
-- **Real-arm build:** `colcon build --cmake-args -DKINOVA_ENABLE_KORTEX=ON
-  -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64` — colcon passes these to
+- **Real-arm build:** `colcon build --cmake-args -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64` — colcon passes these to
   the core's cmake package, so `KortexTransport` is compiled and the static core
   carries the KORTEX link requirement transitively into the node. Because the
   build+run host is abra, the KORTEX absolute path in the exported target resolves

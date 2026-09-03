@@ -9,6 +9,7 @@ speed -- read docs/on-robot-runbook.md and keep the e-stop in hand first.
   send_goto_joints.py --joints 0 0.26 3.14 -2.27 0 0.96 1.57 --go
   send_goto_joints.py --delta 0.1 --joint 6 --go     # relative to current q
 """
+
 import argparse
 import sys
 
@@ -21,8 +22,11 @@ from sensor_msgs.msg import JointState
 from kinova_gen3_interfaces.action import GoToJointConfig, GoToPreset
 
 RESULT_CODES = {
-    0: "SUCCESSFUL", -1: "INVALID_GOAL", -4: "PATH_TOLERANCE_VIOLATED",
-    -6: "PREEMPTED", -7: "PLANNING_FAILED",
+    0: "SUCCESSFUL",
+    -1: "INVALID_GOAL",
+    -4: "PATH_TOLERANCE_VIOLATED",
+    -6: "PREEMPTED",
+    -7: "PLANNING_FAILED",
 }
 
 
@@ -32,8 +36,9 @@ class Sender(Node):
         self.q = None
         # The node publishes /joint_states with sensor QoS (BEST_EFFORT); a
         # default RELIABLE subscription silently receives nothing from it.
-        self.create_subscription(JointState, "/joint_states", self._on_js,
-                                 qos_profile_sensor_data)
+        self.create_subscription(
+            JointState, "/joint_states", self._on_js, qos_profile_sensor_data
+        )
 
     def _on_js(self, msg):
         if self.q is None and len(msg.position) >= 7:
@@ -92,13 +97,23 @@ def main():
             else:
                 q = node.wait_for_q()
                 if q is None:
-                    node.get_logger().error("no /joint_states — is kinova_gen3_node up?")
+                    node.get_logger().error(
+                        "no /joint_states — is kinova_gen3_node up?"
+                    )
                     return 2
                 target = list(q)
                 target[args.joint] += args.delta
-            goal, action_type, name = GoToJointConfig.Goal(), GoToJointConfig, "go_to_joint_config"
+            goal, action_type, name = (
+                GoToJointConfig.Goal(),
+                GoToJointConfig,
+                "go_to_joint_config",
+            )
             goal.target_joints = target
-            desc = "GoToJointConfig target=[" + ", ".join(f"{v:+.3f}" for v in target) + "]"
+            desc = (
+                "GoToJointConfig target=["
+                + ", ".join(f"{v:+.3f}" for v in target)
+                + "]"
+            )
 
         goal.sender_id = "send_goto_joints"
         print(desc)

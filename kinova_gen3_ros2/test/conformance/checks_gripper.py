@@ -4,16 +4,18 @@ Ordered AFTER motion for the same reason motion is last: these command hardware.
 gripper commands are small and slow, and open/close on empty air is safe -- but it is
 still actuation, so the e-stop must already be proven in this session.
 """
+
 import time
 
-from kinova_gen3_interfaces.msg import GripperSetpoint, GripperState
+from kinova_gen3_interfaces.msg import GripperSetpoint
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from harness import FAIL, PASS, REGISTRY, SKIP, ZERO_TOKEN, Result, tok
 
 SEC = "gripper"
-SP_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
-                    history=HistoryPolicy.KEEP_LAST, depth=1)
+SP_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1
+)
 KNUCKLE = "robotiq_85_left_knuckle_joint"
 # Mirrors kKnuckleUpperRad in message_mapping.h: the knuckle's URDF upper limit, and
 # the scale factor between /gripper_state's normalized [0,1] position and the joint's
@@ -41,8 +43,12 @@ def check_gripper_state(ctx):
     t0 = (g0.header.stamp.sec, g0.header.stamp.nanosec)
     t1 = (g1.header.stamp.sec, g1.header.stamp.nanosec)
     if t1 <= t0:
-        return Result("", FAIL, f"header.stamp did not advance ({t0} -> {t1}) -- the "
-                                f"publisher looks stuck, not live")
+        return Result(
+            "",
+            FAIL,
+            f"header.stamp did not advance ({t0} -> {t1}) -- the "
+            f"publisher looks stuck, not live",
+        )
     # Cross-surface check: /gripper_state.position and the knuckle joint in
     # /joint_states describe the same physical quantity through two independent paths,
     # related by the KNUCKLE_UPPER_RAD scale factor. A mis-scaled or mis-wired mapping
@@ -52,15 +58,25 @@ def check_gripper_state(ctx):
         return Result("", FAIL, f"{KNUCKLE} missing from /joint_states")
     q = js.position[list(js.name).index(KNUCKLE)]
     if abs(q - g1.position * KNUCKLE_UPPER_RAD) >= 0.02:
-        return Result("", FAIL, f"/joint_states {KNUCKLE}={q:.4f} disagrees with "
-                                f"/gripper_state position*{KNUCKLE_UPPER_RAD}="
-                                f"{g1.position * KNUCKLE_UPPER_RAD:.4f}")
-    return Result("", PASS, f"present={g1.present} position={g1.position:.3f} "
-                            f"effort={g1.effort:.3f} current={g1.current:.3f}A, "
-                            f"stamp advanced {t0}->{t1}, matches joint_states")
+        return Result(
+            "",
+            FAIL,
+            f"/joint_states {KNUCKLE}={q:.4f} disagrees with "
+            f"/gripper_state position*{KNUCKLE_UPPER_RAD}="
+            f"{g1.position * KNUCKLE_UPPER_RAD:.4f}",
+        )
+    return Result(
+        "",
+        PASS,
+        f"present={g1.present} position={g1.position:.3f} "
+        f"effort={g1.effort:.3f} current={g1.current:.3f}A, "
+        f"stamp advanced {t0}->{t1}, matches joint_states",
+    )
 
 
-@REGISTRY.add(SEC, "the actuated joint appears in /joint_states, within its URDF limits")
+@REGISTRY.add(
+    SEC, "the actuated joint appears in /joint_states, within its URDF limits"
+)
 def check_knuckle_in_joint_states(ctx):
     js = ctx.latest("joint_states", timeout=6.0, fresh=True)
     if js is None or KNUCKLE not in js.name:
@@ -68,8 +84,9 @@ def check_knuckle_in_joint_states(ctx):
     i = list(js.name).index(KNUCKLE)
     q = js.position[i]
     if not (0.0 <= q <= KNUCKLE_UPPER_RAD):
-        return Result("", FAIL,
-                      f"{KNUCKLE}={q} outside the URDF limit [0, {KNUCKLE_UPPER_RAD}]")
+        return Result(
+            "", FAIL, f"{KNUCKLE}={q} outside the URDF limit [0, {KNUCKLE_UPPER_RAD}]"
+        )
     # Only the actuated joint: RSP derives the five mimics.
     mimics = [n for n in js.name if "robotiq" in n and n != KNUCKLE]
     if mimics:
@@ -77,8 +94,12 @@ def check_knuckle_in_joint_states(ctx):
     return Result("", PASS, f"{KNUCKLE}={q:.4f} rad, no mimics published")
 
 
-@REGISTRY.add(SEC, "enforced: an untokened gripper setpoint is refused",
-              needs_motion=True, needs_mode="enforced")
+@REGISTRY.add(
+    SEC,
+    "enforced: an untokened gripper setpoint is refused",
+    needs_motion=True,
+    needs_mode="enforced",
+)
 def check_untokened_refused(ctx):
     ctx.revoke("conformance: ensuring no owner")
     before = ctx.control_status().rejected_count
@@ -93,20 +114,30 @@ def check_untokened_refused(ctx):
     ctx.spin(0.5)
     after = ctx.control_status().rejected_count
     if after <= before:
-        return Result("", FAIL, "an untokened gripper setpoint was not counted as "
-                                "rejected -- the Arbiter admitted it")
+        return Result(
+            "",
+            FAIL,
+            "an untokened gripper setpoint was not counted as "
+            "rejected -- the Arbiter admitted it",
+        )
     return Result("", PASS, f"refused, rejected_count {before} -> {after}")
 
 
-@REGISTRY.add(SEC, "enforced: a tokened setpoint moves the gripper",
-              needs_motion=True, needs_mode="enforced")
+@REGISTRY.add(
+    SEC,
+    "enforced: a tokened setpoint moves the gripper",
+    needs_motion=True,
+    needs_mode="enforced",
+)
 def check_tokened_moves(ctx):
     token = ctx.acquire("conformance-gripper").token
     g0 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
     if g0 is None or not g0.present:
         # SKIP, never PASS. The README's principle: a skip is reported, never silently
         # counted as a pass. SKIP is a first-class status the runner counts separately.
-        return Result("", SKIP, "no gripper attached (present=false); nothing to command")
+        return Result(
+            "", SKIP, "no gripper attached (present=false); nothing to command"
+        )
     pub = ctx.n.create_publisher(GripperSetpoint, "/setpoint/gripper", SP_QOS)
     ctx.spin(0.3)
     target = 0.3 if g0.position < 0.15 else 0.0
@@ -123,8 +154,12 @@ def check_tokened_moves(ctx):
     stream(target, 4.0)
     g1 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
     if abs(g1.position - g0.position) < 0.02:
-        verdict = Result("", FAIL, f"gripper did not move: {g0.position:.3f} -> "
-                                   f"{g1.position:.3f} commanding {target}")
+        verdict = Result(
+            "",
+            FAIL,
+            f"gripper did not move: {g0.position:.3f} -> "
+            f"{g1.position:.3f} commanding {target}",
+        )
     else:
         verdict = Result("", PASS, f"moved {g0.position:.3f} -> {g1.position:.3f}")
 

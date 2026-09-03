@@ -11,6 +11,7 @@ them is the thing that actually runs the fragment.
 This reaches into sheppy's launcher internals, which is not ideal. It is the
 interim until `sheppy validate` exists -- rammp-org/sheppy#14.
 """
+
 import sys
 
 import yaml

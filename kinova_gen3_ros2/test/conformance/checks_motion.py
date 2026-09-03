@@ -12,6 +12,7 @@ Two of these have never been exercised end to end and are the reason this file e
     ROS action protocol, so the driver replays the goal's stored token; get that wrong
     and the arm keeps moving while the client believes it stopped.
 """
+
 import time
 
 from builtin_interfaces.msg import Duration as DurationMsg
@@ -24,9 +25,9 @@ from harness import FAIL, PASS, REGISTRY, ZERO_TOKEN, Result, tok
 SEC = "motion"
 
 HALTED, SUCCESSFUL = -9, 0
-JOINT = 6            # the wrist: lightest link, least able to do harm if a sign is wrong
-DELTA = 0.25         # rad
-DURATION = 6.0       # s -- slow enough to e-stop in the middle of it
+JOINT = 6  # the wrist: lightest link, least able to do harm if a sign is wrong
+DELTA = 0.25  # rad
+DURATION = 6.0  # s -- slow enough to e-stop in the middle of it
 
 
 def _goal(ctx, session_token, delta=DELTA, duration=DURATION):
@@ -40,11 +41,12 @@ def _goal(ctx, session_token, delta=DELTA, duration=DURATION):
     for frac in (0.0, 1.0):
         p = JointTrajectoryPoint()
         p.positions = q if frac == 0.0 else target
-        p.time_from_start = DurationMsg(sec=int(frac * duration),
-                                        nanosec=int((frac * duration % 1) * 1e9))
+        p.time_from_start = DurationMsg(
+            sec=int(frac * duration), nanosec=int((frac * duration % 1) * 1e9)
+        )
         g.trajectory.points.append(p)
-    g.control_mode = 0                       # POSITION
-    g.preemption = 1                         # LATEST_WINS
+    g.control_mode = 0  # POSITION
+    g.preemption = 1  # LATEST_WINS
     g.sender_id = "conformance"
     g.token = tok(session_token)
     return g
@@ -70,8 +72,9 @@ def _send(ctx, goal, wait_result=True, timeout=25.0):
     return gh, (rf.result().result if rf.done() else None)
 
 
-@REGISTRY.add(SEC, "an e-stop terminates an IN-FLIGHT goal with HALTED (-9)",
-              needs_motion=True)
+@REGISTRY.add(
+    SEC, "an e-stop terminates an IN-FLIGHT goal with HALTED (-9)", needs_motion=True
+)
 def check_estop_halts_goal(ctx):
     ctx.estop(False, reason="conformance: arming for the halt test")
     session_tok = ctx.acquire("conformance-motion").token
@@ -82,7 +85,7 @@ def check_estop_halts_goal(ctx):
     if gh is None or not gh.accepted:
         return Result("", FAIL, "the goal was not accepted; cannot test the halt")
 
-    ctx.spin(1.5)                                   # let it get moving
+    ctx.spin(1.5)  # let it get moving
     ctx.estop(True, reason="conformance: halting an in-flight goal", settle=0.5)
 
     rf = gh.get_result_async()
@@ -90,8 +93,12 @@ def check_estop_halts_goal(ctx):
     while time.time() < end and not rf.done():
         ctx.spin(0.02)
     if not rf.done():
-        return Result("", FAIL, "the goal never settled after an e-stop -- the client "
-                                "hangs forever, which is the orphaned-goal failure")
+        return Result(
+            "",
+            FAIL,
+            "the goal never settled after an e-stop -- the client "
+            "hangs forever, which is the orphaned-goal failure",
+        )
     code = rf.result().result.error_code
     ctx.estop(False, reason="conformance cleanup")
     if code != HALTED:
@@ -99,8 +106,12 @@ def check_estop_halts_goal(ctx):
     return Result("", PASS, f"goal settled HALTED ({code}) after the e-stop")
 
 
-@REGISTRY.add(SEC, "enforced: a goal with NO token is refused", needs_motion=True,
-              needs_mode="enforced")
+@REGISTRY.add(
+    SEC,
+    "enforced: a goal with NO token is refused",
+    needs_motion=True,
+    needs_mode="enforced",
+)
 def check_enforced_rejects_untokened(ctx):
     ctx.revoke("conformance: ensuring no owner")
     g = _goal(ctx, ZERO_TOKEN)
@@ -112,8 +123,12 @@ def check_enforced_rejects_untokened(ctx):
     return Result("", PASS, "refused, as kEnforced requires")
 
 
-@REGISTRY.add(SEC, "enforced: a goal WITH the token runs to completion",
-              needs_motion=True, needs_mode="enforced")
+@REGISTRY.add(
+    SEC,
+    "enforced: a goal WITH the token runs to completion",
+    needs_motion=True,
+    needs_mode="enforced",
+)
 def check_enforced_accepts_tokened(ctx):
     session_tok = ctx.acquire("conformance-motion").token
     g = _goal(ctx, session_tok, delta=0.15, duration=4.0)
@@ -127,8 +142,12 @@ def check_enforced_accepts_tokened(ctx):
     return Result("", PASS, "accepted and completed")
 
 
-@REGISTRY.add(SEC, "enforced: CANCEL actually cancels (the stored-token replay)",
-              needs_motion=True, needs_mode="enforced")
+@REGISTRY.add(
+    SEC,
+    "enforced: CANCEL actually cancels (the stored-token replay)",
+    needs_motion=True,
+    needs_mode="enforced",
+)
 def check_enforced_cancel(ctx):
     session_tok = ctx.acquire("conformance-motion").token
     g = _goal(ctx, session_tok)
@@ -142,11 +161,19 @@ def check_enforced_cancel(ctx):
     while time.time() < end and not rf.done():
         ctx.spin(0.02)
     if not rf.done():
-        return Result("", FAIL, "the goal never settled after cancel. This is the "
-                                "silent-cancel bug: a ROS cancel carries no token, so "
-                                "the Arbiter refuses it and the arm keeps moving.")
+        return Result(
+            "",
+            FAIL,
+            "the goal never settled after cancel. This is the "
+            "silent-cancel bug: a ROS cancel carries no token, so "
+            "the Arbiter refuses it and the arm keeps moving.",
+        )
     code = rf.result().result.error_code
     if code == SUCCESSFUL:
-        return Result("", FAIL, "the goal ran to COMPLETION despite being cancelled -- "
-                                "the cancel never reached the supervisor")
+        return Result(
+            "",
+            FAIL,
+            "the goal ran to COMPLETION despite being cancelled -- "
+            "the cancel never reached the supervisor",
+        )
     return Result("", PASS, f"cancel honoured, settled {code}")

@@ -4,6 +4,7 @@ Attaches to an ALREADY RUNNING kinova_gen3_node -- it never launches one. The
 arbitration mode is read-only at launch, so the runner discovers it from
 /control_status and reports any check it could not run rather than passing silently.
 """
+
 import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
@@ -13,8 +14,14 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
 from kinova_gen3_interfaces.msg import ControlStatus, EStop, GripperState, StreamStatus
-from kinova_gen3_interfaces.srv import (AcquireControl, CloseStream, ListControllers,
-                                       OpenStream, ReleaseControl, RevokeControl)
+from kinova_gen3_interfaces.srv import (
+    AcquireControl,
+    CloseStream,
+    ListControllers,
+    OpenStream,
+    ReleaseControl,
+    RevokeControl,
+)
 from sensor_msgs.msg import JointState
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
@@ -32,14 +39,19 @@ def tok(t):
     """
     return [int(x) for x in t]
 
+
 # Best-effort for the high-rate state topics; latched for the two status topics. A
 # subscriber that does not match these gets silence, which looks exactly like a broken
 # publisher -- so the runner uses the same profiles the node advertises.
-SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
-                        history=HistoryPolicy.KEEP_LAST, depth=10)
-LATCHED_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
-                         durability=DurabilityPolicy.TRANSIENT_LOCAL,
-                         history=HistoryPolicy.KEEP_LAST, depth=1)
+SENSOR_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10
+)
+LATCHED_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 
 
 @dataclass
@@ -53,11 +65,17 @@ class Result:
 class Registry:
     checks: List = field(default_factory=list)
 
-    def add(self, section: str, name: str, needs_motion: bool = False,
-            needs_mode: Optional[str] = None):
+    def add(
+        self,
+        section: str,
+        name: str,
+        needs_motion: bool = False,
+        needs_mode: Optional[str] = None,
+    ):
         def deco(fn: Callable):
             self.checks.append((section, name, fn, needs_motion, needs_mode))
             return fn
+
         return deco
 
 
@@ -83,7 +101,8 @@ class Ctx:
         self._spec[topic] = (msg_type, qos, latched)
         if topic not in self._subs:
             self._subs[topic] = self.n.create_subscription(
-                msg_type, topic, lambda m, t=topic: self._latest.__setitem__(t, m), qos)
+                msg_type, topic, lambda m, t=topic: self._latest.__setitem__(t, m), qos
+            )
 
     def _resubscribe(self, topic):
         """Recreate a subscription to pull a latched topic's CURRENT value.
@@ -97,7 +116,8 @@ class Ctx:
         self.n.destroy_subscription(self._subs[topic])
         self._latest[topic] = None
         self._subs[topic] = self.n.create_subscription(
-            msg_type, topic, lambda m, t=topic: self._latest.__setitem__(t, m), qos)
+            msg_type, topic, lambda m, t=topic: self._latest.__setitem__(t, m), qos
+        )
 
     def spin(self, seconds: float):
         end = time.time() + seconds
@@ -134,39 +154,61 @@ class Ctx:
         return fut.result()
 
     def acquire(self, owner="conformance"):
-        r = self.call(AcquireControl, "acquire_control",
-                      AcquireControl.Request(owner_id=owner))
+        r = self.call(
+            AcquireControl, "acquire_control", AcquireControl.Request(owner_id=owner)
+        )
         return r
 
     def release(self, token):
-        return self.call(ReleaseControl, "release_control",
-                         ReleaseControl.Request(token=tok(token)))
+        return self.call(
+            ReleaseControl, "release_control", ReleaseControl.Request(token=tok(token))
+        )
 
     def revoke(self, reason="conformance cleanup"):
-        return self.call(RevokeControl, "revoke_control",
-                         RevokeControl.Request(reason=reason))
+        return self.call(
+            RevokeControl, "revoke_control", RevokeControl.Request(reason=reason)
+        )
 
     def list_controllers(self):
-        return self.call(ListControllers, "list_controllers",
-                         ListControllers.Request()).controllers
+        return self.call(
+            ListControllers, "list_controllers", ListControllers.Request()
+        ).controllers
 
     def open_stream(self, controller, timeout_s=0.5, token=None):
-        return self.call(OpenStream, "open_stream", OpenStream.Request(
-            controller=controller, timeout_s=timeout_s,
-            token=tok(token if token is not None else ZERO_TOKEN)))
+        return self.call(
+            OpenStream,
+            "open_stream",
+            OpenStream.Request(
+                controller=controller,
+                timeout_s=timeout_s,
+                token=tok(token if token is not None else ZERO_TOKEN),
+            ),
+        )
 
     def close_stream(self, token=None):
-        return self.call(CloseStream, "close_stream", CloseStream.Request(
-            token=tok(token if token is not None else ZERO_TOKEN)))
+        return self.call(
+            CloseStream,
+            "close_stream",
+            CloseStream.Request(token=tok(token if token is not None else ZERO_TOKEN)),
+        )
 
     # ---- e-stop -------------------------------------------------------------
-    def estop(self, engaged: bool, source="conformance", reason="", stamp=None,
-              settle=1.0):
-        pub = self.n.create_publisher(EStop, "/estop", QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            history=HistoryPolicy.KEEP_LAST, depth=10))
+    def estop(
+        self, engaged: bool, source="conformance", reason="", stamp=None, settle=1.0
+    ):
+        pub = self.n.create_publisher(
+            EStop,
+            "/estop",
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=10,
+            ),
+        )
         m = EStop()
-        m.header.stamp = stamp if stamp is not None else self.n.get_clock().now().to_msg()
+        m.header.stamp = (
+            stamp if stamp is not None else self.n.get_clock().now().to_msg()
+        )
         m.engaged = engaged
         m.source = source
         m.reason = reason

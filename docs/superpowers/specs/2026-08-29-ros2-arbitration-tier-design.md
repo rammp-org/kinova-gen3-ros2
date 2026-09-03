@@ -27,19 +27,19 @@ and diagnostics surfaces that make both observable.
 
 1. **Two specs, arbitration first.** Streaming's token field then already exists, and the
    e-stop path is proven before anything streams setpoints at the arm.
-2. **`/estop` is a broadcast topic, not a service.** `true` engages, `false` clears.
+1. **`/estop` is a broadcast topic, not a service.** `true` engages, `false` clears.
    Anyone may publish either. It carries a **custom stamped message**, not
    `std_msgs/Bool` — see "Why not std_msgs/Bool".
-3. **`arbitration_mode` is a launch-time, read-only parameter, defaulting to `disabled`.**
+1. **`arbitration_mode` is a launch-time, read-only parameter, defaulting to `disabled`.**
    Core has no setter for `ArbitrationMode`; a dynamic parameter would silently no-op.
-4. **`set_gains` and `query_state` are out of scope.** Separate follow-on.
-5. **`kRejectUnauthorized` maps to a plain rclcpp REJECT.** `/control_status` is the
+1. **`set_gains` and `query_state` are out of scope.** Separate follow-on.
+1. **`kRejectUnauthorized` maps to a plain rclcpp REJECT.** `/control_status` is the
    explanation channel; no accept-then-abort.
-6. **Status topic is `/control_status` + `ControlStatus.msg`,** published on change.
+1. **Status topic is `/control_status` + `ControlStatus.msg`,** published on change.
    ("Arbitration" is core's internal vocabulary and should not leak into the ROS surface.)
-7. **REP 107 `/diagnostics` is in scope,** via `diagnostic_updater`.
-8. **Action cancel stays open and unauthenticated.** See "Deliberate deviations".
-9. **This is a high-trust system.** Participants are known and cooperating; the tier
+1. **REP 107 `/diagnostics` is in scope,** via `diagnostic_updater`.
+1. **Action cancel stays open and unauthenticated.** See "Deliberate deviations".
+1. **This is a high-trust system.** Participants are known and cooperating; the tier
    exists to prevent *mistakes*, not malicious actors. `/acquire_control` is called by the
    task orchestrator and nothing else — an operational contract the driver does not
    enforce. Securing against unknown actors is future work, and belongs at the transport
@@ -52,12 +52,12 @@ and diagnostics surfaces that make both observable.
 
 This is not a stylistic choice — it is exactly what `Arbiter` already does:
 
-| `Arbiter` method | Gated by `admit()`? |
-|---|---|
-| `on_trajectory_goal`, `on_trajectory_accepted`, `on_trajectory_cancel` | yes |
-| `on_set_gains`, all five `on_setpoint_*` | yes |
-| `on_query_state` | no — *"never gated — reads are always open"* |
-| `estop`, `estop_clear` | no — no `admit()` call at all |
+| `Arbiter` method                                                       | Gated by `admit()`?                          |
+| ---------------------------------------------------------------------- | -------------------------------------------- |
+| `on_trajectory_goal`, `on_trajectory_accepted`, `on_trajectory_cancel` | yes                                          |
+| `on_set_gains`, all five `on_setpoint_*`                               | yes                                          |
+| `on_query_state`                                                       | no — *"never gated — reads are always open"* |
+| `estop`, `estop_clear`                                                 | no — no `admit()` call at all                |
 
 Requiring a capability to **stop** a robot inverts the safety property. `/estop` therefore
 carries no token, and neither does `/revoke_control` (the operator override).
@@ -236,11 +236,11 @@ The `.action` files' result-code comments gain `-8 NOT_AUTHORIZED` and `-9 HALTE
 
 ### QoS
 
-| Topic | Direction | Reliability | Durability | Depth |
-|---|---|---|---|---|
-| `/control_status` | we publish | reliable | **transient_local** | 1 |
-| `/estop` | we subscribe | reliable | **volatile** | 10 |
-| `/diagnostics` | we publish | reliable | volatile | 10 (`diagnostic_updater` default) |
+| Topic             | Direction    | Reliability | Durability          | Depth                             |
+| ----------------- | ------------ | ----------- | ------------------- | --------------------------------- |
+| `/control_status` | we publish   | reliable    | **transient_local** | 1                                 |
+| `/estop`          | we subscribe | reliable    | **volatile**        | 10                                |
+| `/diagnostics`    | we publish   | reliable    | volatile            | 10 (`diagnostic_updater` default) |
 
 **`/control_status` is latched, and safely so.** We are the publisher. A publisher
 offering `transient_local` is compatible with both volatile and transient_local
@@ -273,10 +273,10 @@ There is no REP mandating diagnostics QoS (REP 2003 covers sensor and map topics
 
 ### Parameters
 
-| Parameter | Type | Default | Notes |
-|---|---|---|---|
-| `arbitration_mode` | string | `disabled` | `enforced` \| `disabled`. **Read-only** — core has no setter, so a dynamic parameter would silently no-op. |
-| `estop_clear_max_age_s` | double | `1.0` | Age beyond which an `engaged: false` message is ignored. `<= 0` disables the check. |
+| Parameter               | Type   | Default    | Notes                                                                                                      |
+| ----------------------- | ------ | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `arbitration_mode`      | string | `disabled` | `enforced` \| `disabled`. **Read-only** — core has no setter, so a dynamic parameter would silently no-op. |
+| `estop_clear_max_age_s` | double | `1.0`      | Age beyond which an `engaged: false` message is ignored. `<= 0` disables the check.                        |
 
 **The staleness check is deliberately asymmetric, and only ever fails safe:**
 
@@ -310,8 +310,8 @@ The node already runs a `MultiThreadedExecutor`, so this costs only a group.
 **Acquire → command → release**
 
 1. Client calls `/acquire_control` with `owner_id: "dojo_teleop"`.
-2. `ArbitrationServer` → `arb.grant("dojo_teleop")` → `GrantResult{accepted, token, generation}`.
-3. `/control_status` publishes (owned, owner_id, generation bumped).
+1. `ArbitrationServer` → `arb.grant("dojo_teleop")` → `GrantResult{accepted, token, generation}`.
+1. `/control_status` publishes (owned, owner_id, generation bumped).
 
 > **`/acquire_control` seizes ownership — it does not queue or fail when the arm is
 > already owned.** `grant()` succeeds unless the arm is e-stopped, and when there is an
@@ -322,22 +322,23 @@ The node already runs a `MultiThreadedExecutor`, so this costs only a group.
 > but it means **acquiring control can abort someone else's motion**, and clients must be
 > written expecting it. A previous owner detects this as a bumped `generation` on
 > `/control_status`, plus a `-9` result on the goal it thought it was running.
+
 4. Client sends any of the four actions with `token` set. `Arbiter::admit()` passes;
    delegates to `Supervisor` exactly as today.
-5. Client calls `/release_control` with its token; wrapper verifies it against `status()`,
+1. Client calls `/release_control` with its token; wrapper verifies it against `status()`,
    then `arb.revoke()`. `revoke()` also delivers `on_halt(kOwnershipRevoked)`.
 
 **E-stop**
 
 1. Anyone publishes `EStop{engaged: true, source, reason}` on `/estop`.
-2. `ArbitrationServer` → `arb.estop()`. Latches immediately, delivers
+1. `ArbitrationServer` → `arb.estop()`. Latches immediately, delivers
    `on_halt(kEmergencyStop)` without waiting for `m_`, then clears ownership under it.
-3. **In-flight ROS goals terminate on their own.** `Supervisor`'s sampler settles both the
+1. **In-flight ROS goals terminate on their own.** `Supervisor`'s sampler settles both the
    active *and* the queued goal with `result_code::kHalted (-9)` — core's comment:
    *"ACCEPTed already; dropping it orphans the client."* That flows through `GoalRouter`
    → the owning server's `terminal()` → the ROS goal handle aborts with `-9`.
    **No wrapper work is required for goal termination.**
-4. `EStop{engaged: false}` → `arb.estop_clear()`, which unlatches and **exits to
+1. `EStop{engaged: false}` → `arb.estop_clear()`, which unlatches and **exits to
    no-owner** — never straight back to owned.
 
 **Consequence worth stating loudly:** engaging the e-stop *itself* destroys ownership
@@ -496,30 +497,34 @@ is unchanged.
 - **Streaming tier** — setpoint topics, `StreamSink`, session open/close. Spec 2, which
   builds directly on this one: every setpoint message carries a token minted here.
 
-    **Decision: spec 2 designs all 5 setpoint kinds**, assuming `JointVelocityMode` lands
-    in core per its streaming-setpoints design. The skeleton is already in — the
-    `ControlModeKind::kVelocity` enum, the stubbed `on_setpoint_joint_velocity` /
-    `on_setpoint_twist`, and the `pair_supported()` rows that currently refuse them — so
-    the ROS surface can be designed against the finished shape and the rows flip on when
-    the mode lands.
+  **Decision: spec 2 designs all 5 setpoint kinds**, assuming `JointVelocityMode` lands
+  in core per its streaming-setpoints design. The skeleton is already in — the
+  `ControlModeKind::kVelocity` enum, the stubbed `on_setpoint_joint_velocity` /
+  `on_setpoint_twist`, and the `pair_supported()` rows that currently refuse them — so
+  the ROS surface can be designed against the finished shape and the rows flip on when
+  the mode lands.
 
-    **Tracked risk, not a blocker.** Core has not yet written the mode because it does not
-    know the arm honours velocity commands: no `ControlMode` has ever used that path, and
-    `SimTransport` "is a static echo with no plant", so it cannot be settled in sim.
-    Kinova's own `ros2_kortex` computes a velocity command and then declines to send it
-    ("Velocity command interface not implemented properly in the kortex api").
-    `apps/velocity_probe` answers this on the real arm and **has no recorded result** as of
-    this writing. If it returns `IGNORES`, core notes the twist path "needs redesigning"
-    toward a torque-domain alternative (`tau = g(q) + Kd*(qd_des - qd)`) — which would
-    change the *mode*, not the ROS topics, so spec 2's surface should survive it.
+  **Tracked risk, not a blocker.** Core has not yet written the mode because it does not
+  know the arm honours velocity commands: no `ControlMode` has ever used that path, and
+  `SimTransport` "is a static echo with no plant", so it cannot be settled in sim.
+  Kinova's own `ros2_kortex` computes a velocity command and then declines to send it
+  ("Velocity command interface not implemented properly in the kortex api").
+  `apps/velocity_probe` answers this on the real arm and **has no recorded result** as of
+  this writing. If it returns `IGNORES`, core notes the twist path "needs redesigning"
+  toward a torque-domain alternative (`tau = g(q) + Kd*(qd_des - qd)`) — which would
+  change the *mode*, not the ROS topics, so spec 2's surface should survive it.
+
 - **`set_gains` / `query_state` services** — both stubbed in the `Supervisor`; both now
   carry tokens. `query_state` is never gated by the Arbiter regardless.
+
 - **Ownership lease / heartbeat.** Explicitly declined: `/revoke_control` is the recovery
   path for a crashed owner.
+
 - **SROS2 / DDS Security.** The answer for when the domain contains unknown actors rather
   than known, cooperating ones — transport-level access control over who may call these
   services at all, including cancel and `/acquire_control`. Deferred as whole-domain
   infrastructure (keystores, enclaves, certificates), and additive when it comes: it
   changes who may call, not what the calls mean.
+
 - **`diagnostic_aggregator` configuration** (`/diagnostics_agg`) — we publish REP 107
   correctly; aggregation is a deployment concern.

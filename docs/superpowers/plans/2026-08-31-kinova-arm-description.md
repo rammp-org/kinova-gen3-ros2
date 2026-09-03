@@ -34,18 +34,21 @@ Pinocchio, with the arm's `ros2_control` block stripped.
 - **Build/test:** `./scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2`, then
   `ssh abra "/tmp/rtest.sh"`. Use `--packages-up-to`, never `--packages-select`.
 
----
+______________________________________________________________________
 
 ### Task 1: Package skeleton and the composed xacro
 
 **Files:**
+
 - Create: `kinova_gen3_description/package.xml`
 - Create: `kinova_gen3_description/CMakeLists.txt`
 - Create: `kinova_gen3_description/urdf/kinova_gen3.urdf.xacro`
 - Create: `kinova_gen3_description/scripts/strip_ros2_control.py`
 
 **Interfaces:**
+
 - Consumes: nothing in this repo.
+
 - Produces: package `kinova_gen3_description`, installing
   `share/kinova_gen3_description/urdf/kinova_gen3.urdf.xacro` and a build-time-expanded
   `share/kinova_gen3_description/urdf/kinova_gen3.urdf`. Later tasks reference both paths.
@@ -81,6 +84,7 @@ Pinocchio, with the arm's `ros2_control` block stripped.
 - [ ] **Step 2: Write the composed xacro**
 
 `kinova_gen3_description/urdf/kinova_gen3.urdf.xacro`:
+
 ```xml
 <?xml version="1.0"?>
 <!--
@@ -135,6 +139,7 @@ Pinocchio, with the arm's `ros2_control` block stripped.
 - [ ] **Step 3: Write the `ros2_control` stripper**
 
 `kinova_gen3_description/scripts/strip_ros2_control.py`:
+
 ```python
 #!/usr/bin/env python3
 """Expand a xacro and remove <ros2_control> blocks from the result.
@@ -219,6 +224,7 @@ ssh abra 'U=/tmp/kinova-ros2-ws/install/kinova_gen3_description/share/kinova_gen
   grep -oE "<joint name=\"joint_[0-9]\"" $U | sort -u | wc -l
   grep -c "<mimic" $U'
 ```
+
 Expected: `0` ros2_control blocks, `7` arm joints, `5` mimics.
 
 - [ ] **Step 6: Commit**
@@ -228,16 +234,18 @@ git add kinova_gen3_description/
 git commit -m "feat(description): compose the Gen3 model from upstream descriptions"
 ```
 
----
+______________________________________________________________________
 
 ### Task 2: Parity check against the current model
 
 **Files:**
+
 - Create: `kinova_gen3_description/test/test_model_parity.py`
 - Modify: `kinova_gen3_description/CMakeLists.txt`
 - Modify: `kinova_gen3_description/package.xml`
 
 **Interfaces:**
+
 - Consumes: the expanded `kinova_gen3.urdf` from Task 1.
 - Produces: nothing later tasks depend on. This is the acceptance gate for the model
   swap.
@@ -249,6 +257,7 @@ RViz looking correct proves nothing about any of them.
 - [ ] **Step 1: Write the parity test**
 
 `kinova_gen3_description/test/test_model_parity.py`:
+
 ```python
 #!/usr/bin/env python3
 """Compare the generated model against the hand-edited one it replaces.
@@ -332,6 +341,7 @@ def test_link_masses_match(models):
 - [ ] **Step 2: Register the test**
 
 In `CMakeLists.txt`, before `ament_package()`:
+
 ```cmake
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
@@ -341,7 +351,9 @@ if(BUILD_TESTING)
       KINOVA_OLD_URDF=${CMAKE_CURRENT_SOURCE_DIR}/../../kinova-gen3-driver/models/gen3_7dof_2f85.urdf)
 endif()
 ```
+
 and add to `package.xml`:
+
 ```xml
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>python3-pytest</test_depend>
@@ -354,14 +366,16 @@ and add to `package.xml`:
 - [ ] **Step 3: Run it**
 
 Run: `./scripts/abra_colcon.sh --packages-up-to kinova_gen3_description` then
+
 ```bash
 ssh abra "/tmp/rtest.sh model_parity"
 ```
 
 **Expected: this may FAIL, and that is a legitimate outcome.** If it does:
+
 1. Do not widen `TOL`.
-2. Record which assertion failed and by how much.
-3. Stop and report. A kinematic difference means the two models are not the same robot;
+1. Record which assertion failed and by how much.
+1. Stop and report. A kinematic difference means the two models are not the same robot;
    a mass difference means gravity compensation would change on hardware. Either is a
    decision for the user, not a diff to wave through.
 
@@ -373,17 +387,20 @@ git add kinova_gen3_description/test kinova_gen3_description/CMakeLists.txt \
 git commit -m "test(description): parity check the generated model against the hand-edited one"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: Launch files
 
 **Files:**
+
 - Create: `kinova_gen3_description/launch/description.launch.py`
 - Create: `kinova_gen3_description/launch/bringup.launch.py`
 - Delete: `kinova_gen3_description/launch/.gitkeep`
 
 **Interfaces:**
+
 - Consumes: the installed xacro and expanded URDF from Task 1.
+
 - Produces: `description.launch.py` (args `gripper`, `camera`, `prefix`) and
   `bringup.launch.py` (those plus `sim`, `ip`, `arbitration_mode`,
   `estop_clear_max_age_s`).
@@ -508,6 +525,7 @@ def generate_launch_description():
         ),
     ])
 ```
+
 - [ ] **Step 3: Build and launch it**
 
 ```bash
@@ -515,6 +533,7 @@ def generate_launch_description():
 ssh abra 'bash -lc "source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
   timeout 20 ros2 launch kinova_gen3_description bringup.launch.py sim:=true 2>&1 | tail -20"'
 ```
+
 Expected: `robot_state_publisher` reports the segments it found, and `kinova_gen3_node`
 logs `kinova_gen3_node up (sim)`.
 
@@ -526,15 +545,17 @@ git add kinova_gen3_description/launch/
 git commit -m "feat(description): description and bringup launch files"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Prove TF actually updates
 
 **Files:**
+
 - Create: `kinova_gen3_description/test/test_tf_updates.py`
 - Modify: `kinova_gen3_description/CMakeLists.txt`
 
 **Interfaces:**
+
 - Consumes: `bringup.launch.py` from Task 3.
 - Produces: nothing.
 
@@ -544,6 +565,7 @@ test, not an eyeball on RViz.
 - [ ] **Step 1: Write the test**
 
 `kinova_gen3_description/test/test_tf_updates.py`:
+
 ```python
 #!/usr/bin/env python3
 """TF must actually MOVE when the arm does.
@@ -616,10 +638,13 @@ def test_tf_follows_joint_states():
 - [ ] **Step 2: Register it**
 
 In `CMakeLists.txt`'s `BUILD_TESTING` block:
+
 ```cmake
   ament_add_pytest_test(tf_updates test/test_tf_updates.py)
 ```
+
 and add to `package.xml`:
+
 ```xml
   <test_depend>tf2_ros</test_depend>
   <test_depend>rclpy</test_depend>
@@ -638,6 +663,7 @@ ssh abra 'bash -lc "source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2
   python3 /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/kinova_gen3_description/test/test_tf_updates.py
   pkill -f robot_state_publisher"'
 ```
+
 Expected: the assertion passes — TF moves when `joint_2` does.
 
 - [ ] **Step 4: Commit**
@@ -648,23 +674,25 @@ git add kinova_gen3_description/test/test_tf_updates.py kinova_gen3_description/
 git commit -m "test(description): TF must move when the arm does"
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: Point the driver at the shared model, and document
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: `kinova_gen3_ros2/src/ros2_backend.cpp` (only if Task 2 confirms parity)
 
 **Interfaces:**
+
 - Consumes: everything above.
+
 - Produces: nothing.
 
 - [ ] **Step 1: Document the package in `README.md`**
 
 Add a "Robot model and TF" section covering: the package exists and why (the frozen-TF
-defect and the unregenerable model); `ros2 launch kinova_gen3_description
-bringup.launch.py sim:=true`; the xacro args; that the model is composed from upstream
+defect and the unregenerable model); `ros2 launch kinova_gen3_description bringup.launch.py sim:=true`; the xacro args; that the model is composed from upstream
 rather than vendored; and that `rviz2` needs `/robot_description` from the description
 launch.
 
@@ -685,7 +713,7 @@ git add README.md
 git commit -m "docs: the description package, TF, and launch"
 ```
 
----
+______________________________________________________________________
 
 ## Deliberate scope calls
 

@@ -12,18 +12,18 @@ Template: `rammp-org/rammp-module-template`. Launcher: `rammp-org/sheppy`.
 
 ## What we adopt
 
-| From the template | Change here |
-|---|---|
-| `.pre-commit-config.yaml` | verbatim |
-| `.clang-format` | verbatim |
-| `.github/workflows/lint.yml` | verbatim |
-| `.github/workflows/build.yml` | one deviation, below |
-| `Makefile` targets `run` / `check` / `smoke` / `lint` | added alongside ours |
-| `scripts/smoke.sh` | verbatim |
-| `scripts/validate_fragment.py` | **not adopted** — see `make check`, below |
-| `rammp-alternative.yaml` | written for this module |
-| `docs/interface.md` | written for this module |
-| branch model `main` / `dev` / `feature/<issue>-<desc>` | adopted |
+| From the template                                      | Change here                               |
+| ------------------------------------------------------ | ----------------------------------------- |
+| `.pre-commit-config.yaml`                              | verbatim                                  |
+| `.clang-format`                                        | verbatim                                  |
+| `.github/workflows/lint.yml`                           | verbatim                                  |
+| `.github/workflows/build.yml`                          | one deviation, below                      |
+| `Makefile` targets `run` / `check` / `smoke` / `lint`  | added alongside ours                      |
+| `scripts/smoke.sh`                                     | verbatim                                  |
+| `scripts/validate_fragment.py`                         | **not adopted** — see `make check`, below |
+| `rammp-alternative.yaml`                               | written for this module                   |
+| `docs/interface.md`                                    | written for this module                   |
+| branch model `main` / `dev` / `feature/<issue>-<desc>` | adopted                                   |
 
 `Dockerfile` moves from `docker/Dockerfile` to the repo root so the standard's
 `docker build .` works unmodified. `docker/requirements.txt` and
@@ -61,7 +61,7 @@ Two reasons, both load-bearing:
    for an inline block — still true on the fix branch. Without interpolation
    the arm's IP has to be hardcoded, which bakes one lab's address into the
    module's contract.
-2. **It keeps the two containers side by side** in one file a reviewer can
+1. **It keeps the two containers side by side** in one file a reviewer can
    read, instead of two fragments that drift apart.
 
 ```yaml

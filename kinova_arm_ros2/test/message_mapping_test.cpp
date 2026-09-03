@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "kinova_arm_ros2/message_mapping.h"
+#include "kinova_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "kinova_arm_interfaces/msg/gripper_state.hpp"
 using namespace kinova_arm_ros2;
 using kinova::interface::ControlModeKind; using kinova::interface::Preemption;
 
@@ -199,4 +201,35 @@ TEST(MessageMapping, CarriesTheArbitrationToken) {
   const auto tg = to_trajectory_goal(g);
   EXPECT_EQ(tg.token[0], 0xAB);
   EXPECT_EQ(tg.token[15], 0xCD);
+}
+
+TEST(GripperMapping, NormalizedMapsOntoTheKnuckleLimits) {
+  EXPECT_DOUBLE_EQ(kinova_arm_ros2::gripper_to_knuckle_rad(0.0f), 0.0);
+  EXPECT_DOUBLE_EQ(kinova_arm_ros2::gripper_to_knuckle_rad(1.0f), 0.8);
+  EXPECT_DOUBLE_EQ(kinova_arm_ros2::gripper_to_knuckle_rad(0.5f), 0.4);
+}
+
+// The ROS message has no `active`; core's struct does. to_gripper_setpoint must leave it
+// alone rather than inventing a value -- set_target discards it either way, but a caller
+// reading the struct should not see a fabricated flag.
+TEST(GripperMapping, SetpointCarriesAllThreeFieldsAndTheToken) {
+  kinova_arm_interfaces::msg::GripperSetpoint m;
+  m.position = 0.25f; m.speed = 0.5f; m.force = 0.75f;
+  m.token[0] = 7; m.token[15] = 9;
+  const auto s = kinova_arm_ros2::to_gripper_setpoint(m);
+  EXPECT_FLOAT_EQ(s.command.position, 0.25f);
+  EXPECT_FLOAT_EQ(s.command.speed, 0.5f);
+  EXPECT_FLOAT_EQ(s.command.force, 0.75f);
+  EXPECT_EQ(s.token[0], 7);
+  EXPECT_EQ(s.token[15], 9);
+}
+
+TEST(GripperMapping, StateRoundTripsEveryField) {
+  kinova::interface::GripperState g;
+  g.position = 0.3f; g.effort = 0.05f; g.current = 0.05f; g.present = true;
+  const auto m = kinova_arm_ros2::to_gripper_state_msg(g);
+  EXPECT_FLOAT_EQ(m.position, 0.3f);
+  EXPECT_FLOAT_EQ(m.effort, 0.05f);
+  EXPECT_FLOAT_EQ(m.current, 0.05f);
+  EXPECT_TRUE(m.present);
 }

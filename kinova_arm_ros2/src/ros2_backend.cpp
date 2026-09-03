@@ -108,8 +108,10 @@ void Ros2Backend::publish_state(const ArmState& s) {
     // at +/-1, which robot_state_publisher derives itself (verified 2026-09-03).
     // Publishing the dependents too would duplicate what the model already states.
     //
-    // Published REGARDLESS of `present`: omitting an independent movable joint makes RSP
-    // emit no TF for the whole robot, so a missing gripper would break the ARM's TF.
+    // Published REGARDLESS of `present`: omitting it would drop the gripper out of TF
+    // entirely -- its links would just vanish from the model rather than render at a
+    // frozen or default pose (verified 2026-09-03: RSP publishes per-segment, not
+    // all-or-nothing for the whole robot; the arm's TF is unaffected either way).
     // /gripper_state carries the truth about presence instead.
     //
     // This is a second snap_ load inside core, so the value can be up to one 1 kHz

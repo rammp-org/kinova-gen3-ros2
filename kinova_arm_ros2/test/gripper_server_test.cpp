@@ -69,9 +69,11 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
 #include "sensor_msgs/msg/joint_state.hpp"
 #include <cmath>
 
-// The joint is published even when present == false. Omitting it would leave
-// robot_state_publisher without a value for an independent movable joint, and RSP then
-// emits NO TF for the ENTIRE robot -- a missing gripper would break the arm's TF.
+// The joint is published even when present == false. Omitting it would drop the
+// gripper out of TF entirely -- its links would just vanish from the model rather than
+// render at a frozen or default pose (verified 2026-09-03: robot_state_publisher
+// publishes per-segment, not all-or-nothing for the whole robot; the arm's own TF is
+// unaffected either way). /gripper_state.present is where absence is reported truthfully.
 TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
   FakeGripperSink sink;
   sink.state.position = 0.5f; sink.state.present = false;

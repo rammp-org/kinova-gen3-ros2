@@ -156,10 +156,12 @@ gripper attached" — deliberately, since a caller has no use for telling them a
 
 ### When the gripper is absent
 
-The joint is published **regardless** of `present`. Omitting it would leave RSP without a
-value for an independent movable joint, and RSP then emits **no TF for the entire robot** —
-a missing gripper would break the arm's TF. `present` on `/gripper_state` carries the truth
-instead.
+The joint is published **regardless** of `present`. Omitting it would drop the gripper
+out of TF entirely — its links would just vanish from the model rather than render at a
+frozen or default pose (verified 2026-09-03: with an independent revolute joint never
+published, TF for the OTHER segments still resolves; only the unpublished joint's own
+child link is missing — RSP publishes per-segment, not all-or-nothing for the whole
+robot). `present` on `/gripper_state` carries the truth about presence instead.
 
 A third REP 107 diagnostics task, `kinova_arm_node: Gripper`, reports the presence and the
 current, and WARNs when a gripper was expected but `present == false`.

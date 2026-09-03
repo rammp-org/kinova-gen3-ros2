@@ -35,35 +35,57 @@ a working arm and a confusing failure.
 
 ## The contract
 
+This module is **two containers**, not one: the driver, and the cuRobo planner
+whose `PlanToPose` / `PlanToJoints` actions the `go_to_*` servers are clients
+of. Without the planner, three of our four action servers accept goals and
+never succeed.
+
+sheppy runs one container per node, and `depends_on` is explicitly ignored
+("sheppy owns lifecycle"), so a single fragment cannot express this. We
+therefore ship a **compose file describing both services** and two alternatives
+that reference it by service name:
+
+```
+deploy/compose.yaml          both services, one reviewable file
+rammp-alternative.yaml       -> compose: {file: deploy/compose.yaml, service: kinova_gen3_driver}
+rammp-alternative.curobo.yaml -> compose: {file: deploy/compose.yaml, service: curobo_planner}
+```
+
+### Why the compose-file path rather than an inline `container:`
+
+Two reasons, both load-bearing:
+
+1. **It is the only path with `${VAR}` interpolation.** `load_service()` runs
+   `_interpolate`; `DockerLauncher._service()` returns `dict(inline)` verbatim
+   for an inline block — still true on the fix branch. Without interpolation
+   the arm's IP has to be hardcoded, which bakes one lab's address into the
+   module's contract.
+2. **It keeps the two containers side by side** in one file a reviewer can
+   read, instead of two fragments that drift apart.
+
 ```yaml
-id: kinova_gen3_ros2
-tier: experimental
-kind: docker
-ros_node_name: kinova_gen3_node
-container:
-  image: ghcr.io/rammp-org/kinova-gen3-ros2:dev
-  network_mode: host
-  ipc: host
-  cap_add: [SYS_NICE]
-  ulimits:
-    rtprio: 99
-    memlock: -1
-  command:
-    - /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
-    - --sim
-    - --urdf
-    - /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
-params:
-  arbitration_mode: disabled
-  estop_clear_max_age_s: 1.0
-  expect_gripper: true
-publishes:
-  [/joint_states, /ee_state, /control_status, /stream_status,
-   /gripper_state, /diagnostics]
-subscribes:
-  [/estop, /setpoint/joint_position, /setpoint/joint_velocity,
-   /setpoint/joint_torque, /setpoint/pose, /setpoint/twist,
-   /setpoint/wrench, /setpoint/gripper]
+# deploy/compose.yaml
+services:
+  kinova_gen3_driver:
+    image: kinova-gen3-ros2:kortex          # locally built, see Registry
+    network_mode: host
+    ipc: host                                # DDS shared-memory transport
+    cap_add: [SYS_NICE]
+    ulimits: {rtprio: 99, memlock: -1}
+    command:
+      - /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
+      - --ip
+      - ${KINOVA_ARM_IP:-192.168.1.10}
+      - --urdf
+      - /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+      - --cpu
+      - ${KINOVA_RT_CORE:-11}
+
+  curobo_planner:
+    image: rammp-curobo:jp6                  # locally built, see Registry
+    runtime: nvidia                          # JetPack: NOT --gpus
+    network_mode: host
+    ipc: host
 ```
 
 `ipc: host` is required for DDS shared-memory transport. `cap_add: SYS_NICE`
@@ -71,51 +93,51 @@ permits `sched_setscheduler`; the `ulimits` are what let it succeed —
 capabilities and rlimits are separate mechanisms, and `privileged` does NOT
 raise `RLIMIT_RTPRIO` (measured: privileged leaves `rtprio` at 0).
 
-`ulimits` support is pending in sheppy — `rammp-org/sheppy#10`. This spec
-assumes it lands. Until it does, a fragment declaring it is silently dropped
-and the control loop runs best-effort with no error.
+`runtime: nvidia` is how JetPack exposes the GPU; `--gpus` is the desktop
+spelling and is not what `RAMMP-CuRobo/docker/README.md` documents.
 
-### `command` is mandatory here, not optional
+### Dependency on sheppy
 
-`sheppy/launch/docker/__init__.py` builds the container's argv from the
-fragment's `command:` and then, when `params` are present, **appends**
-`--ros-args --params-file /sheppy/params.yaml`. The final invocation is
-`docker run [flags] IMAGE [command]`.
+`ulimits` and `runtime` are translated on `rammp-org/sheppy`'s
+`translate-compose-ulimits` branch (commit `1379b61`, "Translate the whole
+compose vocabulary, and stop dropping keys silently"), which also makes an
+untranslated key a hard error with a did-you-mean hint rather than a silent
+drop. **`origin/main` has neither.** This spec assumes that branch merges;
+until it does, both `ulimits` and `runtime` are dropped in silence, which means
+a best-effort control loop and a planner with no GPU.
 
-If the fragment declares `params` but no `command`, that argv is
-`["--ros-args", "--params-file", "/sheppy/params.yaml"]` alone — which
-REPLACES the image's `CMD`. Our `ENTRYPOINT` then runs `exec "$@"` on
-`--ros-args` and the container dies at startup.
+### The template's validator rejects this shape
 
-So the fragment spells out the full command. This is not redundancy with the
-Dockerfile's `CMD`: `CMD` serves `docker run` and `make smoke`, the fragment's
-`command` serves sheppy, and the moment `params` exist the two stop being
-interchangeable.
+`validate_fragment.py` requires `container:` to be a mapping and errors
+otherwise, so a `compose:`-based fragment fails `make check` even though sheppy
+supports the shape. The validator is stricter than the launcher. That is a
+template bug to fix there, not a reason to describe a two-container system as
+one — to be raised against `rammp-module-template`.
 
-`ros_node_name: kinova_gen3_node` is declared for the same reason. Without it,
-`write_params_file` keys the file under the `/**` wildcard, which works but
-applies our parameters to every node in the process. Naming the node is exact.
-It also matters that `arbitration_mode` is READ-ONLY at launch — it can only
-arrive through a params file at startup, which is precisely this path.
-
-### Two things the fragment cannot say
+### What the fragment still cannot say
 
 **Actions and services are not expressible.** The schema has `publishes` and
-`subscribes` only. This module's PRIMARY interface is four action servers
-(`execute_joint_trajectory`, `go_to_ee_pose`, `go_to_joint_config`,
-`go_to_preset`) and six services (`/acquire_control`, `/release_control`,
-`/revoke_control`, `/open_stream`, `/close_stream`, `/list_controllers`).
-Roughly two thirds of what this module offers is invisible to the fragment.
-`docs/interface.md` carries them in prose; nothing validates them and
-`rammp-deployments` cannot reason about them. To be raised with sheppy
-separately — it affects any module that is not a pure topic pipeline.
+`subscribes` only. This module's primary interface is four action servers and
+six services; roughly two thirds of what it offers is invisible to the
+fragment, and the driver-to-planner action dependency — the thing that makes
+these two containers one system — cannot be declared at all.
+`docs/interface.md` carries them in prose; nothing validates them.
 
-**The fragment names one image; we have two.** The published image is the sim
-build. The KORTEX build links a proprietary aarch64 SDK and cannot go to a
-public registry. So the fragment describes the sim configuration, and real-arm
-deployment stays on the `make real` path. This is honest but means the declared
-contract is not the one that runs on hardware. Revisit when there is a private
-registry, or when the SDK's redistribution terms are checked.
+### Registry: neither image is published
+
+Both are built on the machine that runs them, and for different reasons:
+
+- **`kinova-gen3-ros2:kortex`** links a proprietary aarch64 SDK. Whether an
+  image containing it may be redistributed, even privately within the org, is
+  a licence question nobody has answered. **It needs answering before any
+  push.**
+- **`rammp-curobo:jp6`** is ~15 GB and needs ~25 GB free to build;
+  `RAMMP-CuRobo/docker/README.md` specifies building on the target Jetson.
+
+So CI publishes the **sim** image only, and `deploy/compose.yaml` refers to
+locally-built tags for both real services. This is the one place the spec
+describes something not yet reproducible from a registry, and it is called out
+rather than quietly deferred.
 
 ## CI
 
@@ -197,6 +219,11 @@ alters behaviour has gone wrong.
 
 - **`tier: integrated`** and `rammp-alternative.mock.yaml`. We are experimental
   until the module has run in a full-system deployment.
+- **Owning the planner's contract.** `rammp-org/RAMMP-CuRobo` owns its image and
+  its actions. `deploy/compose.yaml` references `rammp-curobo:jp6` and pins the
+  GPU flags it documents; it does not restate the planner's interface. If the
+  planner grows its own fragment, this service should be replaced by a
+  reference to it rather than kept in parallel.
 - **Fixing sheppy.** `ulimits` translation and warning on untranslated keys are
   `rammp-org/sheppy#10`, not this repo.
 - **Releases and versioning.** Separate workstream; `build.yml` already handles

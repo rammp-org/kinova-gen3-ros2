@@ -12,7 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
-from kinova_arm_interfaces.msg import ControlStatus, EStop, StreamStatus
+from kinova_arm_interfaces.msg import ControlStatus, EStop, GripperState, StreamStatus
 from kinova_arm_interfaces.srv import (AcquireControl, CloseStream, ListControllers,
                                        OpenStream, ReleaseControl, RevokeControl)
 from sensor_msgs.msg import JointState
@@ -75,6 +75,7 @@ class Ctx:
         self.sub(ControlStatus, "control_status", LATCHED_QOS, latched=True)
         self.sub(StreamStatus, "stream_status", LATCHED_QOS, latched=True)
         self.sub(JointState, "joint_states", SENSOR_QOS)
+        self.sub(GripperState, "gripper_state", SENSOR_QOS)
 
     # ---- topics -------------------------------------------------------------
     def sub(self, msg_type, topic, qos, latched=False):

@@ -813,6 +813,7 @@ git commit -m "feat(description): articulate the gripper by default"
 
 **Files:**
 - Create: `kinova_arm_ros2/test/conformance/checks_gripper.py`
+- Modify: `kinova_arm_ros2/test/conformance/harness.py` (register the `gripper_state` topic)
 - Modify: `kinova_arm_ros2/test/conformance/run_conformance.py:34` (`SECTION_ORDER`)
 - Modify: `kinova_arm_ros2/test/conformance/README.md` (coverage table)
 
@@ -836,7 +837,7 @@ import time
 from kinova_arm_interfaces.msg import GripperSetpoint, GripperState
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from harness import FAIL, PASS, REGISTRY, ZERO_TOKEN, Result, tok
+from harness import FAIL, PASS, REGISTRY, SKIP, ZERO_TOKEN, Result, tok
 
 SEC = "gripper"
 SP_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -846,7 +847,7 @@ KNUCKLE = "robotiq_85_left_knuckle_joint"
 
 @REGISTRY.add(SEC, "/gripper_state publishes and is self-consistent")
 def check_gripper_state(ctx):
-    g = ctx.latest("/gripper_state")
+    g = ctx.latest("gripper_state", timeout=6.0, fresh=True)
     if g is None:
         return Result("", FAIL, "no /gripper_state")
     if not (0.0 <= g.position <= 1.0):
@@ -859,7 +860,7 @@ def check_gripper_state(ctx):
 
 @REGISTRY.add(SEC, "the actuated joint appears in /joint_states, within its URDF limits")
 def check_knuckle_in_joint_states(ctx):
-    js = ctx.latest("/joint_states")
+    js = ctx.latest("joint_states", timeout=6.0, fresh=True)
     if js is None or KNUCKLE not in js.name:
         return Result("", FAIL, f"{KNUCKLE} missing from /joint_states")
     i = list(js.name).index(KNUCKLE)
@@ -898,9 +899,11 @@ def check_untokened_refused(ctx):
               needs_motion=True, needs_mode="enforced")
 def check_tokened_moves(ctx):
     token = ctx.acquire("conformance-gripper").token
-    g0 = ctx.latest("/gripper_state", fresh=True)
+    g0 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
     if g0 is None or not g0.present:
-        return Result("", PASS, "SKIPPED-INLINE: no gripper attached (present=false)")
+        # SKIP, never PASS. The README's principle: a skip is reported, never silently
+        # counted as a pass. SKIP is a first-class status the runner counts separately.
+        return Result("", SKIP, "no gripper attached (present=false); nothing to command")
     pub = ctx.n.create_publisher(GripperSetpoint, "/setpoint/gripper", SP_QOS)
     ctx.spin(0.3)
     target = 0.3 if g0.position < 0.15 else 0.0
@@ -911,14 +914,26 @@ def check_tokened_moves(ctx):
         m.token = tok(token)
         pub.publish(m)
         ctx.spin(0.02)
-    g1 = ctx.latest("/gripper_state", fresh=True)
+    g1 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
     if abs(g1.position - g0.position) < 0.02:
         return Result("", FAIL, f"gripper did not move: {g0.position:.3f} -> "
                                 f"{g1.position:.3f} commanding {target}")
     return Result("", PASS, f"moved {g0.position:.3f} -> {g1.position:.3f}")
 ```
 
-- [ ] **Step 2: Register the section**
+- [ ] **Step 2: Register the `gripper_state` topic in the harness**
+
+`Ctx._spec` keys topics WITHOUT a leading slash, and `latest()` returns `None` for any
+topic that was never registered. In `harness.py`, add the import and one `self.sub(...)`
+line beside the existing three in `Ctx.__init__`:
+
+```python
+from kinova_arm_interfaces.msg import GripperState
+...
+        self.sub(GripperState, "gripper_state", SENSOR_QOS)
+```
+
+- [ ] **Step 3: Register the section**
 
 In `run_conformance.py`, change `SECTION_ORDER` (line 34) to:
 
@@ -932,7 +947,7 @@ and add the import next to the others:
 import checks_gripper     # noqa: F401
 ```
 
-- [ ] **Step 3: Run in sim**
+- [ ] **Step 4: Run in sim**
 
 Run:
 ```bash
@@ -949,7 +964,7 @@ uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
 ```
 Expected: all sections pass; the gripper section's "tokened setpoint moves" check reports SKIPPED-INLINE in sim if `present` is false.
 
-- [ ] **Step 4: Update the conformance README**
+- [ ] **Step 5: Update the conformance README**
 
 Add a row to the coverage table:
 
@@ -957,10 +972,10 @@ Add a row to the coverage table:
 | `gripper` | `/gripper_state` plausible, the actuated joint in `/joint_states` within its URDF limits and **no mimics published**, an untokened setpoint counted as rejected, a tokened one moving the gripper |
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/conformance/checks_gripper.py kinova_arm_ros2/test/conformance/run_conformance.py kinova_arm_ros2/test/conformance/README.md
+git add kinova_arm_ros2/test/conformance/checks_gripper.py kinova_arm_ros2/test/conformance/harness.py kinova_arm_ros2/test/conformance/run_conformance.py kinova_arm_ros2/test/conformance/README.md
 git commit -m "test(ros2): conformance section for the gripper tier"
 ```
 

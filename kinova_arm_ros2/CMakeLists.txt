@@ -76,7 +76,7 @@ add_executable(kinova_arm_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_arm_node
   ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
-  arbitration_server stream_server kinova_lowlevel::kinova_lowlevel)
+  arbitration_server stream_server gripper_server kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)

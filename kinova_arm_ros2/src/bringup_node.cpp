@@ -15,9 +15,11 @@
 #include "kinova_arm_ros2/goto_joint_config_server.h"
 #include "kinova_arm_ros2/goto_preset_server.h"
 #include "kinova_arm_ros2/arbitration_server.h"
+#include "kinova_arm_ros2/gripper_server.h"
 #include "kinova_arm_ros2/stream_server.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
+#include "kinova_lowlevel/gripper_controller.h"
 #include "kinova_lowlevel/interface/arbiter.h"
 #include "kinova_lowlevel/interface/supervisor.h"
 #include "kinova_lowlevel/joint_impedance_mode.h"
@@ -91,7 +93,13 @@ int main(int argc, char** argv) {
     RCLCPP_ERROR(rclcpp::get_logger("kinova_arm_node"), "built without KORTEX; use --sim"); return 2;
 #endif
   }
-  Seqlock<JointFeedback> snap; FeedbackTap tap(*base, snap);
+  Seqlock<JointFeedback> snap;
+  // Decorates Transport to stamp the gripper field into every outgoing frame. NOT a
+  // ControlMode: modes are mutually exclusive, so making the gripper one would mean
+  // giving up arm control to move it. Order follows core's own idiom in
+  // apps/teleop_socket_server.cpp -- GripperController first, then FeedbackTap.
+  GripperController grip(*base);
+  FeedbackTap tap(grip, snap);
 
   // Seed the reference rate limit from the URDF instead of taking
   // JointPositionParams' 0.5 rad/s default. That default is a conservative
@@ -142,6 +150,10 @@ int main(int argc, char** argv) {
                                                  : interface::ArbitrationMode::kDisabled;
   const double estop_clear_max_age_s =
       node->declare_parameter("estop_clear_max_age_s", 1.0);
+  // "Expected" cannot be inferred from the node's own model: it loads the FROZEN 7-DOF
+  // URDF, in which the Robotiq joints are type="fixed", so its model never has a gripper
+  // regardless of the hardware. A robot genuinely built without one sets this false.
+  const bool expect_gripper = node->declare_parameter("expect_gripper", true);
 
   // Router demuxes the Supervisor's single ActionServerPort by GoalId; the
   // pre-existing ExecuteJointTrajectory backend is the default (fall-through) port.
@@ -158,15 +170,13 @@ int main(int argc, char** argv) {
                                                   load_presets(*node));
 
   // Core takes a SupervisorDeps aggregate rather than positional arguments, so the
-  // mode/port wiring reads by name. `grip` is left NULL deliberately: null means this
-  // robot has no gripper, which core treats as a real configuration -- gripper commands
-  // become no-ops and on_query_gripper reports present=false. This node does not expose
-  // a gripper surface yet, so absent is the honest answer rather than a half-wired one.
+  // mode/port wiring reads by name.
   interface::SupervisorDeps deps;
   deps.pos = &pos;  deps.imp = &imp;  deps.tau = &tau;  deps.vel = &vel;
   deps.exec = &exec;  deps.snap = &snap;  deps.pump_dyn = &pump_dyn;
   deps.stream = backend.get();        // Ros2Backend publishes /joint_states + /ee_state
   deps.action = &router;              // GoalRouter demuxes the single ActionServerPort
+  deps.grip = &grip;                  // was nullptr: every setpoint was silently dropped
   interface::Supervisor sup(deps);
   // Supervisor implements CommandSink, StreamSink AND GripperSink, so it is passed
   // three times -- the idiom core's own tests use
@@ -180,6 +190,16 @@ int main(int argc, char** argv) {
   // Wired to the Arbiter, not the Supervisor: that is how setpoint tokens get checked
   // at all. Declared here so it is destroyed before arb stops delegating.
   kinova_arm_ros2::StreamServer stream_server(node, arb);
+  // Wired to the Arbiter, exactly like StreamServer: that is what makes the gripper's
+  // token load-bearing. There is no session to open -- Arbiter::on_gripper_setpoint
+  // gates on admit(token) alone.
+  kinova_arm_ros2::GripperServer gripper_server(node, arb, expect_gripper);
+  backend->set_gripper_sink(&arb);
+  // 20 Hz is enough for a gripper and keeps the pump thread free of a second publisher;
+  // Ros2Backend::publish_state stamps /joint_states from node->now() the same way.
+  auto gripper_timer = node->create_wall_timer(
+      std::chrono::milliseconds(50),
+      [&gripper_server, node]() { gripper_server.publish_state(node->now()); });
 
   // Every command path now goes through the Arbiter rather than straight to the
   // Supervisor. Nothing else about the servers changes.

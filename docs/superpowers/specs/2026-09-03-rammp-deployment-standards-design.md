@@ -19,7 +19,8 @@ Template: `rammp-org/rammp-module-template`. Launcher: `rammp-org/sheppy`.
 | `.github/workflows/lint.yml` | verbatim |
 | `.github/workflows/build.yml` | one deviation, below |
 | `Makefile` targets `run` / `check` / `smoke` / `lint` | added alongside ours |
-| `scripts/smoke.sh`, `scripts/validate_fragment.py`, `tests/` | verbatim |
+| `scripts/smoke.sh` | verbatim |
+| `scripts/validate_fragment.py` | **not adopted** — see `make check`, below |
 | `rammp-alternative.yaml` | written for this module |
 | `docs/interface.md` | written for this module |
 | branch model `main` / `dev` / `feature/<issue>-<desc>` | adopted |
@@ -98,21 +99,45 @@ spelling and is not what `RAMMP-CuRobo/docker/README.md` documents.
 
 ### Dependency on sheppy
 
-`ulimits` and `runtime` are translated on `rammp-org/sheppy`'s
-`translate-compose-ulimits` branch (commit `1379b61`, "Translate the whole
-compose vocabulary, and stop dropping keys silently"), which also makes an
-untranslated key a hard error with a did-you-mean hint rather than a silent
-drop. **`origin/main` has neither.** This spec assumes that branch merges;
-until it does, both `ulimits` and `runtime` are dropped in silence, which means
-a best-effort control loop and a planner with no GPU.
+`ulimits` and `runtime` are both translated as of `rammp-org/sheppy` `2d6afc8`
+("Translate the whole compose vocabulary, and stop dropping keys silently",
+#11), which also turns an untranslated key into a hard error with a
+did-you-mean hint instead of a silent drop. That is on `main`, so this spec has
+no pending sheppy dependency.
 
-### The template's validator rejects this shape
+Modules should pin a sheppy version once sheppy has releases — before #11, both
+keys were dropped in silence, which would have meant a best-effort control loop
+and a planner with no GPU, with nothing in the logs to say so.
 
-`validate_fragment.py` requires `container:` to be a mapping and errors
-otherwise, so a `compose:`-based fragment fails `make check` even though sheppy
-supports the shape. The validator is stricter than the launcher. That is a
-template bug to fix there, not a reason to describe a two-container system as
-one — to be raised against `rammp-module-template`.
+### `make check` validates against sheppy, not against a copied script
+
+We do **not** ship the template's `scripts/validate_fragment.py`.
+
+It requires `container:` to be a mapping, so it rejects the `compose:` shape
+sheppy supports — and it checks only that `container.image` is a non-empty
+string, so it accepts any nonsense inside. Too strict and too loose at once.
+Worse, it is copied into every module repo, so each copy drifts on its own as
+sheppy's vocabulary grows, and none of them is the thing that will actually run
+the fragment.
+
+sheppy is the authority: it holds the full compose vocabulary, the `_KNOWN`
+set, and per-key error messages. So `make check` asks sheppy, via the
+`Launcher.validate(raw_alt) -> list[str]` API each launcher already implements:
+
+```
+make check  ->  for each rammp-alternative*.yaml:
+                  errors = DockerLauncher().validate(fragment)
+                  fail on any
+```
+
+Two follow-ups, neither blocking this work:
+
+- **sheppy: expose `sheppy validate <fragment>`.** The logic is already there;
+  only the CLI surface (`up`, `down`, `status`, `logs`, `woof`, `daemon`) is
+  missing it. Modules should not have to import launcher internals to ask a
+  yes/no question.
+- **rammp-module-template: retire `validate_fragment.py`** in favour of that
+  command, so every module stops carrying a lagging copy of sheppy's rules.
 
 ### What the fragment still cannot say
 
@@ -145,7 +170,8 @@ rather than quietly deferred.
 
 **`build.yml`** — three jobs, matching the template:
 
-- `fragment` — `pytest tests`, then `validate_fragment.py rammp-alternative*.yaml`
+- `fragment` — validate every `rammp-alternative*.yaml` through sheppy's own
+  `Launcher.validate`, not the template's copied script
 - `smoke` — `docker build`, then `scripts/smoke.sh` with
   `SMOKE_PATTERN="kinova_gen3_node up"`. The node's startup banner is the
   natural probe, and SIGTERM handling is already correct: the Dockerfile execs

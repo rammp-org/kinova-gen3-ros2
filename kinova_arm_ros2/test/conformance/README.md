@@ -42,10 +42,11 @@ ownership, clears the e-stop.
 
 | section | |
 |---|---|
-| `state` | `/joint_states` names, `/ee_state` plausibility, both from one pump tick, `/control_status` and `/stream_status` latched and self-consistent, `/diagnostics` carrying both REP 107 tasks |
+| `state` | `/joint_states` names, `/ee_state` plausibility, both from one pump tick, `/control_status` and `/stream_status` latched and self-consistent, `/diagnostics` carrying all three REP 107 tasks |
 | `arbitration` | e-stop engage/clear, the staleness **asymmetry** (stale clear refused, stale engage honoured, unstamped accepted), acquire, seizure bumping `generation`, release with the wrong token refused, operator revoke |
 | `streaming` | `/list_controllers` availability, unavailable and unknown controllers refused, `timeout_s<=0` refused, open/close, setpoints refreshing the deadline, expiry once they stop, wrong-channel setpoints counted but not applied |
 | `motion` | **an e-stop settling an in-flight goal `-9`**, and under `enforced`: an untokened goal refused, a tokened one completing, and **cancel actually cancelling** |
+| `gripper` | `/gripper_state` plausible, the actuated joint in `/joint_states` within its URDF limits and **no mimics published**, an untokened setpoint counted as rejected, a tokened one moving the gripper |
 
 Those last two had never been exercised end to end. The cancel one guards a specific
 trap: a ROS action cancel carries no payload, so the driver replays the goal's stored

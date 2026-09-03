@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "kinova_arm_ros2/message_mapping.h"
 #include "kinova_arm_ros2/joint_point.h"   // shared vec_to_point
 namespace kinova_arm_ros2 {
@@ -97,6 +98,36 @@ GoToEEPose::Result to_goto_result_msg(const TrajectoryResult& r) {
   m.error_code = r.error_code;
   m.error_string = r.error_string;
   m.final_error = vec_to_point(r.final_error);
+  return m;
+}
+
+double gripper_to_knuckle_rad(float normalized) {
+  return static_cast<double>(normalized) * kKnuckleUpperRad;
+}
+
+kinova::interface::GripperSetpoint to_gripper_setpoint(
+    const kinova_arm_interfaces::msg::GripperSetpoint& m) {
+  kinova::interface::GripperSetpoint s;
+  // No `active`: the ROS message has none, and set_target arms stamping regardless.
+  // Clamping is core's job -- set_target is the ONE place the [0,1] range is enforced
+  // for every caller, including unvalidated data off a socket.
+  s.command.position = m.position;
+  s.command.speed    = m.speed;
+  s.command.force    = m.force;
+  std::copy(m.token.begin(), m.token.end(), s.token.begin());
+  return s;
+}
+
+kinova_arm_interfaces::msg::GripperState to_gripper_state_msg(
+    const kinova::interface::GripperState& g) {
+  kinova_arm_interfaces::msg::GripperState m;
+  // g.stamp_s is deliberately NOT used: it is QUERY time (when on_query_gripper() was
+  // called), not sample time. The caller supplies the stamp instead -- GripperServer
+  // publishes /gripper_state alone from its own 20 Hz wall timer using node->now().
+  m.position = g.position;
+  m.effort   = g.effort;
+  m.current  = g.current;
+  m.present  = g.present;
   return m;
 }
 }  // namespace kinova_arm_ros2

@@ -88,24 +88,25 @@ def _level(s):
     return int.from_bytes(s.level, "big") if isinstance(s.level, bytes) else int(s.level)
 
 
-@REGISTRY.add(SEC, "/diagnostics carries both REP 107 tasks")
+@REGISTRY.add(SEC, "/diagnostics carries all three REP 107 tasks")
 def check_diagnostics(ctx):
     from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
     seen = {}
     qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                      history=HistoryPolicy.KEEP_LAST, depth=10)
-    # ArbitrationServer and Ros2Backend each own a diagnostic_updater, so they publish
-    # SEPARATE DiagnosticArrays, one task apiece. Reading a single message finds one
-    # task and wrongly concludes the other is missing -- collect over a window instead.
+    # ArbitrationServer, Ros2Backend and GripperServer each own a diagnostic_updater,
+    # so they publish SEPARATE DiagnosticArrays, one task apiece. Reading a single
+    # message finds one task and wrongly concludes the others are missing -- collect
+    # over a window instead.
     sub = ctx.n.create_subscription(
         DiagnosticArray, "/diagnostics",
         lambda m: [seen.__setitem__(s.name, s) for s in m.status], qos)
-    ctx.spin(4.0)                       # both updaters tick at 1 Hz
+    ctx.spin(4.0)                       # all three updaters tick at 1 Hz
     ctx.n.destroy_subscription(sub)
 
     if not seen:
         return Result("", FAIL, "nothing on /diagnostics")
-    want = ("Arbitration", "Arm")
+    want = ("Arbitration", "Arm", "Gripper")
     missing = [w for w in want if not any(w in n for n in seen)]
     if missing:
         return Result("", FAIL, f"missing task(s) {missing}; saw {sorted(seen)}")

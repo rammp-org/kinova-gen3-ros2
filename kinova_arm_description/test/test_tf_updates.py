@@ -13,10 +13,13 @@ Two things this test learned the hard way, both worth keeping:
     robot_state_publisher drops joint states that do not advance in time, so only the
     very first message is ever processed.
 
-  * robot_state_publisher publishes NOTHING until it has every movable joint. Given 7
-    of the articulated model's 13 it emits no /tf at all -- not a partial tree. That is
-    why the description launch serves the 7-DOF model by default: the driver publishes
-    seven joint states, so that is the model which actually produces TF.
+  * robot_state_publisher DOES derive <mimic> joint transforms from the joint they
+    mimic -- verified 2026-09-03 with a two-joint URDF: publishing only the driver
+    joint moved the mimic link by exactly -0.6 rad for a +0.6 rad drive. The
+    articulated model has 13 movable joints but only EIGHT independent ones (seven arm
+    plus robotiq_85_left_knuckle_joint); the driver publishes all eight as of the
+    gripper tier, so the description launch now serves the articulated model by
+    default.
 
 Run against a live `ros2 launch kinova_arm_description description.launch.py`:
     python3 test_tf_updates.py

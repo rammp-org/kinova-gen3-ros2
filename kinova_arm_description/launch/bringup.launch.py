@@ -37,9 +37,9 @@ def generate_launch_description():
         # The model's gripper/camera/prefix are BUILD-time xacro args, expanded by
         # CMakeLists; only the articulated/frozen choice is a launch-time one.
         DeclareLaunchArgument(
-            "articulated", default_value="false",
-            description="13-DOF model with a moving gripper; needs all six Robotiq "
-                        "joints published or TF stays empty"),
+            "articulated", default_value="true",
+            description="13-DOF model with a moving gripper; needs the driver to publish "
+                        "robotiq_85_left_knuckle_joint (the gripper tier does)"),
         DeclareLaunchArgument("sim", default_value="true",
                               description="run against SimTransport instead of the arm"),
         DeclareLaunchArgument("ip", default_value="192.168.1.10",

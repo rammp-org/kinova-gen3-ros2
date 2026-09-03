@@ -3,18 +3,14 @@
 Deliberately contains nothing arm-specific and starts no driver, so a client that wants
 only TF -- a planner, a perception node, RViz -- can include it without owning the arm.
 
-DEFAULTS TO THE 7-DOF MODEL, and that is not arbitrary. robot_state_publisher in Humble
-does NOT derive mimic joints: given 7 of the articulated model's 13 movable joints it
-publishes NOTHING on /tf -- not a partial tree, nothing. Measured, not assumed:
+robot_state_publisher DOES derive <mimic> joints -- verified 2026-09-03 with a two-joint
+URDF: publishing only the driver joint moved the mimic link by exactly -0.6 rad for a
++0.6 rad drive. The articulated model has 13 movable joints but only EIGHT independent
+ones (seven arm plus robotiq_85_left_knuckle_joint); RSP derives the other five.
 
-    7 arm joints                      -> 0 /tf messages
-    7 arm + the actuated knuckle      -> 0 /tf messages
-    all 13 movable joints             -> transforms appear
-
-The driver publishes 7 joint states, so the frozen-gripper model is the one that
-actually produces TF today. Set articulated:=true once something publishes the gripper's
-six joints -- either the driver computing the mimics itself, or joint_state_publisher in
-the chain.
+The driver publishes that knuckle joint as of the gripper tier, so `articulated` now
+defaults to true. It is safe on a gripper-less build: the joint is not in the model and
+RSP ignores joint states for joints it does not know.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -46,9 +42,10 @@ def generate_launch_description():
     articulated = LaunchConfiguration("articulated")
     return LaunchDescription([
         DeclareLaunchArgument(
-            "articulated", default_value="false",
-            description="use the 13-DOF model with a moving gripper. Requires something "
-                        "to publish all six Robotiq joints, or TF stays empty."),
+            "articulated", default_value="true",
+            description="use the 13-DOF model with a moving gripper. Requires the driver to "
+                        "publish robotiq_85_left_knuckle_joint (the gripper tier does); "
+                        "robot_state_publisher derives the five mimic joints itself."),
         _rsp("kinova_arm_7dof.urdf", UnlessCondition(articulated)),
         _rsp("kinova_arm.urdf", IfCondition(articulated)),
     ])

@@ -157,10 +157,21 @@ int main(int argc, char** argv) {
   kinova_arm_ros2::GoToPresetServer preset_server(node, router, planner, cb_group,
                                                   load_presets(*node));
 
-  interface::Supervisor sup(pos, imp, tau, vel, exec, snap, pump_dyn, *backend, router);
-  // Supervisor implements BOTH CommandSink and StreamSink, so it is passed twice --
-  // the idiom core's own tests use (Arbiter arb{sink, sink, mode, seed}).
-  interface::Arbiter arb(sup, sup, arb_mode);
+  // Core takes a SupervisorDeps aggregate rather than positional arguments, so the
+  // mode/port wiring reads by name. `grip` is left NULL deliberately: null means this
+  // robot has no gripper, which core treats as a real configuration -- gripper commands
+  // become no-ops and on_query_gripper reports present=false. This node does not expose
+  // a gripper surface yet, so absent is the honest answer rather than a half-wired one.
+  interface::SupervisorDeps deps;
+  deps.pos = &pos;  deps.imp = &imp;  deps.tau = &tau;  deps.vel = &vel;
+  deps.exec = &exec;  deps.snap = &snap;  deps.pump_dyn = &pump_dyn;
+  deps.stream = backend.get();        // Ros2Backend publishes /joint_states + /ee_state
+  deps.action = &router;              // GoalRouter demuxes the single ActionServerPort
+  interface::Supervisor sup(deps);
+  // Supervisor implements CommandSink, StreamSink AND GripperSink, so it is passed
+  // three times -- the idiom core's own tests use
+  // (Arbiter arb{sink, sink, sink, mode, seed}).
+  interface::Arbiter arb(sup, sup, sup, arb_mode);
   // Declared AFTER arb so it is destroyed FIRST: it must stop accepting ROS calls
   // before arb stops delegating, and arb before sup goes away. (The servers are
   // declared before sup and so outlive all of it, as the comment above requires.)

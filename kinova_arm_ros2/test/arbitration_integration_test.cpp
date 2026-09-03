@@ -13,7 +13,7 @@ using namespace std::chrono_literals;
 namespace {
 // Records what actually reached the Supervisor's side of the Arbiter, and can be told
 // to block inside a delegated call so the e-stop path can be raced against it.
-struct RecordingSink : public CommandSink, public StreamSink {
+struct RecordingSink : public CommandSink, public StreamSink, public GripperSink {
   mutable std::mutex m;
   std::vector<std::string> calls;
   std::atomic<bool> block_goal{false};
@@ -60,6 +60,12 @@ struct RecordingSink : public CommandSink, public StreamSink {
   // Ungated in the Arbiter, so it must exist here even though these tests never
   // read it -- see core PR #31.
   StreamStatus on_query_stream() override { note("query_stream"); return {}; }
+
+  // GripperSink -- the Arbiter gained a third downstream with core's gripper tier
+  // (#35). These tests do not exercise the gripper; the sink exists so the Arbiter
+  // can construct, and records the call so a future test can assert the gating.
+  void on_gripper_setpoint(const GripperSetpoint&) override { note("gripper_setpoint"); }
+  GripperState on_query_gripper() override { note("query_gripper"); return {}; }
 };
 
 GoalId mkid(uint8_t x) { GoalId id{}; id[0] = x; return id; }
@@ -73,7 +79,7 @@ bool logged(const RecordingSink& s, const std::string& what) {
 // must be admitted.
 TEST(ArbitrationIntegration, CancelWithTheGoalsTokenIsAdmittedUnderEnforced) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   const GrantResult g = arb.grant("orchestrator");
   ASSERT_TRUE(g.accepted);
 
@@ -85,7 +91,7 @@ TEST(ArbitrationIntegration, CancelWithTheGoalsTokenIsAdmittedUnderEnforced) {
 // Supervisor, so the arm keeps moving while the client believes it cancelled.
 TEST(ArbitrationIntegration, CancelWithAZeroTokenIsRefusedUnderEnforced) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   ASSERT_TRUE(arb.grant("orchestrator").accepted);
 
   EXPECT_EQ(arb.on_trajectory_cancel({mkid(1), Token{}}), CancelResponse::kReject);
@@ -96,7 +102,7 @@ TEST(ArbitrationIntegration, CancelWithAZeroTokenIsRefusedUnderEnforced) {
 // existing script working under the default mode.
 TEST(ArbitrationIntegration, ZeroTokenIsAdmittedUnderDisabled) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kDisabled, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kDisabled, 1234};
   TrajectoryGoal tg;
   EXPECT_EQ(arb.on_trajectory_goal(tg), GoalResponse::kAccept);
 }
@@ -105,7 +111,7 @@ TEST(ArbitrationIntegration, ZeroTokenIsAdmittedUnderDisabled) {
 // how a dispossessed client detects what happened.
 TEST(ArbitrationIntegration, StaleTokenIsRejectedAfterSeizure) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   const GrantResult first = arb.grant("teleop");
   ASSERT_TRUE(first.accepted);
   const GrantResult second = arb.grant("orchestrator");
@@ -129,7 +135,7 @@ TEST(ArbitrationIntegration, StaleTokenIsRejectedAfterSeizure) {
 // delegate is still stuck holding the mutex.
 TEST(ArbitrationIntegration, EstopHaltReachesTheArmWhileADelegatedCallBlocks) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   const GrantResult g = arb.grant("orchestrator");
   ASSERT_TRUE(g.accepted);
 
@@ -168,7 +174,7 @@ TEST(ArbitrationIntegration, EstopHaltReachesTheArmWhileADelegatedCallBlocks) {
 // on_setpoint_* returns void. The Arbiter's rejected_count is the only signal there is.
 TEST(ArbitrationIntegration, SetpointWithAStaleTokenIsDroppedSilently) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   const GrantResult first = arb.grant("teleop");
   ASSERT_TRUE(first.accepted);
   const GrantResult second = arb.grant("orchestrator");   // seizes; first token is dead
@@ -191,7 +197,7 @@ TEST(ArbitrationIntegration, SetpointWithAStaleTokenIsDroppedSilently) {
 // why you were refused. Mirrors core's own Arbiter.QueryStreamIsNeverGated.
 TEST(ArbitrationIntegration, QueryStreamIsNeverGated) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   arb.on_query_stream();
   arb.estop();
   arb.on_query_stream();
@@ -206,7 +212,7 @@ TEST(ArbitrationIntegration, QueryStreamIsNeverGated) {
 // estop() takes to return -- estop() blocks on the mutex at its tail by design.
 TEST(ArbitrationIntegration, EstopHaltReachesTheArmDuringAStreamOpen) {
   RecordingSink sink;
-  Arbiter arb{sink, sink, ArbitrationMode::kEnforced, 1234};
+  Arbiter arb{sink, sink, sink, ArbitrationMode::kEnforced, 1234};
   const GrantResult g = arb.grant("orchestrator");
   ASSERT_TRUE(g.accepted);
 

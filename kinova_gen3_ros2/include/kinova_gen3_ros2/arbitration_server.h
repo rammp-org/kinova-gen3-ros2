@@ -14,30 +14,33 @@
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
 
-// The ROS face of core's ArbitrationSink: ownership services, the broadcast e-stop,
-// /control_status and the REP 107 /diagnostics contribution.
+// The ROS face of core's ArbitrationSink: ownership services, the broadcast
+// e-stop, /control_status and the REP 107 /diagnostics contribution.
 //
 // It holds an ArbitrationSink& and NOTHING else from core -- no Supervisor, no
-// ControlMode, no Dynamics -- so it is unit-testable against a fake with no robot,
-// no URDF and no threads. That is the same reason the Arbiter itself is a decorator
-// rather than part of the Supervisor.
+// ControlMode, no Dynamics -- so it is unit-testable against a fake with no
+// robot, no URDF and no threads. That is the same reason the Arbiter itself is
+// a decorator rather than part of the Supervisor.
 class ArbitrationServer {
- public:
+public:
   using AcquireControl = kinova_gen3_interfaces::srv::AcquireControl;
   using ReleaseControl = kinova_gen3_interfaces::srv::ReleaseControl;
-  using RevokeControl  = kinova_gen3_interfaces::srv::RevokeControl;
-  using EStop          = kinova_gen3_interfaces::msg::EStop;
-  using ControlStatus  = kinova_gen3_interfaces::msg::ControlStatus;
+  using RevokeControl = kinova_gen3_interfaces::srv::RevokeControl;
+  using EStop = kinova_gen3_interfaces::msg::EStop;
+  using ControlStatus = kinova_gen3_interfaces::msg::ControlStatus;
 
-  ArbitrationServer(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
-               const std::string& hardware_id, double estop_clear_max_age_s);
+  ArbitrationServer(rclcpp::Node::SharedPtr node,
+                    kinova::interface::ArbitrationSink &arb,
+                    const std::string &hardware_id,
+                    double estop_clear_max_age_s);
 
-  // Publish only if the arbiter's status differs from what was last sent. Called by
-  // every mutating handler (so ownership changes are immediate) and by a 10 Hz timer
-  // (so externally-caused changes such as rejected_count are not missed).
+  // Publish only if the arbiter's status differs from what was last sent.
+  // Called by every mutating handler (so ownership changes are immediate) and
+  // by a 10 Hz timer (so externally-caused changes such as rejected_count are
+  // not missed).
   void publish_status_if_changed();
 
- private:
+private:
   void on_acquire(const std::shared_ptr<AcquireControl::Request>,
                   std::shared_ptr<AcquireControl::Response>);
   void on_release(const std::shared_ptr<ReleaseControl::Request>,
@@ -45,11 +48,11 @@ class ArbitrationServer {
   void on_revoke(const std::shared_ptr<RevokeControl::Request>,
                  std::shared_ptr<RevokeControl::Response>);
   void on_estop(const EStop::SharedPtr msg);
-  void diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat);
+  void diagnostics(diagnostic_updater::DiagnosticStatusWrapper &stat);
   void forget_token();
 
   rclcpp::Node::SharedPtr node_;
-  kinova::interface::ArbitrationSink& arb_;
+  kinova::interface::ArbitrationSink &arb_;
   double estop_clear_max_age_s_;
 
   rclcpp::Service<AcquireControl>::SharedPtr acquire_srv_;
@@ -62,8 +65,9 @@ class ArbitrationServer {
   std::unique_ptr<diagnostic_updater::Updater> updater_;
 
   std::mutex m_;
-  kinova::interface::Token retained_token_{};   // the token we minted; see on_release
+  kinova::interface::Token
+      retained_token_{}; // the token we minted; see on_release
   bool have_retained_ = false;
   std::optional<ControlStatus> last_published_;
 };
-}  // namespace kinova_gen3_ros2
+} // namespace kinova_gen3_ros2

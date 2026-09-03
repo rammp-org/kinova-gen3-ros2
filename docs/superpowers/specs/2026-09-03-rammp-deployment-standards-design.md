@@ -180,11 +180,22 @@ rather than quietly deferred.
   the signal would never arrive.
 - `publish` — ghcr, on non-PR events.
 
-**Deviation: `linux/arm64` only.** The template publishes
-`linux/arm64,linux/amd64`. The robot is arm64, the pinocchio/cmeel wheels are
-pinned to exactly what the Jetson runs, and amd64 has never been built here.
-Publishing an untested architecture is a claim we cannot back. Add amd64 when
-something needs it and it has been built at least once.
+**Both architectures, `linux/arm64,linux/amd64`** — as the template does.
+
+An earlier draft of this spec said arm64 only, on the grounds that amd64 "has
+never been built here". That was an assumption, and testing it showed it was
+wrong: on 2026-09-03 the image built cleanly on x86_64 (the cmeel/pinocchio
+wheels ship `manylinux_2_28_x86_64`), the node came up, and the **full
+conformance suite passed 32/32 under `arbitration_mode:=enforced`**. Same
+numbers as arm64.
+
+So amd64 is a claim we can back, and it is worth publishing: it is the
+developer and CI architecture, and the runner builds it natively. arm64 remains
+the one the robot needs, and it is emulated under QEMU on an amd64 runner —
+that is the long pole in the publish job either way, so adding amd64 costs
+little on top.
+
+**The KORTEX image is still never published.** It links a proprietary SDK.
 
 **The KORTEX image is never published.** CI builds and publishes the sim image
 only.

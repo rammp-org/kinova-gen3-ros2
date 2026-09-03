@@ -222,6 +222,7 @@ TEST(GripperMapping, SetpointCarriesAllThreeFieldsAndTheToken) {
   EXPECT_FLOAT_EQ(s.command.force, 0.75f);
   EXPECT_EQ(s.token[0], 7);
   EXPECT_EQ(s.token[15], 9);
+  EXPECT_FALSE(s.command.active);   // left at its default, not fabricated
 }
 
 TEST(GripperMapping, StateRoundTripsEveryField) {
@@ -232,4 +233,15 @@ TEST(GripperMapping, StateRoundTripsEveryField) {
   EXPECT_FLOAT_EQ(m.effort, 0.05f);
   EXPECT_FLOAT_EQ(m.current, 0.05f);
   EXPECT_TRUE(m.present);
+}
+
+// present is load-bearing: it is what distinguishes "no gripper" from "fully open",
+// both of which read position == 0. A mapping that dropped or inverted it would still
+// pass the present=true case above.
+TEST(GripperMapping, StateRoundTripsPresentFalse) {
+  kinova::interface::GripperState g;
+  g.position = 0.0f; g.effort = 0.0f; g.current = 0.0f; g.present = false;
+  const auto m = kinova_arm_ros2::to_gripper_state_msg(g);
+  EXPECT_FLOAT_EQ(m.position, 0.0f);
+  EXPECT_FALSE(m.present);
 }

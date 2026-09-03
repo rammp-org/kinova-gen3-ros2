@@ -40,6 +40,7 @@ class GripperServer {
   rclcpp::Node::SharedPtr node_;
   kinova::interface::GripperSink& sink_;
   bool expect_gripper_;
+  rclcpp::CallbackGroup::SharedPtr setpoint_group_;
   rclcpp::Subscription<GripperSetpointMsg>::SharedPtr sp_sub_;
   rclcpp::Publisher<GripperStateMsg>::SharedPtr state_pub_;
   std::unique_ptr<diagnostic_updater::Updater> updater_;

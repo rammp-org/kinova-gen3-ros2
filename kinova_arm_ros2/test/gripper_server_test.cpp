@@ -1,8 +1,15 @@
+#include <cmath>
+#include <functional>
+#include <stdexcept>
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_arm_ros2/gripper_server.h"
+#include "kinova_arm_ros2/ros2_backend.h"
 #include "kinova_arm_interfaces/msg/gripper_setpoint.hpp"
 #include "kinova_arm_interfaces/msg/gripper_state.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "fake_gripper_sink.h"
 
 using namespace std::chrono_literals;
@@ -65,9 +72,49 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
   EXPECT_TRUE(got.present);
 }
 
-#include "kinova_arm_ros2/ros2_backend.h"
-#include "sensor_msgs/msg/joint_state.hpp"
-#include <cmath>
+namespace {
+// diagnostic_updater::Updater's task/level are not reachable from outside GripperServer
+// (updater_ is private, as it should be), so the only testable seam is the same one the
+// conformance suite uses: subscribe to /diagnostics and let the updater's own periodic
+// timer (1 Hz) publish it. Slower than the other tests here, but real -- it exercises
+// GripperServer::diagnostics() exactly as it runs in the node.
+diagnostic_msgs::msg::DiagnosticStatus wait_for_gripper_task(
+    rclcpp::Node::SharedPtr node, std::function<void(std::chrono::milliseconds)> spin_for) {
+  diagnostic_msgs::msg::DiagnosticStatus got;
+  bool seen = false;
+  auto sub = node->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
+      "/diagnostics", rclcpp::QoS(10).reliable(),
+      [&](diagnostic_msgs::msg::DiagnosticArray::SharedPtr m) {
+        for (const auto& s : m->status) {
+          if (s.name.find("Gripper") != std::string::npos) { got = s; seen = true; }
+        }
+      });
+  for (int i = 0; i < 60 && !seen; ++i) spin_for(std::chrono::milliseconds(50));
+  return seen ? got : throw std::runtime_error("no Gripper task seen on /diagnostics");
+}
+}  // namespace
+
+TEST_F(GripperServerTest, DiagnosticsWarnsWhenGripperExpectedButAbsent) {
+  FakeGripperSink sink;
+  sink.state.present = false;
+  kinova_arm_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
+  (void)server;
+
+  const auto got = wait_for_gripper_task(
+      node_, [this](std::chrono::milliseconds d) { spin_for(d); });
+  EXPECT_EQ(got.level, diagnostic_msgs::msg::DiagnosticStatus::WARN);
+}
+
+TEST_F(GripperServerTest, DiagnosticsOkWhenGripperNotExpectedAndAbsent) {
+  FakeGripperSink sink;
+  sink.state.present = false;
+  kinova_arm_ros2::GripperServer server(node_, sink, /*expect_gripper=*/false);
+  (void)server;
+
+  const auto got = wait_for_gripper_task(
+      node_, [this](std::chrono::milliseconds d) { spin_for(d); });
+  EXPECT_EQ(got.level, diagnostic_msgs::msg::DiagnosticStatus::OK);
+}
 
 // The joint is published even when present == false. Omitting it would drop the
 // gripper out of TF entirely -- its links would just vanish from the model rather than

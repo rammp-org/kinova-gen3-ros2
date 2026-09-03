@@ -15,6 +15,10 @@ SEC = "gripper"
 SP_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
                     history=HistoryPolicy.KEEP_LAST, depth=1)
 KNUCKLE = "robotiq_85_left_knuckle_joint"
+# Mirrors kKnuckleUpperRad in message_mapping.h: the knuckle's URDF upper limit, and
+# the scale factor between /gripper_state's normalized [0,1] position and the joint's
+# radians.
+KNUCKLE_UPPER_RAD = 0.8
 
 
 @REGISTRY.add(SEC, "/gripper_state publishes and is self-consistent")
@@ -41,15 +45,16 @@ def check_gripper_state(ctx):
                                 f"publisher looks stuck, not live")
     # Cross-surface check: /gripper_state.position and the knuckle joint in
     # /joint_states describe the same physical quantity through two independent paths,
-    # related by the 0.8 rad scale factor. A mis-scaled or mis-wired mapping would pass
-    # the range checks above but disagree here.
+    # related by the KNUCKLE_UPPER_RAD scale factor. A mis-scaled or mis-wired mapping
+    # would pass the range checks above but disagree here.
     js = ctx.latest("joint_states", timeout=6.0, fresh=True)
     if js is None or KNUCKLE not in js.name:
         return Result("", FAIL, f"{KNUCKLE} missing from /joint_states")
     q = js.position[list(js.name).index(KNUCKLE)]
-    if abs(q - g1.position * 0.8) >= 0.02:
+    if abs(q - g1.position * KNUCKLE_UPPER_RAD) >= 0.02:
         return Result("", FAIL, f"/joint_states {KNUCKLE}={q:.4f} disagrees with "
-                                f"/gripper_state position*0.8={g1.position * 0.8:.4f}")
+                                f"/gripper_state position*{KNUCKLE_UPPER_RAD}="
+                                f"{g1.position * KNUCKLE_UPPER_RAD:.4f}")
     return Result("", PASS, f"present={g1.present} position={g1.position:.3f} "
                             f"effort={g1.effort:.3f} current={g1.current:.3f}A, "
                             f"stamp advanced {t0}->{t1}, matches joint_states")
@@ -62,8 +67,9 @@ def check_knuckle_in_joint_states(ctx):
         return Result("", FAIL, f"{KNUCKLE} missing from /joint_states")
     i = list(js.name).index(KNUCKLE)
     q = js.position[i]
-    if not (0.0 <= q <= 0.8):
-        return Result("", FAIL, f"{KNUCKLE}={q} outside the URDF limit [0, 0.8]")
+    if not (0.0 <= q <= KNUCKLE_UPPER_RAD):
+        return Result("", FAIL,
+                      f"{KNUCKLE}={q} outside the URDF limit [0, {KNUCKLE_UPPER_RAD}]")
     # Only the actuated joint: RSP derives the five mimics.
     mimics = [n for n in js.name if "robotiq" in n and n != KNUCKLE]
     if mimics:
@@ -104,15 +110,28 @@ def check_tokened_moves(ctx):
     pub = ctx.n.create_publisher(GripperSetpoint, "/setpoint/gripper", SP_QOS)
     ctx.spin(0.3)
     target = 0.3 if g0.position < 0.15 else 0.0
-    end = time.time() + 4.0
-    while time.time() < end:
-        m = GripperSetpoint()
-        m.position, m.speed, m.force = target, 0.3, 0.3
-        m.token = tok(token)
-        pub.publish(m)
-        ctx.spin(0.02)
+
+    def stream(position, duration_s):
+        end = time.time() + duration_s
+        while time.time() < end:
+            m = GripperSetpoint()
+            m.position, m.speed, m.force = position, 0.3, 0.3
+            m.token = tok(token)
+            pub.publish(m)
+            ctx.spin(0.02)
+
+    stream(target, 4.0)
     g1 = ctx.latest("gripper_state", timeout=6.0, fresh=True)
     if abs(g1.position - g0.position) < 0.02:
-        return Result("", FAIL, f"gripper did not move: {g0.position:.3f} -> "
-                                f"{g1.position:.3f} commanding {target}")
-    return Result("", PASS, f"moved {g0.position:.3f} -> {g1.position:.3f}")
+        verdict = Result("", FAIL, f"gripper did not move: {g0.position:.3f} -> "
+                                   f"{g1.position:.3f} commanding {target}")
+    else:
+        verdict = Result("", PASS, f"moved {g0.position:.3f} -> {g1.position:.3f}")
+
+    # There is no "let go" on this hardware -- GripperController keeps stamping
+    # whatever we last sent into every outgoing frame for the life of the node, so
+    # leaving `target` commanded here would strand the fingers partly closed for the
+    # next person at the cell. Restore the ORIGINAL position on every exit path past
+    # this point, per the README's "restores state on exit whatever happens".
+    stream(g0.position, 4.0)
+    return verdict

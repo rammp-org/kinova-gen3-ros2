@@ -13,7 +13,8 @@
 # latched in KORTEX's cyclic frame and the 2F-85 is effectively self-locking. To open,
 # command position 0.
 float32   position    # 0 (open) .. 1 (closed)
-float32   speed 1.0   # fraction of max closing speed
+float32   speed 1.0   # fraction of max closing speed. 1.0 IS the maximum -- a client
+                       # that fills in only `position` closes at full speed.
 # A CEILING on motor current, NOT a force setpoint: the gripper closes at `speed` toward
 # `position` and stalls when it reaches this limit. No force servo exists on this hardware.
 float32   force 0.5

@@ -247,8 +247,12 @@ an eyeball.
 >   the driver joint moved the mimic link by exactly −0.6 rad for a +0.6 rad drive. RSP
 >   derives mimics. The original decision stands: **publish the single actuated joint.**
 >   TF was also emitted while one of the two movable joints was never published, so the
->   companion claim — no TF until every movable joint is present — holds only for
->   *independent* joints; mimics do not count against it.
+>   companion claim — no TF until every movable joint is present — is false outright, not
+>   just narrowed to independent joints. **Corrected again, 2026-09-03:**
+>   `robot_state_publisher` publishes **per-segment**, not all-or-nothing for the whole
+>   robot: with two independent revolute joints where only one was published,
+>   `base->link_a` TF resolved and moved while only `base->link_b` was absent. A missing
+>   joint costs only its own child link's TF, never the rest of the tree.
 - **Real2sim URDF tuning.** Mass, friction and tool-frame calibration against the real
   arm. This package makes it *possible* by giving the model a reproducible source, and the
   parity harness above is the natural place to hang it, but the calibration itself is

@@ -121,8 +121,9 @@ kinova::interface::GripperSetpoint to_gripper_setpoint(
 kinova_arm_interfaces::msg::GripperState to_gripper_state_msg(
     const kinova::interface::GripperState& g) {
   kinova_arm_interfaces::msg::GripperState m;
-  // g.stamp_s is deliberately NOT used: it is QUERY time, not sample time. The caller
-  // stamps with the message it is publishing alongside.
+  // g.stamp_s is deliberately NOT used: it is QUERY time (when on_query_gripper() was
+  // called), not sample time. The caller supplies the stamp instead -- GripperServer
+  // publishes /gripper_state alone from its own 20 Hz wall timer using node->now().
   m.position = g.position;
   m.effort   = g.effort;
   m.current  = g.current;

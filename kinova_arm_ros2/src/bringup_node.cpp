@@ -227,7 +227,7 @@ int main(int argc, char** argv) {
               "/go_to_ee_pose, /go_to_joint_config, /go_to_preset; control: "
               "/acquire_control, /release_control, /revoke_control, /estop, /control_status; "
               "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "
-              "/stream_status",
+              "/stream_status; gripper: /setpoint/gripper, /gripper_state",
               use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",

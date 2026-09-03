@@ -125,7 +125,8 @@ convention for "no measurement"; zero would be indistinguishable from "not movin
 `GripperState::stamp_s` is **discarded**. Core flags the asymmetry: `ArmState::stamp_s` is
 *sample* time, set inside the pump when the feedback was captured, while
 `GripperState::stamp_s` is *query* time, computed when you ask. Publishing the arm's
-sample time is the honest stamp for the message.
+sample time is the honest stamp for `/joint_states`' knuckle row, which piggybacks on the
+`ArmState` that `Ros2Backend::publish_state()` was already given.
 
 The cost, stated rather than hidden: `on_query_gripper()` performs its own `snap_` load,
 so the gripper value may come from a feedback frame up to one cycle newer than the
@@ -133,6 +134,16 @@ so the gripper value may come from a feedback frame up to one cycle newer than t
 irrelevant for TF and visualization, which is all the joint drives. It does mean the
 conformance suite's "same pump tick" invariant covers `/joint_states` and `/ee_state`, not
 the gripper column.
+
+**Correction, 2026-09-03: `/gripper_state` itself is not stamped this way.** The
+paragraphs above describe the knuckle row folded into `/joint_states`, which does run on
+the pump thread with `ArmState`'s sample time. `/gripper_state` is a separate topic
+published by `GripperServer`'s own 20 Hz wall timer (`bringup_node.cpp`, decoupled from
+the pump thread), stamped with `node->now()` at the moment it fires — not with
+`ArmState`'s sample time and not with `GripperState::stamp_s`. That is still an honest
+stamp (it is query time, and `GripperState::stamp_s` is also query time — there is no
+sample time to inherit here since nothing pulls an `ArmState` for this publish), just not
+the mechanism this section originally planned.
 
 ### `/gripper_state`
 

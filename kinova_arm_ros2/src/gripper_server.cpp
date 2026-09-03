@@ -11,9 +11,19 @@ GripperServer::GripperServer(rclcpp::Node::SharedPtr node,
   // semantics are identical -- setpoints are absolute and latest-wins, so dropping an
   // intermediate one is correct rather than a loss.
   const auto sp_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
+  // Its OWN mutually-exclusive group, isolated from the node's DEFAULT group -- which
+  // also carries /acquire_control, /release_control, /revoke_control and the
+  // execute_joint_trajectory goal/cancel callbacks. on_setpoint blocks on the Arbiter
+  // mutex, and StreamServer::on_open holds that mutex for a 250 ms mode-settle sleep;
+  // sharing the default group would stall an operator's /revoke_control or a
+  // trajectory cancel behind that sleep. Same reasoning as StreamServer's
+  // setpoint_group_ and ArbitrationServer's estop_group_.
+  setpoint_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions sp_opts;
+  sp_opts.callback_group = setpoint_group_;
   sp_sub_ = node_->create_subscription<GripperSetpointMsg>(
       "/setpoint/gripper", sp_qos,
-      std::bind(&GripperServer::on_setpoint, this, std::placeholders::_1));
+      std::bind(&GripperServer::on_setpoint, this, std::placeholders::_1), sp_opts);
   state_pub_ = node_->create_publisher<GripperStateMsg>("gripper_state",
                                                         rclcpp::SensorDataQoS());
   // Its own Updater, exactly as ArbitrationServer and Ros2Backend each own one.

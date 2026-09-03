@@ -113,6 +113,7 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 | `joint_states` | `sensor_msgs/JointState` | `SensorDataQoS` (**best-effort**) | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz. |
 | `control_status` | `kinova_arm_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately. |
 | `ee_state` | `kinova_arm_interfaces/EeState` | `SensorDataQoS` (**best-effort**) | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate. |
+| `stream_status` | `kinova_arm_interfaces/StreamStatus` | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | default | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_arm_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_arm_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives). |
 
 Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
@@ -143,6 +144,17 @@ report: the gripper's `force` is a current ceiling on the command side, and
 | Topic | Type | QoS | Notes |
 |---|---|---|---|
 | `/estop` | `kinova_arm_interfaces/EStop` | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
+| `/setpoint/joint_position` | `kinova_arm_interfaces/JointSetpoint` | best-effort, depth 1 | Joint angles, **rad**. |
+| `/setpoint/joint_velocity` | `kinova_arm_interfaces/JointSetpoint` | best-effort, depth 1 | Joint rates, **rad/s**. |
+| `/setpoint/joint_torque` | `kinova_arm_interfaces/JointSetpoint` | best-effort, depth 1 | Joint torques, **N·m**. |
+| `/setpoint/pose` | `kinova_arm_interfaces/PoseSetpoint` | best-effort, depth 1 | Target tool pose, base frame. |
+| `/setpoint/twist` | `kinova_arm_interfaces/TwistSetpoint` | best-effort, depth 1 | Target tool twist, base frame, `[linear; angular]`. |
+| `/setpoint/wrench` | `kinova_arm_interfaces/WrenchSetpoint` | best-effort, depth 1 | Target tool wrench. **No controller consumes this** — setpoints are dropped with a throttled warning. |
+
+The three `JointSetpoint` topics share one message shape and the **topic** carries the units.
+All six are subscribed unconditionally, but a setpoint is only applied while a matching
+streaming session is open and its token matches — see [Streaming](#streaming) for the
+controller-to-channel map and the open/close handshake.
 
 `/estop` is deliberately *not* latched. A `transient_local` subscription is
 incompatible with a volatile publisher, which is what `ros2 topic pub` and rqt

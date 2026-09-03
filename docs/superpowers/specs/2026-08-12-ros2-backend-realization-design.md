@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-12
 **Status:** Approved (design locked; realizes the already-approved interface + build specs)
-**Repo:** `rammp-org/kinova_arm_ros2` (this repo) — the ROS2 Humble frontend.
+**Repo:** `rammp-org/kinova_gen3_ros2` (this repo) — the ROS2 Humble frontend.
 
 ## What this is
 
@@ -37,22 +37,22 @@ the set-gains / query-state services are a fast-follow plan.**
 ## Repo structure
 
 ```
-kinova_arm_ros2/                       (this repo)
-  kinova_arm.repos            vcs source list: vendors kinova-gen3-driver (the core)
+kinova_gen3_ros2/                       (this repo)
+  kinova_gen3.repos            vcs source list: vendors kinova-gen3-driver (the core)
                               into the colcon workspace src/. Pinned to the core
                               branch until Plan 2 merges (then main).
-  kinova_arm_interfaces/      ament_cmake — interface definitions ONLY
+  kinova_gen3_interfaces/      ament_cmake — interface definitions ONLY
     package.xml               <build_type>ament_cmake</build_type>; member_of_group
                               rosidl_interface_packages; depends trajectory_msgs,
                               control_msgs, builtin_interfaces, action_msgs, std_msgs
     CMakeLists.txt            rosidl_generate_interfaces(...)
     action/ExecuteJointTrajectory.action
     msg/JointImpedanceGains.msg
-  kinova_arm_ros2/            ament_cmake — the backend + bring-up node
-    package.xml               depends rclcpp, rclcpp_action, kinova_arm_interfaces,
+  kinova_gen3_ros2/            ament_cmake — the backend + bring-up node
+    package.xml               depends rclcpp, rclcpp_action, kinova_gen3_interfaces,
                               kinova_lowlevel, sensor_msgs (stream is later; dep is fine)
     CMakeLists.txt            find_package(kinova_lowlevel CONFIG REQUIRED) + rclcpp*
-    include/kinova_arm_ros2/ros2_backend.h
+    include/kinova_gen3_ros2/ros2_backend.h
     src/ros2_backend.cpp      the ONLY unit that includes rclcpp/rclcpp_action
     src/bringup_node.cpp      DI wiring + spin (main)
   test/                       Python test client(s) driving the action

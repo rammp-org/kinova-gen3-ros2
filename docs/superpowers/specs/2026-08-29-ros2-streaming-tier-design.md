@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-29
 **Status:** Design (approved by user; ready to plan/implement)
-**Repo:** `rammp-org/kinova_arm_ros2`, on `feat/ros2-command-tiers`
+**Repo:** `rammp-org/kinova_gen3_ros2`, on `feat/ros2-command-tiers`
 **Core dependency:** `kinova-gen3-driver` PR #29 (`feat/streaming-tier`)
 **Predecessor:** `2026-08-29-ros2-arbitration-tier-design.md` (built, PR #13). Opening a
 stream requires ownership, so that tier is load-bearing here, not merely adjacent.

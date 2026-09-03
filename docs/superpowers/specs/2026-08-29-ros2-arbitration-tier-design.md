@@ -2,11 +2,11 @@
 
 **Date:** 2026-08-29
 **Status:** Design (approved by user; ready to plan/implement in a fresh session)
-**Repo:** `rammp-org/kinova_arm_ros2`
+**Repo:** `rammp-org/kinova_gen3_ros2`
 **Core dependency:** `rammp-org/kinova-gen3-driver` **PR #29 (`feat/streaming-tier`)**.
 Arbitration itself landed on core `main` (PR #25), but `Arbiter`'s constructor gained a
 second downstream (`StreamSink&`) in #29, and `Supervisor`'s gained a `JointTorqueMode&`.
-This repo already requires #29 for the latter — see the WARNING in `kinova_arm.repos`.
+This repo already requires #29 for the latter — see the WARNING in `kinova_gen3.repos`.
 
 ## What this is
 
@@ -100,7 +100,7 @@ that is subtle and already reviewed (see the 20-line comment on `Arbiter::estop(
 
 ### `ArbitrationServer` (new component)
 
-One class, `kinova_arm_ros2::ArbitrationServer`, owning the ownership/safety ROS surface. It
+One class, `kinova_gen3_ros2::ArbitrationServer`, owning the ownership/safety ROS surface. It
 holds an `kinova::interface::ArbitrationSink*` and nothing else from core — it never
 touches `Supervisor` or the modes. Constructed with the node, the arbiter, and the
 resolved `ArbitrationMode` (needed only to populate `arbitration_enabled` in status).
@@ -131,7 +131,7 @@ reach a half-destroyed chain.
 
 ## Interfaces
 
-All new files land in `kinova_arm_interfaces`.
+All new files land in `kinova_gen3_interfaces`.
 
 ### `msg/EStop.msg`
 
@@ -256,7 +256,7 @@ publisher** — and `ros2 topic pub`, `rqt`, and most ad-hoc scripts publish vol
 default. Requesting `transient_local` on `/estop` would mean an operator typing
 
 ```
-ros2 topic pub /estop kinova_arm_interfaces/msg/EStop '{engaged: true}'
+ros2 topic pub /estop kinova_gen3_interfaces/msg/EStop '{engaged: true}'
 ```
 
 silently fails to connect at all. On an emergency-stop path that trap is unacceptable, so

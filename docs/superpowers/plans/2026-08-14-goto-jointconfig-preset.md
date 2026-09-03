@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Builds aarch64-only on `abra`.** Build: `bash scripts/abra_colcon.sh --packages-up-to kinova_arm_ros2 --cmake-args -DBUILD_TESTING=ON`. Run a gtest binary: `ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; /tmp/kinova-ros2-ws/build/kinova_arm_ros2/<TESTBIN> --gtest_color=yes"'`.
+- **Builds aarch64-only on `abra`.** Build: `bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`. Run a gtest binary: `ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; /tmp/kinova-ros2-ws/build/kinova_gen3_ros2/<TESTBIN> --gtest_color=yes"'`.
 - **Branch:** `feat/arm-goto-jointconfig-preset` (already created, **stacked on `feat/goto-ee-pose-curobo`**). Commit here. **No core change** (reuse `kPlanningFailed = -7`).
 - **Settle-exactly-once is the crux invariant** — each goal terminals its `ServerGoalHandle` exactly once, never zero (hang) or twice (rclcpp throws). Mutex `m_` guards `goals_`; NO downstream ROS/sink call is made while holding `m_`. Preserve this verbatim when templating.
 - **RT contract untouched** — no new code in `compute`/the executor cycle. Real-arm runs pin `--cpu 11` (RT fix `79d1050`; `make sim/real` do it).
@@ -32,7 +32,7 @@ Action `/rammp_curobo/plan_to_joints`, type `rammp_curobo_interfaces/action/Plan
 
 ### Task 1: interfaces — `GoToJointConfig.action` + `GoToPreset.action`
 
-**Files:** Create `kinova_arm_interfaces/action/GoToJointConfig.action`, `kinova_arm_interfaces/action/GoToPreset.action`; Modify `kinova_arm_interfaces/CMakeLists.txt`.
+**Files:** Create `kinova_gen3_interfaces/action/GoToJointConfig.action`, `kinova_gen3_interfaces/action/GoToPreset.action`; Modify `kinova_gen3_interfaces/CMakeLists.txt`.
 
 **Interfaces produced:** two actions whose Result/Feedback are byte-identical to `GoToEEPose.action`; Goals differ.
 
@@ -73,15 +73,15 @@ float32 fraction_complete
 trajectory_msgs/JointTrajectoryPoint actual
 ```
 
-- [ ] **Step 3: Register both in `kinova_arm_interfaces/CMakeLists.txt`** — add the two lines to the existing `rosidl_generate_interfaces(...)` alongside `GoToEEPose.action` (deps unchanged; these use only `trajectory_msgs`/`std_msgs`, already listed).
+- [ ] **Step 3: Register both in `kinova_gen3_interfaces/CMakeLists.txt`** — add the two lines to the existing `rosidl_generate_interfaces(...)` alongside `GoToEEPose.action` (deps unchanged; these use only `trajectory_msgs`/`std_msgs`, already listed).
 
-- [ ] **Step 4: Build + verify** — `bash scripts/abra_colcon.sh --packages-up-to kinova_arm_ros2 --cmake-args -DBUILD_TESTING=ON`; then `ros2 interface show kinova_arm_interfaces/action/GoToJointConfig` and `...GoToPreset` print the fields. Commit (`feat(interfaces): add GoToJointConfig + GoToPreset actions`).
+- [ ] **Step 4: Build + verify** — `bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`; then `ros2 interface show kinova_gen3_interfaces/action/GoToJointConfig` and `...GoToPreset` print the fields. Commit (`feat(interfaces): add GoToJointConfig + GoToPreset actions`).
 
 ---
 
 ### Task 2: `CuroboPlanClient::plan_to_joints` (+ DRY dispatch, type-erased cancel) + fake server
 
-**Files:** Modify `include/kinova_arm_ros2/curobo_plan_client.h`, `src/curobo_plan_client.cpp`, `test/fake_curobo_server.h`, `test/curobo_plan_client_test.cpp`, `CMakeLists.txt` (test deps unchanged — `rammp_curobo_interfaces` already linked).
+**Files:** Modify `include/kinova_gen3_ros2/curobo_plan_client.h`, `src/curobo_plan_client.cpp`, `test/fake_curobo_server.h`, `test/curobo_plan_client_test.cpp`, `CMakeLists.txt` (test deps unchanged — `rammp_curobo_interfaces` already linked).
 
 **Interfaces produced:** `void CuroboPlanClient::plan_to_joints(const std::vector<double>& target_joints, FeedbackCb, DoneCb)` → same `Outcome`. `cancel()` cancels whichever plan is in flight. `FakeCuroboServer` also serves `/rammp_curobo/plan_to_joints`.
 
@@ -135,7 +135,7 @@ void CuroboPlanClient::cancel() {
 
 ### Task 3: `PlannedMoveServer<ActionT>` base + refactor `GoToEEPose` onto it
 
-**Files:** Create `include/kinova_arm_ros2/planned_move_server.h` (template, header-only) and `include/kinova_arm_ros2/joint_point.h` (shared `vec_to_point`). Rewrite `include/kinova_arm_ros2/goto_ee_pose_server.h` + delete/empty `src/goto_ee_pose_server.cpp` (logic moves into the template). Modify `CMakeLists.txt`. **`test/goto_ee_pose_integration_test.cpp` is UNCHANGED** and is the regression gate.
+**Files:** Create `include/kinova_gen3_ros2/planned_move_server.h` (template, header-only) and `include/kinova_gen3_ros2/joint_point.h` (shared `vec_to_point`). Rewrite `include/kinova_gen3_ros2/goto_ee_pose_server.h` + delete/empty `src/goto_ee_pose_server.cpp` (logic moves into the template). Modify `CMakeLists.txt`. **`test/goto_ee_pose_integration_test.cpp` is UNCHANGED** and is the regression gate.
 
 **Interfaces produced:** `template<class ActionT> class PlannedMoveServer : public kinova::interface::ActionServerPort` with ctor `(node, action_name, GoalRouter&, CuroboPlanClient&, cb_group)`, `set_command_sink`, and two pure-virtual hooks `validate(const ActionT::Goal&) -> std::optional<std::string>` and `start_plan(const ActionT::Goal&, CuroboPlanClient::FeedbackCb, CuroboPlanClient::DoneCb)`.
 
@@ -144,13 +144,13 @@ void CuroboPlanClient::cancel() {
 #pragma once
 #include "trajectory_msgs/msg/joint_trajectory_point.hpp"
 #include "kinova_lowlevel/joint_types.h"
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 inline trajectory_msgs::msg::JointTrajectoryPoint vec_to_point(const kinova::JointVec& v) {
   trajectory_msgs::msg::JointTrajectoryPoint p; p.positions.resize(kinova::kNumJoints);
   for (int i = 0; i < kinova::kNumJoints; ++i) p.positions[i] = v[i];
   return p;
 }
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 Update `message_mapping.cpp` to use this shared `vec_to_point` (drop its file-static copy) so there is one definition.
 
@@ -164,12 +164,12 @@ Update `message_mapping.cpp` to use this shared `vec_to_point` (drop its file-st
 #include <string>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_arm_ros2/curobo_plan_client.h"
-#include "kinova_arm_ros2/goal_router.h"
-#include "kinova_arm_ros2/joint_point.h"
+#include "kinova_gen3_ros2/curobo_plan_client.h"
+#include "kinova_gen3_ros2/goal_router.h"
+#include "kinova_gen3_ros2/joint_point.h"
 #include "kinova_lowlevel/interface/ports.h"
 #include "kinova_lowlevel/joint_types.h"
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 
 // Shared plan->execute->settle lifecycle for the high-level "go to a goal" actions.
 // Concrete servers provide validate() + start_plan(); everything else (settle-once,
@@ -311,20 +311,20 @@ class PlannedMoveServer : public kinova::interface::ActionServerPort {
   std::mutex m_;
   std::map<GoalId, Goal> goals_;
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
   Note: `to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory&)` is already declared in `message_mapping.h`; include it. Verify member init order (declare `node_`/`router_`/`planner_` consistently; the sketch splits them across `protected`/`private` — in the real file put all members in one section with a correct init list to avoid `-Wreorder`).
 
 - [ ] **Step 3: Rewrite `GoToEEPoseServer` as a thin subclass.** New `goto_ee_pose_server.h`:
 ```cpp
 #pragma once
-#include "kinova_arm_ros2/planned_move_server.h"
-#include "kinova_arm_interfaces/action/go_to_ee_pose.hpp"
-namespace kinova_arm_ros2 {
+#include "kinova_gen3_ros2/planned_move_server.h"
+#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+namespace kinova_gen3_ros2 {
 class GoToEEPoseServer
-    : public PlannedMoveServer<kinova_arm_interfaces::action::GoToEEPose> {
+    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToEEPose> {
  public:
-  using Action = kinova_arm_interfaces::action::GoToEEPose;
+  using Action = kinova_gen3_interfaces::action::GoToEEPose;
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter& router,
                    CuroboPlanClient& planner, rclcpp::CallbackGroup::SharedPtr cb)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner, cb) {}
@@ -339,7 +339,7 @@ class GoToEEPoseServer
     planner_.plan(g.target.pose, fb, done);
   }
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
   Delete `src/goto_ee_pose_server.cpp`; drop the `goto_ee_pose_server` library's `.cpp` from `CMakeLists.txt` (it becomes header-only — the `goto_ee_pose_server` lib target either becomes an INTERFACE lib or is removed and consumers include the header directly + link `curobo_plan_client goal_router message_mapping`). Simplest: make `goto_ee_pose_server` an `INTERFACE` library (headers only) that links its deps, so existing `target_link_libraries(... goto_ee_pose_server)` in the node + test keep working. The `to_goto_feedback_msg`/`to_goto_result_msg` mappers in `message_mapping` become unused by the server (the base builds messages inline) — **leave them** (still covered by their unit tests) or note as orphaned; do not delete pre-existing code that isn't yours to remove unless it's now truly dead (mention it in the report).
 
@@ -349,20 +349,20 @@ class GoToEEPoseServer
 
 ### Task 4: `GoToJointConfigServer` + integration test
 
-**Files:** Create `include/kinova_arm_ros2/goto_joint_config_server.h`, `test/goto_joint_config_integration_test.cpp`; Modify `CMakeLists.txt`.
+**Files:** Create `include/kinova_gen3_ros2/goto_joint_config_server.h`, `test/goto_joint_config_integration_test.cpp`; Modify `CMakeLists.txt`.
 
 - [ ] **Step 1: Write the failing integration test** — mirror `goto_ee_pose_integration_test.cpp` (reuse `FakeCuroboServer` in `plan_to_joints` mode + a `FakeSupervisor` + a `GoToJointConfig` action client on a background-spin executor). Cases: (a) success → `error_code == kSuccessful`, `sup.got_goal`, submitted goal has 3 points, `control_mode == kPosition`; (b) fake abort → `kPlanningFailed`, `sup.got_goal == false`; (c) `target_joints` containing a non-finite value (e.g. NaN) → goal **rejected** (client `gh.accepted == false`). (`float64[7]` is type-enforced to 7 values, so wrong-count isn't reachable; finiteness is the real guard.) RED = link failure.
 
 - [ ] **Step 2: Implement the thin server:**
 ```cpp
 #pragma once
-#include "kinova_arm_ros2/planned_move_server.h"
-#include "kinova_arm_interfaces/action/go_to_joint_config.hpp"
-namespace kinova_arm_ros2 {
+#include "kinova_gen3_ros2/planned_move_server.h"
+#include "kinova_gen3_interfaces/action/go_to_joint_config.hpp"
+namespace kinova_gen3_ros2 {
 class GoToJointConfigServer
-    : public PlannedMoveServer<kinova_arm_interfaces::action::GoToJointConfig> {
+    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToJointConfig> {
  public:
-  using Action = kinova_arm_interfaces::action::GoToJointConfig;
+  using Action = kinova_gen3_interfaces::action::GoToJointConfig;
   GoToJointConfigServer(rclcpp::Node::SharedPtr node, GoalRouter& router,
                         CuroboPlanClient& planner, rclcpp::CallbackGroup::SharedPtr cb)
       : PlannedMoveServer<Action>(node, "go_to_joint_config", router, planner, cb) {}
@@ -378,7 +378,7 @@ class GoToJointConfigServer
     planner_.plan_to_joints(std::vector<double>(g.target_joints.begin(), g.target_joints.end()), fb, done);
   }
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
   (Note: `float64[7]` maps to `std::array<double,7>`, always size 7, so the "size" check is unnecessary — finiteness is the real guard. If the plan later switches the field to unbounded `float64[]`, add a `== 7` check. Register the test target + link `goto_ee_pose_server`/base deps in `CMakeLists.txt`.)
 
@@ -388,7 +388,7 @@ class GoToJointConfigServer
 
 ### Task 5: `GoToPresetServer` + preset registry + integration test
 
-**Files:** Create `include/kinova_arm_ros2/goto_preset_server.h`, `test/goto_preset_integration_test.cpp`; Modify `CMakeLists.txt`.
+**Files:** Create `include/kinova_gen3_ros2/goto_preset_server.h`, `test/goto_preset_integration_test.cpp`; Modify `CMakeLists.txt`.
 
 - [ ] **Step 1: Write the failing integration test** — construct `GoToPresetServer` with an explicit registry (constructor takes a `std::map<std::string,std::vector<double>>` so the test can inject `{"home", {…7…}}` without ROS params). Cases: (a) `preset_name="home"` → success, submitted; (b) `preset_name="nope"` → goal **rejected**. RED = link failure.
 
@@ -397,13 +397,13 @@ class GoToJointConfigServer
 #pragma once
 #include <map>
 #include <vector>
-#include "kinova_arm_ros2/planned_move_server.h"
-#include "kinova_arm_interfaces/action/go_to_preset.hpp"
-namespace kinova_arm_ros2 {
+#include "kinova_gen3_ros2/planned_move_server.h"
+#include "kinova_gen3_interfaces/action/go_to_preset.hpp"
+namespace kinova_gen3_ros2 {
 class GoToPresetServer
-    : public PlannedMoveServer<kinova_arm_interfaces::action::GoToPreset> {
+    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToPreset> {
  public:
-  using Action = kinova_arm_interfaces::action::GoToPreset;
+  using Action = kinova_gen3_interfaces::action::GoToPreset;
   GoToPresetServer(rclcpp::Node::SharedPtr node, GoalRouter& router, CuroboPlanClient& planner,
                    rclcpp::CallbackGroup::SharedPtr cb,
                    std::map<std::string, std::vector<double>> registry)
@@ -421,7 +421,7 @@ class GoToPresetServer
  private:
   std::map<std::string, std::vector<double>> registry_;
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 3: Build + run `goto_preset_integration_test` — 2/2 pass.** Commit (`feat(ros2): GoToPreset (named joint-config registry)`).
@@ -449,8 +449,8 @@ static std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& nod
 
 - [ ] **Step 2: Construct the two new servers** next to `goto_server` (same `router`, `planner`, `cb_group`), and `set_command_sink(&sup)` on each:
 ```cpp
-  kinova_arm_ros2::GoToJointConfigServer jc_server(node, router, planner, cb_group);
-  kinova_arm_ros2::GoToPresetServer preset_server(node, router, planner, cb_group, load_presets(*node));
+  kinova_gen3_ros2::GoToJointConfigServer jc_server(node, router, planner, cb_group);
+  kinova_gen3_ros2::GoToPresetServer preset_server(node, router, planner, cb_group, load_presets(*node));
   ...
   goto_server.set_command_sink(&sup);
   jc_server.set_command_sink(&sup);
@@ -458,7 +458,7 @@ static std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& nod
 ```
   Declaration order: all servers before `sup` (already the case for `goto_server`); they must outlive `sup` — place them together. Update the startup `RCLCPP_INFO` to list all four actions.
 
-- [ ] **Step 3: Build; launch (sim) on abra; verify `ros2 action list`** shows `/go_to_ee_pose`, `/go_to_joint_config`, `/go_to_preset`, `/execute_joint_trajectory`. Then run `scripts/abra_e2e_sim.sh` — `ExecuteJointTrajectory` regression must stay `success_case=0 divergence_case=0`. `pkill -TERM -f kinova_arm_node`, verify gone. Commit (`feat(ros2): host GoToJointConfig + GoToPreset in kinova_arm_node`).
+- [ ] **Step 3: Build; launch (sim) on abra; verify `ros2 action list`** shows `/go_to_ee_pose`, `/go_to_joint_config`, `/go_to_preset`, `/execute_joint_trajectory`. Then run `scripts/abra_e2e_sim.sh` — `ExecuteJointTrajectory` regression must stay `success_case=0 divergence_case=0`. `pkill -TERM -f kinova_gen3_node`, verify gone. Commit (`feat(ros2): host GoToJointConfig + GoToPreset in kinova_gen3_node`).
 
 ---
 
@@ -474,7 +474,7 @@ static std::map<std::string, std::vector<double>> load_presets(rclcpp::Node& nod
 
 ## Validation milestones (operational, attended — after Task 7)
 
-- **Sim e2e with real cuRobo:** on abra, real `rammp_curobo` planner + `kinova_arm_node --sim`; send a `GoToJointConfig` (e.g. small delta from current) and a `GoToPreset home` — expect SUCCESSFUL, arm never moves (SimTransport).
+- **Sim e2e with real cuRobo:** on abra, real `rammp_curobo` planner + `kinova_gen3_node --sim`; send a `GoToJointConfig` (e.g. small delta from current) and a `GoToPreset home` — expect SUCCESSFUL, arm never moves (SimTransport).
 - **Attended real-arm:** `make real IP=… CORE_REF=feat/planning-failed-result-code` (pins `--cpu 11`); small/near `GoToJointConfig`, then `GoToPreset home`; e-stop in hand, per `docs/on-robot-runbook.md`.
 
 ## PR

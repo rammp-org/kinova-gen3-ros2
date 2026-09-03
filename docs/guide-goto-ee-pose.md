@@ -13,7 +13,7 @@ the external **cuRobo** node, and the returned trajectory is executed through
 the same `Supervisor` that `ExecuteJointTrajectory` uses. Two ROS2 nodes are
 involved:
 
-- **`kinova_arm_node`** (this repo) — hosts the `go_to_ee_pose` action server,
+- **`kinova_gen3_node`** (this repo) — hosts the `go_to_ee_pose` action server,
   is a client of cuRobo's planning action, and drives the arm.
 - **`rammp_curobo`** (external, `ChrissCox/RAMMP-CuRobo`) — plans a
   collision-free joint trajectory to the requested pose. It never moves the
@@ -24,7 +24,7 @@ For the full design rationale see
 
 ## Bring-up
 
-Start the cuRobo planner alongside `kinova_arm_node`. Planning-only mode is
+Start the cuRobo planner alongside `kinova_gen3_node`. Planning-only mode is
 what we want — `execute:=true` is **not** needed since our node executes the
 plan, not cuRobo:
 
@@ -33,7 +33,7 @@ ros2 launch rammp_curobo_ros planner.launch.py config:=gen3_real.yaml
 ```
 
 Then start the arm node as usual (sim or real — see the top-level `README.md`
-`Run` section). No extra flags are needed on `kinova_arm_node`, and you do not
+`Run` section). No extra flags are needed on `kinova_gen3_node`, and you do not
 supply a starting configuration yourself: the arm node reads its own measured
 joint state and states it in the plan request, so cuRobo plans from exactly the
 configuration the arm is standing in.
@@ -51,7 +51,7 @@ Use the test client, which takes a target position and orientation in
 `base_link` (quaternion in `xyzw` order):
 
 ```sh
-python3 <ws>/src/kinova_arm_ros2/kinova_arm_ros2/test/send_goto_pose.py \
+python3 <ws>/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_goto_pose.py \
   --pos 0.45 0.10 0.35 --quat 0.0 0.0 0.0 1.0
 ```
 

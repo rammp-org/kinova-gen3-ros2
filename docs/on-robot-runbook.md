@@ -18,7 +18,7 @@ bash scripts/abra_colcon.sh --cmake-args \
   -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64
 ```
 
-Confirm the node linked KORTEX (not the sim binary): the `kinova_arm_node` binary
+Confirm the node linked KORTEX (not the sim binary): the `kinova_gen3_node` binary
 is ~9.7MB (vs ~1.5MB sim) and `strings` on it shows `KortexTransport::connect`.
 
 **When done on the arm, rebuild sim-only explicitly** so the installed workspace
@@ -35,8 +35,8 @@ pose (the client seeds the trajectory from this, so it must be correct).
 # on abra (terminal A):
 source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash
 cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver
-ros2 run kinova_arm_ros2 kinova_arm_node --ip 192.168.1.10 --urdf models/gen3_7dof_2f85.urdf
-# expect: "kinova_arm_node up (real); action: /execute_joint_trajectory"
+ros2 run kinova_gen3_ros2 kinova_gen3_node --ip 192.168.1.10 --urdf models/gen3_7dof_2f85.urdf
+# expect: "kinova_gen3_node up (real); action: /execute_joint_trajectory"
 
 # on abra (terminal B) — note: /joint_states is best-effort QoS:
 ros2 action list                                             # expect /execute_joint_trajectory
@@ -57,7 +57,7 @@ conservative goal from terminal B: joint 6 (most distal), 0.10 rad (~5.7°), 1.2
 position mode, live path tolerance 0.2:
 
 ```sh
-python3 /tmp/kinova-ros2-ws/src/kinova_arm_ros2/kinova_arm_ros2/test/send_trajectory.py \
+python3 /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
   --joint 6 --mode position --delta 0.10 --dur 1.2 --path-tol 0.2 --expect 0
 ```
 

@@ -33,7 +33,7 @@ because the ROS action protocol cannot carry one.
 - **E-stop staleness is asymmetric:** `engaged:true` is never age-checked; `engaged:false`
   is. Unstamped (all-zero stamp) clears are accepted with a WARN so CLI use still works.
 - **Build/test command** (from repo root, runs on `abra`):
-  `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then `colcon test`.
+  `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then `colcon test`.
 - Match existing style: dense explanatory comments stating *why*, terse code.
 
 ---
@@ -41,20 +41,20 @@ because the ROS action protocol cannot carry one.
 ### Task 1: Interface definitions
 
 **Files:**
-- Create: `kinova_arm_interfaces/msg/EStop.msg`
-- Create: `kinova_arm_interfaces/msg/ControlStatus.msg`
-- Create: `kinova_arm_interfaces/srv/AcquireControl.srv`
-- Create: `kinova_arm_interfaces/srv/ReleaseControl.srv`
-- Create: `kinova_arm_interfaces/srv/RevokeControl.srv`
-- Modify: `kinova_arm_interfaces/CMakeLists.txt`
-- Modify: `kinova_arm_interfaces/action/ExecuteJointTrajectory.action`
-- Modify: `kinova_arm_interfaces/action/GoToEEPose.action`
-- Modify: `kinova_arm_interfaces/action/GoToJointConfig.action`
-- Modify: `kinova_arm_interfaces/action/GoToPreset.action`
+- Create: `kinova_gen3_interfaces/msg/EStop.msg`
+- Create: `kinova_gen3_interfaces/msg/ControlStatus.msg`
+- Create: `kinova_gen3_interfaces/srv/AcquireControl.srv`
+- Create: `kinova_gen3_interfaces/srv/ReleaseControl.srv`
+- Create: `kinova_gen3_interfaces/srv/RevokeControl.srv`
+- Modify: `kinova_gen3_interfaces/CMakeLists.txt`
+- Modify: `kinova_gen3_interfaces/action/ExecuteJointTrajectory.action`
+- Modify: `kinova_gen3_interfaces/action/GoToEEPose.action`
+- Modify: `kinova_gen3_interfaces/action/GoToJointConfig.action`
+- Modify: `kinova_gen3_interfaces/action/GoToPreset.action`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `kinova_arm_interfaces::msg::EStop` (header `msg/e_stop.hpp`),
+- Produces: `kinova_gen3_interfaces::msg::EStop` (header `msg/e_stop.hpp`),
   `msg::ControlStatus` (`msg/control_status.hpp`), `srv::AcquireControl`,
   `srv::ReleaseControl`, `srv::RevokeControl`, and a `uint8[16] token` field on all four
   action goals.
@@ -144,7 +144,7 @@ uint8[16] token                    # arbitration capability from /acquire_contro
 ```
 and append `, NOT_AUTHORIZED=-8, HALTED=-9` to each `error_code` comment.
 
-- [ ] **Step 5: Register the new files in `kinova_arm_interfaces/CMakeLists.txt`**
+- [ ] **Step 5: Register the new files in `kinova_gen3_interfaces/CMakeLists.txt`**
 
 Extend the `rosidl_generate_interfaces` call:
 ```cmake
@@ -164,16 +164,16 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 - [ ] **Step 6: Build and verify the generated types**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_interfaces`
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_interfaces`
 Expected: build succeeds.
 
 Then confirm the generated names (this also pins the `EStop` → `e_stop.hpp` mapping the
 later tasks `#include`):
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
-  ros2 interface show kinova_arm_interfaces/msg/EStop && \
-  ros2 interface show kinova_arm_interfaces/srv/AcquireControl && \
-  ls /tmp/kinova-ros2-ws/install/kinova_arm_interfaces/include/kinova_arm_interfaces/kinova_arm_interfaces/msg/ | grep -i stop'"
+  ros2 interface show kinova_gen3_interfaces/msg/EStop && \
+  ros2 interface show kinova_gen3_interfaces/srv/AcquireControl && \
+  ls /tmp/kinova-ros2-ws/install/kinova_gen3_interfaces/include/kinova_gen3_interfaces/kinova_gen3_interfaces/msg/ | grep -i stop'"
 ```
 Expected: both definitions print, and the header is `e_stop.hpp`. **If the header is named
 differently, use that name in Tasks 2–5.**
@@ -181,7 +181,7 @@ differently, use that name in Tasks 2–5.**
 - [ ] **Step 7: Commit**
 
 ```bash
-git add kinova_arm_interfaces/
+git add kinova_gen3_interfaces/
 git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, tokens on goals"
 ```
 
@@ -190,24 +190,24 @@ git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, token
 ### Task 2: `ArbitrationServer` — ownership services
 
 **Files:**
-- Create: `kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h`
-- Create: `kinova_arm_ros2/src/arbitration_server.cpp`
-- Create: `kinova_arm_ros2/test/fake_arbitration_sink.h`
-- Create: `kinova_arm_ros2/test/arbitration_server_test.cpp`
-- Modify: `kinova_arm_ros2/CMakeLists.txt`
-- Modify: `kinova_arm_ros2/package.xml`
+- Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h`
+- Create: `kinova_gen3_ros2/src/arbitration_server.cpp`
+- Create: `kinova_gen3_ros2/test/fake_arbitration_sink.h`
+- Create: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
+- Modify: `kinova_gen3_ros2/CMakeLists.txt`
+- Modify: `kinova_gen3_ros2/package.xml`
 
 **Interfaces:**
 - Consumes: Task 1's `srv::AcquireControl`, `srv::ReleaseControl`, `srv::RevokeControl`,
   `msg::ControlStatus`, `msg::EStop`.
-- Produces: `kinova_arm_ros2::ArbitrationServer`, constructed as
+- Produces: `kinova_gen3_ros2::ArbitrationServer`, constructed as
   `ArbitrationServer(rclcpp::Node::SharedPtr, kinova::interface::ArbitrationSink&, const std::string& hardware_id, double estop_clear_max_age_s)`,
   with one public method `void publish_status_if_changed()`. Task 8 constructs it.
   Also produces `FakeArbitrationSink` (test-only) used by Tasks 3–5.
 
 - [ ] **Step 1: Write the fake sink**
 
-`kinova_arm_ros2/test/fake_arbitration_sink.h`:
+`kinova_gen3_ros2/test/fake_arbitration_sink.h`:
 ```cpp
 #pragma once
 #include <mutex>
@@ -247,14 +247,14 @@ struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
 
 - [ ] **Step 2: Write the failing test**
 
-`kinova_arm_ros2/test/arbitration_server_test.cpp`:
+`kinova_gen3_ros2/test/arbitration_server_test.cpp`:
 ```cpp
 #include <gtest/gtest.h>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
-#include "kinova_arm_ros2/arbitration_server.h"
+#include "kinova_gen3_ros2/arbitration_server.h"
 #include "fake_arbitration_sink.h"
 using namespace std::chrono_literals;
 
@@ -283,7 +283,7 @@ class ArbitrationServerTest : public ::testing::Test {
     if (!rclcpp::ok()) rclcpp::init(0, nullptr);
     node_ = std::make_shared<rclcpp::Node>("arbitration_server_test");
     sink_.next_token = mktoken(0xAB);
-    plane_ = std::make_unique<kinova_arm_ros2::ArbitrationServer>(node_, sink_, "test", 1.0);
+    plane_ = std::make_unique<kinova_gen3_ros2::ArbitrationServer>(node_, sink_, "test", 1.0);
     ex_.add_node(node_);
   }
   // Calls a service and returns the response, or nullptr on timeout.
@@ -299,13 +299,13 @@ class ArbitrationServerTest : public ::testing::Test {
   }
   rclcpp::Node::SharedPtr node_;
   FakeArbitrationSink sink_;
-  std::unique_ptr<kinova_arm_ros2::ArbitrationServer> plane_;
+  std::unique_ptr<kinova_gen3_ros2::ArbitrationServer> plane_;
   rclcpp::executors::MultiThreadedExecutor ex_;
 };
 }  // namespace
 
 TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
-  using Srv = kinova_arm_interfaces::srv::AcquireControl;
+  using Srv = kinova_gen3_interfaces::srv::AcquireControl;
   auto req = std::make_shared<Srv::Request>();
   req->owner_id = "orchestrator";
   auto resp = call<Srv>("acquire_control", req);
@@ -317,12 +317,12 @@ TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
 }
 
 TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
-  using Acq = kinova_arm_interfaces::srv::AcquireControl;
+  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
 
-  using Rel = kinova_arm_interfaces::srv::ReleaseControl;
+  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0xAB);
   auto resp = call<Rel>("release_control", rreq);
@@ -334,12 +334,12 @@ TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
 // ArbitrationStatus deliberately does not carry the token, so ArbitrationServer checks
 // against the one it minted. A stranger's token must not release someone else's arm.
 TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
-  using Acq = kinova_arm_interfaces::srv::AcquireControl;
+  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
 
-  using Rel = kinova_arm_interfaces::srv::ReleaseControl;
+  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0x99);          // not the minted one
   auto resp = call<Rel>("release_control", rreq);
@@ -349,7 +349,7 @@ TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
 }
 
 TEST_F(ArbitrationServerTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
-  using Srv = kinova_arm_interfaces::srv::RevokeControl;
+  using Srv = kinova_gen3_interfaces::srv::RevokeControl;
   auto req = std::make_shared<Srv::Request>();
   req->reason = "client hung";
   auto resp = call<Srv>("revoke_control", req);
@@ -361,14 +361,14 @@ TEST_F(ArbitrationServerTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2`
-Expected: FAIL — `kinova_arm_ros2/arbitration_server.h: No such file or directory`.
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2`
+Expected: FAIL — `kinova_gen3_ros2/arbitration_server.h: No such file or directory`.
 
 - [ ] **Step 4: Write the header**
 
-`kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h`:
+`kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h`:
 ```cpp
-// kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h
+// kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h
 #pragma once
 #include <memory>
 #include <mutex>
@@ -376,13 +376,13 @@ Expected: FAIL — `kinova_arm_ros2/arbitration_server.h: No such file or direct
 #include <string>
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
-#include "kinova_arm_interfaces/msg/control_status.hpp"
-#include "kinova_arm_interfaces/msg/e_stop.hpp"
-#include "kinova_arm_interfaces/srv/acquire_control.hpp"
-#include "kinova_arm_interfaces/srv/release_control.hpp"
-#include "kinova_arm_interfaces/srv/revoke_control.hpp"
+#include "kinova_gen3_interfaces/msg/control_status.hpp"
+#include "kinova_gen3_interfaces/msg/e_stop.hpp"
+#include "kinova_gen3_interfaces/srv/acquire_control.hpp"
+#include "kinova_gen3_interfaces/srv/release_control.hpp"
+#include "kinova_gen3_interfaces/srv/revoke_control.hpp"
 #include "kinova_lowlevel/interface/ports.h"
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 
 // The ROS face of core's ArbitrationSink: ownership services, the broadcast e-stop,
 // /control_status and the REP 107 /diagnostics contribution.
@@ -393,11 +393,11 @@ namespace kinova_arm_ros2 {
 // rather than part of the Supervisor.
 class ArbitrationServer {
  public:
-  using AcquireControl = kinova_arm_interfaces::srv::AcquireControl;
-  using ReleaseControl = kinova_arm_interfaces::srv::ReleaseControl;
-  using RevokeControl  = kinova_arm_interfaces::srv::RevokeControl;
-  using EStop          = kinova_arm_interfaces::msg::EStop;
-  using ControlStatus  = kinova_arm_interfaces::msg::ControlStatus;
+  using AcquireControl = kinova_gen3_interfaces::srv::AcquireControl;
+  using ReleaseControl = kinova_gen3_interfaces::srv::ReleaseControl;
+  using RevokeControl  = kinova_gen3_interfaces::srv::RevokeControl;
+  using EStop          = kinova_gen3_interfaces::msg::EStop;
+  using ControlStatus  = kinova_gen3_interfaces::msg::ControlStatus;
 
   ArbitrationServer(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
                const std::string& hardware_id, double estop_clear_max_age_s);
@@ -436,27 +436,27 @@ class ArbitrationServer {
   bool have_retained_ = false;
   std::optional<ControlStatus> last_published_;
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 5: Write the implementation**
 
-`kinova_arm_ros2/src/arbitration_server.cpp`:
+`kinova_gen3_ros2/src/arbitration_server.cpp`:
 ```cpp
-// kinova_arm_ros2/src/arbitration_server.cpp
-#include "kinova_arm_ros2/arbitration_server.h"
+// kinova_gen3_ros2/src/arbitration_server.cpp
+#include "kinova_gen3_ros2/arbitration_server.h"
 #include <chrono>
 #include <functional>
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 using namespace kinova::interface;
 using std::placeholders::_1; using std::placeholders::_2;
 
 namespace {
 // Compare the PAYLOAD only. The header stamp changes every poll, so including it
 // would make "on change" mean "at 10 Hz forever".
-bool same(const kinova_arm_interfaces::msg::ControlStatus& a,
-          const kinova_arm_interfaces::msg::ControlStatus& b) {
+bool same(const kinova_gen3_interfaces::msg::ControlStatus& a,
+          const kinova_gen3_interfaces::msg::ControlStatus& b) {
   return a.arbitration_enabled == b.arbitration_enabled && a.estopped == b.estopped &&
          a.owned == b.owned && a.owner_id == b.owner_id &&
          a.generation == b.generation && a.rejected_count == b.rejected_count;
@@ -642,19 +642,19 @@ void ArbitrationServer::diagnostics(diagnostic_updater::DiagnosticStatusWrapper&
   stat.add("generation", static_cast<int>(s.generation));
   stat.add("rejected_count", static_cast<int>(s.rejected_count));
 }
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 6: Add the build targets and dependencies**
 
-In `kinova_arm_ros2/package.xml`, after the `<depend>sensor_msgs</depend>` line:
+In `kinova_gen3_ros2/package.xml`, after the `<depend>sensor_msgs</depend>` line:
 ```xml
   <depend>diagnostic_updater</depend>
   <depend>diagnostic_msgs</depend>
   <depend>std_msgs</depend>
 ```
 
-In `kinova_arm_ros2/CMakeLists.txt`, after the `find_package(rammp_curobo_interfaces REQUIRED)` line:
+In `kinova_gen3_ros2/CMakeLists.txt`, after the `find_package(rammp_curobo_interfaces REQUIRED)` line:
 ```cmake
 find_package(diagnostic_updater REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
@@ -666,7 +666,7 @@ add_library(arbitration_server src/arbitration_server.cpp)
 target_include_directories(arbitration_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(arbitration_server
-  rclcpp kinova_arm_interfaces diagnostic_updater diagnostic_msgs std_msgs)
+  rclcpp kinova_gen3_interfaces diagnostic_updater diagnostic_msgs std_msgs)
 target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 ```
 and inside the `if(BUILD_TESTING)` block:
@@ -675,16 +675,16 @@ and inside the `if(BUILD_TESTING)` block:
   target_include_directories(arbitration_server_test PRIVATE test)
   target_link_libraries(arbitration_server_test arbitration_server)
   ament_target_dependencies(arbitration_server_test
-    rclcpp kinova_arm_interfaces diagnostic_updater diagnostic_msgs)
+    rclcpp kinova_gen3_interfaces diagnostic_updater diagnostic_msgs)
 ```
-and add `arbitration_server` to the `kinova_arm_node` `target_link_libraries` list.
+and add `arbitration_server` to the `kinova_gen3_node` `target_link_libraries` list.
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && cd /tmp/kinova-ros2-ws && \
-  colcon test --packages-select kinova_arm_ros2 --ctest-args -R arbitration_server_test && \
+  colcon test --packages-select kinova_gen3_ros2 --ctest-args -R arbitration_server_test && \
   colcon test-result --all --verbose'"
 ```
 Expected: 4 tests, 0 failures.
@@ -692,11 +692,11 @@ Expected: 4 tests, 0 failures.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/arbitration_server.h \
-        kinova_arm_ros2/src/arbitration_server.cpp \
-        kinova_arm_ros2/test/arbitration_server_test.cpp \
-        kinova_arm_ros2/test/fake_arbitration_sink.h \
-        kinova_arm_ros2/CMakeLists.txt kinova_arm_ros2/package.xml
+git add kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h \
+        kinova_gen3_ros2/src/arbitration_server.cpp \
+        kinova_gen3_ros2/test/arbitration_server_test.cpp \
+        kinova_gen3_ros2/test/fake_arbitration_sink.h \
+        kinova_gen3_ros2/CMakeLists.txt kinova_gen3_ros2/package.xml
 git commit -m "feat(ros2): ArbitrationServer — acquire/release/revoke over the ArbitrationSink"
 ```
 
@@ -705,7 +705,7 @@ git commit -m "feat(ros2): ArbitrationServer — acquire/release/revoke over the
 ### Task 3: `/estop` staleness policy
 
 **Files:**
-- Modify: `kinova_arm_ros2/test/arbitration_server_test.cpp`
+- Modify: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
 - Consumes: `ArbitrationServer` and `FakeArbitrationSink` from Task 2. The implementation
@@ -719,9 +719,9 @@ this method inside `ArbitrationServerTest`:
 ```cpp
   // Publishes on /estop and spins until ArbitrationServer has had a chance to handle it.
   void publish_estop(bool engaged, const rclcpp::Time& stamp, const std::string& src) {
-    auto pub = node_->create_publisher<kinova_arm_interfaces::msg::EStop>(
+    auto pub = node_->create_publisher<kinova_gen3_interfaces::msg::EStop>(
         "/estop", rclcpp::QoS(10).reliable());
-    kinova_arm_interfaces::msg::EStop m;
+    kinova_gen3_interfaces::msg::EStop m;
     m.header.stamp = stamp;
     m.engaged = engaged;
     m.source = src;
@@ -773,13 +773,13 @@ TEST_F(ArbitrationServerTest, UnstampedEstopClearIsAccepted) {
 // Engaging the e-stop clears ownership inside the Arbiter, so the token we retained
 // is dead and a later release must not be honoured against a new owner.
 TEST_F(ArbitrationServerTest, EstopForgetsTheRetainedToken) {
-  using Acq = kinova_arm_interfaces::srv::AcquireControl;
+  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
   publish_estop(true, node_->now(), "operator");
 
-  using Rel = kinova_arm_interfaces::srv::ReleaseControl;
+  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0xAB);
   auto resp = call<Rel>("release_control", rreq);
@@ -790,7 +790,7 @@ TEST_F(ArbitrationServerTest, EstopForgetsTheRetainedToken) {
 
 - [ ] **Step 2: Run the tests**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then the
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then the
 `arbitration_server_test` command from Task 2 Step 7.
 Expected: 10 tests, 0 failures. (If `StaleEstopClearIsIgnored` fails, the age branch in
 `on_estop` is wrong — it must `return` *before* `arb_.estop_clear()`.)
@@ -798,7 +798,7 @@ Expected: 10 tests, 0 failures. (If `StaleEstopClearIsIgnored` fails, the age br
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/arbitration_server_test.cpp
+git add kinova_gen3_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): /estop staleness is asymmetric — stale stops honoured, stale clears refused"
 ```
 
@@ -807,7 +807,7 @@ git commit -m "test(ros2): /estop staleness is asymmetric — stale stops honour
 ### Task 4: `/control_status` on-change publishing and the seizure warning
 
 **Files:**
-- Modify: `kinova_arm_ros2/test/arbitration_server_test.cpp`
+- Modify: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
 - Consumes: `ArbitrationServer` from Task 2 (implementation already present).
@@ -819,13 +819,13 @@ Add this helper method to `ArbitrationServerTest`:
 ```cpp
   // Collects /control_status messages. transient_local matches the publisher, so a
   // subscriber created after the fact still receives the latest state.
-  std::vector<kinova_arm_interfaces::msg::ControlStatus> collect_status(
+  std::vector<kinova_gen3_interfaces::msg::ControlStatus> collect_status(
       std::chrono::milliseconds dwell) {
-    std::vector<kinova_arm_interfaces::msg::ControlStatus> got;
+    std::vector<kinova_gen3_interfaces::msg::ControlStatus> got;
     std::mutex gm;
-    auto sub = node_->create_subscription<kinova_arm_interfaces::msg::ControlStatus>(
+    auto sub = node_->create_subscription<kinova_gen3_interfaces::msg::ControlStatus>(
         "control_status", rclcpp::QoS(10).reliable().transient_local(),
-        [&got, &gm](kinova_arm_interfaces::msg::ControlStatus::SharedPtr m) {
+        [&got, &gm](kinova_gen3_interfaces::msg::ControlStatus::SharedPtr m) {
           std::lock_guard<std::mutex> l(gm); got.push_back(*m);
         });
     SpinThread spin(ex_);
@@ -845,7 +845,7 @@ TEST_F(ArbitrationServerTest, StatusIsNotRepublishedWhileUnchanged) {
 }
 
 TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
-  using Acq = kinova_arm_interfaces::srv::AcquireControl;
+  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
@@ -860,7 +860,7 @@ TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
 // this is what /control_status being latched buys, and what lets a reconnecting
 // client discover it was dispossessed.
 TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
-  using Acq = kinova_arm_interfaces::srv::AcquireControl;
+  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
@@ -874,7 +874,7 @@ TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
 // incumbent is dispossessed, and generation bumps. Asserted so the behaviour is a
 // decision rather than a surprise.
 TEST_F(ArbitrationServerTest, AcquireSeizesFromAnIncumbent) {
-  using Acq = kinova_arm_interfaces::srv::AcquireControl;
+  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
   auto first = std::make_shared<Acq::Request>();
   first->owner_id = "teleop";
   ASSERT_NE(call<Acq>("acquire_control", first), nullptr);
@@ -899,7 +899,7 @@ Expected: 14 tests, 0 failures.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/arbitration_server_test.cpp
+git add kinova_gen3_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): /control_status publishes on change, latches, and records seizure"
 ```
 
@@ -908,7 +908,7 @@ git commit -m "test(ros2): /control_status publishes on change, latches, and rec
 ### Task 5: REP 107 `/diagnostics`
 
 **Files:**
-- Modify: `kinova_arm_ros2/test/arbitration_server_test.cpp`
+- Modify: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
 - Consumes: `ArbitrationServer` from Task 2 (implementation already present).
@@ -962,7 +962,7 @@ Expected: 15 tests, 0 failures.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/arbitration_server_test.cpp
+git add kinova_gen3_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): REP 107 diagnostics — ERROR while e-stopped, counts as KeyValues"
 ```
 
@@ -971,10 +971,10 @@ git commit -m "test(ros2): REP 107 diagnostics — ERROR while e-stopped, counts
 ### Task 6: Token through the `ExecuteJointTrajectory` path
 
 **Files:**
-- Modify: `kinova_arm_ros2/src/message_mapping.cpp` (in `to_trajectory_goal`)
-- Modify: `kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h:38` (`handles_`)
-- Modify: `kinova_arm_ros2/src/ros2_backend.cpp` (`handle_cancel`, `handle_accepted`)
-- Modify: `kinova_arm_ros2/test/message_mapping_test.cpp`
+- Modify: `kinova_gen3_ros2/src/message_mapping.cpp` (in `to_trajectory_goal`)
+- Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h:38` (`handles_`)
+- Modify: `kinova_gen3_ros2/src/ros2_backend.cpp` (`handle_cancel`, `handle_accepted`)
+- Modify: `kinova_gen3_ros2/test/message_mapping_test.cpp`
 
 **Interfaces:**
 - Consumes: Task 1's `token` field on `ExecuteJointTrajectory::Goal`.
@@ -984,19 +984,19 @@ git commit -m "test(ros2): REP 107 diagnostics — ERROR while e-stopped, counts
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `kinova_arm_ros2/test/message_mapping_test.cpp`:
+Append to `kinova_gen3_ros2/test/message_mapping_test.cpp`:
 ```cpp
-// The file already has `using namespace kinova_arm_ros2;` at the top, so
+// The file already has `using namespace kinova_gen3_ros2;` at the top, so
 // to_trajectory_goal is called unqualified, and goals are spelled out in full.
 TEST(MessageMapping, CarriesTheArbitrationToken) {
-  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
   trajectory_msgs::msg::JointTrajectoryPoint p;
   p.positions.assign(7, 0.0);
   g.trajectory.points.push_back(p);
   g.token.fill(0);
   g.token[0] = 0xAB;
   g.token[15] = 0xCD;
-  const auto tg = kinova_arm_ros2::to_trajectory_goal(g);
+  const auto tg = kinova_gen3_ros2::to_trajectory_goal(g);
   EXPECT_EQ(tg.token[0], 0xAB);
   EXPECT_EQ(tg.token[15], 0xCD);
 }
@@ -1004,12 +1004,12 @@ TEST(MessageMapping, CarriesTheArbitrationToken) {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2`
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2`
 Expected: FAIL — `tg.token` is all zeros (the mapping drops it).
 
 - [ ] **Step 3: Copy the token in the mapping**
 
-In `kinova_arm_ros2/src/message_mapping.cpp`, in `to_trajectory_goal`, after
+In `kinova_gen3_ros2/src/message_mapping.cpp`, in `to_trajectory_goal`, after
 `tg.sender_id = g.sender_id;`:
 ```cpp
   // uint8[16] generates as std::array<uint8_t,16>, which IS interface::Token.
@@ -1018,7 +1018,7 @@ In `kinova_arm_ros2/src/message_mapping.cpp`, in `to_trajectory_goal`, after
 
 - [ ] **Step 4: Store the token per goal and replay it on cancel**
 
-In `kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h`, replace the `handles_`
+In `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h`, replace the `handles_`
 member with an entry that carries the token:
 ```cpp
   // The goal's token, kept so cancel can replay it. A ROS action cancel carries no
@@ -1029,7 +1029,7 @@ member with an entry that carries the token:
   std::map<kinova::interface::GoalId, Entry> handles_;   // GoalId == GoalUUID
 ```
 
-In `kinova_arm_ros2/src/ros2_backend.cpp`, `handle_accepted`:
+In `kinova_gen3_ros2/src/ros2_backend.cpp`, `handle_accepted`:
 ```cpp
 void Ros2Backend::handle_accepted(std::shared_ptr<GoalHandle> gh) {
   const GoalId id = gh->get_goal_id();
@@ -1062,19 +1062,19 @@ Then fix the two other `handles_` readers, which now go through `.gh`:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && cd /tmp/kinova-ros2-ws && \
-  colcon test --packages-select kinova_arm_ros2 && colcon test-result --all --verbose'"
+  colcon test --packages-select kinova_gen3_ros2 && colcon test-result --all --verbose'"
 ```
 Expected: all tests pass, including the 14 pre-existing `message_mapping_test` cases.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_arm_ros2/src/message_mapping.cpp kinova_arm_ros2/src/ros2_backend.cpp \
-        kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h \
-        kinova_arm_ros2/test/message_mapping_test.cpp
+git add kinova_gen3_ros2/src/message_mapping.cpp kinova_gen3_ros2/src/ros2_backend.cpp \
+        kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h \
+        kinova_gen3_ros2/test/message_mapping_test.cpp
 git commit -m "feat(ros2): carry the arbitration token on trajectory goals and replay it on cancel"
 ```
 
@@ -1083,7 +1083,7 @@ git commit -m "feat(ros2): carry the arbitration token on trajectory goals and r
 ### Task 7: Token through the `PlannedMoveServer` path
 
 **Files:**
-- Modify: `kinova_arm_ros2/include/kinova_arm_ros2/planned_move_server.h`
+- Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/planned_move_server.h`
   (`struct Goal` at :268, `goals_[id] = Goal{gh, false}` at :146, the two
   `on_trajectory_cancel` call sites, and the `tg.sender_id` line)
 
@@ -1151,7 +1151,7 @@ In `start_execution`'s re-issue at the end, read the token alongside `cancel_req
 
 - [ ] **Step 4: Run the full suite**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then the full
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then the full
 `colcon test` command from Task 6 Step 5.
 Expected: all pre-existing integration tests still pass (they run with zero tokens, which
 is what a `FakeSupervisor` ignores and what `kDisabled` admits).
@@ -1159,7 +1159,7 @@ is what a `FakeSupervisor` ignores and what `kDisabled` admits).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/planned_move_server.h
+git add kinova_gen3_ros2/include/kinova_gen3_ros2/planned_move_server.h
 git commit -m "feat(ros2): PlannedMoveServer carries the goal token and replays it on cancel"
 ```
 
@@ -1168,7 +1168,7 @@ git commit -m "feat(ros2): PlannedMoveServer carries the goal token and replays 
 ### Task 8: Wire the Arbiter into `bringup_node`
 
 **Files:**
-- Modify: `kinova_arm_ros2/src/bringup_node.cpp`
+- Modify: `kinova_gen3_ros2/src/bringup_node.cpp`
 
 **Interfaces:**
 - Consumes: `ArbitrationServer` (Task 2), core's `interface::Arbiter`.
@@ -1182,14 +1182,14 @@ After `#include "kinova_lowlevel/interface/supervisor.h"`:
 ```cpp
 #include "kinova_lowlevel/interface/arbiter.h"
 ```
-and after `#include "kinova_arm_ros2/goto_preset_server.h"`:
+and after `#include "kinova_gen3_ros2/goto_preset_server.h"`:
 ```cpp
-#include "kinova_arm_ros2/arbitration_server.h"
+#include "kinova_gen3_ros2/arbitration_server.h"
 ```
 
 - [ ] **Step 2: Declare the parameters**
 
-Immediately after `auto node = std::make_shared<rclcpp::Node>("kinova_arm_node");`:
+Immediately after `auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");`:
 ```cpp
   // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with no
   // setter, so a dynamic parameter would appear to work and silently do nothing.
@@ -1223,7 +1223,7 @@ delegating, which must happen before `sup` goes away:
   interface::Arbiter arb(sup, sup, arb_mode);
   // Declared after arb so it is destroyed FIRST: it must stop accepting ROS calls
   // before arb stops delegating, and arb before sup goes away.
-  kinova_arm_ros2::ArbitrationServer arbitration_server(
+  kinova_gen3_ros2::ArbitrationServer arbitration_server(
       node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
   // (`ip` and `use_sim` are the existing locals from the --ip / --sim arg parsing.)
 
@@ -1237,10 +1237,10 @@ delegating, which must happen before `sup` goes away:
 
 - [ ] **Step 4: Extend the start-up log**
 
-Replace the existing `RCLCPP_INFO` "kinova_arm_node up" call:
+Replace the existing `RCLCPP_INFO` "kinova_gen3_node up" call:
 ```cpp
   RCLCPP_INFO(node->get_logger(),
-              "kinova_arm_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
+              "kinova_gen3_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
               "/go_to_ee_pose, /go_to_joint_config, /go_to_preset; control: "
               "/acquire_control, /release_control, /revoke_control, /estop, /control_status",
               use_sim ? "sim" : "real", mode_str.c_str());
@@ -1248,8 +1248,8 @@ Replace the existing `RCLCPP_INFO` "kinova_arm_node up" call:
 
 - [ ] **Step 5: Build and run the existing end-to-end check**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2`
-Then: `ssh abra "bash /tmp/kinova-ros2-ws/src/kinova_arm_ros2/scripts/abra_e2e_sim.sh 2>&1 | tail -5"`
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2`
+Then: `ssh abra "bash /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/scripts/abra_e2e_sim.sh 2>&1 | tail -5"`
 Expected: `success_case=0 divergence_case=0`. This is the backward-compatibility gate —
 the default `disabled` mode must leave the existing path untouched.
 
@@ -1258,10 +1258,10 @@ the default `disabled` mode must leave the existing path untouched.
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
   cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver && \
-  (ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf models/gen3_7dof_2f85.urdf &) && \
+  (ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf &) && \
   sleep 5 && ros2 service list | grep control && ros2 topic list | grep -E \"control_status|estop|diagnostics\" && \
   ros2 topic echo --once /control_status && \
-  pkill -TERM -f kinova_arm_node'"
+  pkill -TERM -f kinova_gen3_node'"
 ```
 Expected: the three services and three topics are listed, and `/control_status` echoes
 with `arbitration_enabled: false`.
@@ -1269,7 +1269,7 @@ with `arbitration_enabled: false`.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add kinova_arm_ros2/src/bringup_node.cpp
+git add kinova_gen3_ros2/src/bringup_node.cpp
 git commit -m "feat(ros2): wire the Arbiter and ArbitrationServer into the node"
 ```
 
@@ -1278,8 +1278,8 @@ git commit -m "feat(ros2): wire the Arbiter and ArbitrationServer into the node"
 ### Task 9: End-to-end arbitration integration test
 
 **Files:**
-- Create: `kinova_arm_ros2/test/arbitration_integration_test.cpp`
-- Modify: `kinova_arm_ros2/CMakeLists.txt`
+- Create: `kinova_gen3_ros2/test/arbitration_integration_test.cpp`
+- Modify: `kinova_gen3_ros2/CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: everything above, plus core's `interface::Arbiter`.
@@ -1290,7 +1290,7 @@ refused under `kEnforced`, and an e-stop that cannot get past a busy arbiter.
 
 - [ ] **Step 1: Write the failing tests**
 
-`kinova_arm_ros2/test/arbitration_integration_test.cpp`:
+`kinova_gen3_ros2/test/arbitration_integration_test.cpp`:
 ```cpp
 #include <gtest/gtest.h>
 #include <atomic>
@@ -1432,7 +1432,7 @@ TEST(ArbitrationIntegration, EstopHaltReachesTheArmWhileADelegatedCallBlocks) {
 
 - [ ] **Step 2: Register the test**
 
-In `kinova_arm_ros2/CMakeLists.txt`, inside `if(BUILD_TESTING)`:
+In `kinova_gen3_ros2/CMakeLists.txt`, inside `if(BUILD_TESTING)`:
 ```cmake
   ament_add_gtest(arbitration_integration_test test/arbitration_integration_test.cpp)
   target_link_libraries(arbitration_integration_test kinova_lowlevel::kinova_lowlevel)
@@ -1440,14 +1440,14 @@ In `kinova_arm_ros2/CMakeLists.txt`, inside `if(BUILD_TESTING)`:
 
 - [ ] **Step 3: Run the tests**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then the full
+Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then the full
 `colcon test` command from Task 6 Step 5.
 Expected: 5 new tests pass, and the whole suite is green.
 
 - [ ] **Step 4: Full regression + end-to-end**
 
 ```bash
-ssh abra "bash /tmp/kinova-ros2-ws/src/kinova_arm_ros2/scripts/abra_e2e_sim.sh 2>&1 | tail -5"
+ssh abra "bash /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/scripts/abra_e2e_sim.sh 2>&1 | tail -5"
 ```
 Expected: `success_case=0 divergence_case=0`, and `colcon test-result --all` reports zero
 failures across every test in the package.
@@ -1455,7 +1455,7 @@ failures across every test in the package.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/arbitration_integration_test.cpp kinova_arm_ros2/CMakeLists.txt
+git add kinova_gen3_ros2/test/arbitration_integration_test.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit -m "test(ros2): arbitration end-to-end — token'd cancel, stale tokens, e-stop under load"
 ```
 

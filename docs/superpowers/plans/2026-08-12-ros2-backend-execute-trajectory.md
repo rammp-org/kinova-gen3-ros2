@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stand up the `kinova_arm_ros2` ROS2 Humble frontend so a ROS2 action client can send a full `ExecuteJointTrajectory` goal and have the driver execute it — proven end-to-end against `SimTransport`, then built for and run on the real arm (attended).
+**Goal:** Stand up the `kinova_gen3_ros2` ROS2 Humble frontend so a ROS2 action client can send a full `ExecuteJointTrajectory` goal and have the driver execute it — proven end-to-end against `SimTransport`, then built for and run on the real arm (attended).
 
-**Architecture:** Two ament packages in this repo. `kinova_arm_interfaces` defines the custom action + gains msg (rosidl). `kinova_arm_ros2` holds `Ros2Backend` (the only unit that includes rclcpp — it owns an rclcpp action server whose callbacks call the driver's `CommandSink`, and it implements the driver's driven ports `ActionServerPort`/`StreamPort` to push feedback/results back out) plus a DI bring-up node that wires the transport → `FeedbackTap` → `RtExecutor` + modes + `Supervisor` + `Ros2Backend` and spins. The core driver (`kinova_lowlevel`) is vendored into a colcon workspace and consumed via `find_package(kinova_lowlevel CONFIG)`. Nothing new runs on the 1 kHz RT thread.
+**Architecture:** Two ament packages in this repo. `kinova_gen3_interfaces` defines the custom action + gains msg (rosidl). `kinova_gen3_ros2` holds `Ros2Backend` (the only unit that includes rclcpp — it owns an rclcpp action server whose callbacks call the driver's `CommandSink`, and it implements the driver's driven ports `ActionServerPort`/`StreamPort` to push feedback/results back out) plus a DI bring-up node that wires the transport → `FeedbackTap` → `RtExecutor` + modes + `Supervisor` + `Ros2Backend` and spins. The core driver (`kinova_lowlevel`) is vendored into a colcon workspace and consumed via `find_package(kinova_lowlevel CONFIG)`. Nothing new runs on the 1 kHz RT thread.
 
 **Tech Stack:** ROS2 Humble, rclcpp / rclcpp_action, rosidl, colcon/ament_cmake, C++17, rclpy (test client), gtest. Builds on aarch64 (abra) only.
 
@@ -77,28 +77,28 @@ enum class CancelResponse : int8_t { REJECT=1, ACCEPT=2 };
 
 ---
 
-## File structure (all under this repo `kinova_arm_ros2/`)
+## File structure (all under this repo `kinova_gen3_ros2/`)
 
 - `scripts/abra_colcon.sh` — rsync muk→abra + colcon build (+ optional gtest / node-launch test) (NEW)
-- `kinova_arm.repos` — vcs source list documenting the core's GitHub origin (NEW)
+- `kinova_gen3.repos` — vcs source list documenting the core's GitHub origin (NEW)
 - `README.md` — build/run instructions (NEW)
-- `kinova_arm_interfaces/{package.xml,CMakeLists.txt,action/ExecuteJointTrajectory.action,msg/JointImpedanceGains.msg}` (NEW)
-- `kinova_arm_ros2/package.xml`, `kinova_arm_ros2/CMakeLists.txt` (NEW)
-- `kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h` + `src/message_mapping.cpp` — pure value-type↔msg field copies (NEW)
-- `kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h` + `src/ros2_backend.cpp` — action server + driven ports (NEW)
-- `kinova_arm_ros2/src/bringup_node.cpp` — DI wiring + spin (NEW)
-- `kinova_arm_ros2/test/message_mapping_test.cpp` — gtest for the mapping (NEW)
-- `kinova_arm_ros2/test/send_trajectory.py` — rclpy action client (integration harness) (NEW)
+- `kinova_gen3_interfaces/{package.xml,CMakeLists.txt,action/ExecuteJointTrajectory.action,msg/JointImpedanceGains.msg}` (NEW)
+- `kinova_gen3_ros2/package.xml`, `kinova_gen3_ros2/CMakeLists.txt` (NEW)
+- `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h` + `src/message_mapping.cpp` — pure value-type↔msg field copies (NEW)
+- `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h` + `src/ros2_backend.cpp` — action server + driven ports (NEW)
+- `kinova_gen3_ros2/src/bringup_node.cpp` — DI wiring + spin (NEW)
+- `kinova_gen3_ros2/test/message_mapping_test.cpp` — gtest for the mapping (NEW)
+- `kinova_gen3_ros2/test/send_trajectory.py` — rclpy action client (integration harness) (NEW)
 
 ---
 
 ### Task 1: Colcon workspace + deploy loop + vendored-core build (interop spike)
 
 **Files:**
-- Create: `scripts/abra_colcon.sh`, `kinova_arm.repos`, `README.md`
+- Create: `scripts/abra_colcon.sh`, `kinova_gen3.repos`, `README.md`
 
 **Interfaces:**
-- Produces: `scripts/abra_colcon.sh` — rsyncs the core (muk `~/atdev/kinova-gen3-driver`) → `abra:/tmp/kinova-ros2-ws/src/kinova-gen3-driver` and this repo → `abra:/tmp/kinova-ros2-ws/src/kinova_arm_ros2`, then runs `colcon build` (with the pinocchio prefix on `CMAKE_PREFIX_PATH`). Accepts `--packages-select <pkg>` passthrough and optional extra colcon args.
+- Produces: `scripts/abra_colcon.sh` — rsyncs the core (muk `~/atdev/kinova-gen3-driver`) → `abra:/tmp/kinova-ros2-ws/src/kinova-gen3-driver` and this repo → `abra:/tmp/kinova-ros2-ws/src/kinova_gen3_ros2`, then runs `colcon build` (with the pinocchio prefix on `CMAKE_PREFIX_PATH`). Accepts `--packages-select <pkg>` passthrough and optional extra colcon args.
 
 - [ ] **Step 1: Write the deploy script**
 
@@ -109,14 +109,14 @@ enum class CancelResponse : int8_t { REJECT=1, ACCEPT=2 };
 # Usage: abra_colcon.sh [colcon-args...]   e.g.  abra_colcon.sh --packages-select kinova_lowlevel
 set -euo pipefail
 CORE_SRC="/home/swapnil/atdev/kinova-gen3-driver/"          # Plan 2 branch working tree
-ROS_SRC="/home/swapnil/atdev/kinova_arm_ros2/"
+ROS_SRC="/home/swapnil/atdev/kinova_gen3_ros2/"
 WS="/tmp/kinova-ros2-ws"
 CMEEL="/usr/local/lib/python3.10/dist-packages/cmeel.prefix"
 
 rsync -az --delete --exclude '.git/' --exclude 'build/' --exclude 'build_kortex/' --exclude 'site/' \
   "$CORE_SRC" "abra:$WS/src/kinova-gen3-driver/"
 rsync -az --delete --exclude '.git/' --exclude 'build/' --exclude 'install/' --exclude 'log/' \
-  "$ROS_SRC" "abra:$WS/src/kinova_arm_ros2/"
+  "$ROS_SRC" "abra:$WS/src/kinova_gen3_ros2/"
 
 ssh abra "bash -lc '
   set -euo pipefail
@@ -127,10 +127,10 @@ ssh abra "bash -lc '
 '"
 ```
 
-- [ ] **Step 2: Write `kinova_arm.repos` and README**
+- [ ] **Step 2: Write `kinova_gen3.repos` and README**
 
 ```yaml
-# kinova_arm.repos — colcon workspace source list.
+# kinova_gen3.repos — colcon workspace source list.
 # NOTE (2026-08): abra has no GitHub key, so the dev loop rsyncs the core in via
 # scripts/abra_colcon.sh instead of vcs-importing this. This file documents the
 # intended source; pin `version` to main once Plan 2 (feat/interface-supervisor-ports) merges.
@@ -142,7 +142,7 @@ repositories:
 ```
 
 ```markdown
-# kinova_arm_ros2
+# kinova_gen3_ros2
 ROS2 Humble frontend for the Kinova Gen3 low-level driver. See
 `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.md`.
 Build (aarch64 / abra colcon workspace): `scripts/abra_colcon.sh`.
@@ -161,25 +161,25 @@ Expected: the file exists (downstream `find_package(kinova_lowlevel CONFIG)` wil
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/abra_colcon.sh kinova_arm.repos README.md
+git add scripts/abra_colcon.sh kinova_gen3.repos README.md
 git commit -m "build: colcon deploy loop + vendored-core build (interop spike)"
 ```
 
 ---
 
-### Task 2: `kinova_arm_interfaces` package (the action + gains msg)
+### Task 2: `kinova_gen3_interfaces` package (the action + gains msg)
 
 **Files:**
-- Create: `kinova_arm_interfaces/package.xml`, `kinova_arm_interfaces/CMakeLists.txt`,
-  `kinova_arm_interfaces/action/ExecuteJointTrajectory.action`, `kinova_arm_interfaces/msg/JointImpedanceGains.msg`
+- Create: `kinova_gen3_interfaces/package.xml`, `kinova_gen3_interfaces/CMakeLists.txt`,
+  `kinova_gen3_interfaces/action/ExecuteJointTrajectory.action`, `kinova_gen3_interfaces/msg/JointImpedanceGains.msg`
 
 **Interfaces:**
-- Produces: the action type `kinova_arm_interfaces::action::ExecuteJointTrajectory` (C++ header `kinova_arm_interfaces/action/execute_joint_trajectory.hpp`) and `kinova_arm_interfaces::msg::JointImpedanceGains`, with the field layout below.
+- Produces: the action type `kinova_gen3_interfaces::action::ExecuteJointTrajectory` (C++ header `kinova_gen3_interfaces/action/execute_joint_trajectory.hpp`) and `kinova_gen3_interfaces::msg::JointImpedanceGains`, with the field layout below.
 
 - [ ] **Step 1: Write the action + msg**
 
 ```
-# kinova_arm_interfaces/action/ExecuteJointTrajectory.action
+# kinova_gen3_interfaces/action/ExecuteJointTrajectory.action
 # ---------- Goal ----------
 trajectory_msgs/JointTrajectory       trajectory
 control_msgs/JointTolerance[]         path_tolerance
@@ -205,7 +205,7 @@ float32                                fraction_complete
 ```
 
 ```
-# kinova_arm_interfaces/msg/JointImpedanceGains.msg
+# kinova_gen3_interfaces/msg/JointImpedanceGains.msg
 float64[7] kq
 float64    zeta
 float64[7] torque_limit
@@ -216,7 +216,7 @@ float64[7] torque_limit
 ```xml
 <?xml version="1.0"?>
 <package format="3">
-  <name>kinova_arm_interfaces</name>
+  <name>kinova_gen3_interfaces</name>
   <version>0.1.0</version>
   <description>Kinova arm ROS2 action/msg interfaces</description>
   <maintainer email="swapnil.pande98@gmail.com">Swapnil Pande</maintainer>
@@ -238,7 +238,7 @@ float64[7] torque_limit
 
 ```cmake
 cmake_minimum_required(VERSION 3.8)
-project(kinova_arm_interfaces)
+project(kinova_gen3_interfaces)
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(builtin_interfaces REQUIRED)
@@ -255,15 +255,15 @@ ament_package()
 
 - [ ] **Step 4: Build and verify generation**
 
-Run: `bash scripts/abra_colcon.sh --packages-select kinova_arm_interfaces`
+Run: `bash scripts/abra_colcon.sh --packages-select kinova_gen3_interfaces`
 Expected: build succeeds; then
-`ssh abra 'source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show kinova_arm_interfaces/action/ExecuteJointTrajectory'`
+`ssh abra 'source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show kinova_gen3_interfaces/action/ExecuteJointTrajectory'`
 Expected: prints the goal/result/feedback field layout above.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kinova_arm_interfaces
+git add kinova_gen3_interfaces
 git commit -m "feat(interfaces): ExecuteJointTrajectory.action + JointImpedanceGains.msg"
 ```
 
@@ -272,12 +272,12 @@ git commit -m "feat(interfaces): ExecuteJointTrajectory.action + JointImpedanceG
 ### Task 3: Message mapping (pure value-type ↔ ROS2 field copies, gtest)
 
 **Files:**
-- Create: `kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h`, `kinova_arm_ros2/src/message_mapping.cpp`,
-  `kinova_arm_ros2/test/message_mapping_test.cpp`
-- Create (partial, extended in Task 4): `kinova_arm_ros2/package.xml`, `kinova_arm_ros2/CMakeLists.txt`
+- Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`, `kinova_gen3_ros2/src/message_mapping.cpp`,
+  `kinova_gen3_ros2/test/message_mapping_test.cpp`
+- Create (partial, extended in Task 4): `kinova_gen3_ros2/package.xml`, `kinova_gen3_ros2/CMakeLists.txt`
 
 **Interfaces:**
-- Produces (namespace `kinova_arm_ros2`):
+- Produces (namespace `kinova_gen3_ros2`):
   - `kinova::interface::TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal&)`
   - `ExecuteJointTrajectory::Feedback to_feedback_msg(const GoalId&, const kinova::interface::TrajectoryFeedback&)`
   - `ExecuteJointTrajectory::Result to_result_msg(const kinova::interface::TrajectoryResult&)`
@@ -288,10 +288,10 @@ git commit -m "feat(interfaces): ExecuteJointTrajectory.action + JointImpedanceG
 - [ ] **Step 1: Write the failing test**
 
 ```cpp
-// kinova_arm_ros2/test/message_mapping_test.cpp
+// kinova_gen3_ros2/test/message_mapping_test.cpp
 #include <gtest/gtest.h>
-#include "kinova_arm_ros2/message_mapping.h"
-using namespace kinova_arm_ros2;
+#include "kinova_gen3_ros2/message_mapping.h"
+using namespace kinova_gen3_ros2;
 using kinova::interface::ControlModeKind; using kinova::interface::Preemption;
 
 static trajectory_msgs::msg::JointTrajectoryPoint pt(double v, double t) {
@@ -303,7 +303,7 @@ static trajectory_msgs::msg::JointTrajectoryPoint pt(double v, double t) {
 }
 
 TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
-  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = { pt(0.0, 0.0), pt(0.5, 2.0) };
   g.control_mode = 0;      // POSITION
   g.preemption   = 1;      // LATEST_WINS
@@ -319,7 +319,7 @@ TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
 }
 
 TEST(MessageMapping, GoalImpedanceGainsAndPathTol) {
-  kinova_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = { pt(0.0, 0.0), pt(0.1, 1.0) };
   g.control_mode = 1;      // IMPEDANCE
   for (int i = 0; i < 7; ++i) g.gains.kq[i] = 60.0;
@@ -347,11 +347,11 @@ TEST(MessageMapping, ResultCarriesErrorCode) {
 
 - [ ] **Step 2: Write the package skeleton so the test can build**
 
-`kinova_arm_ros2/package.xml`:
+`kinova_gen3_ros2/package.xml`:
 ```xml
 <?xml version="1.0"?>
 <package format="3">
-  <name>kinova_arm_ros2</name>
+  <name>kinova_gen3_ros2</name>
   <version>0.1.0</version>
   <description>ROS2 frontend node for the Kinova low-level driver</description>
   <maintainer email="swapnil.pande98@gmail.com">Swapnil Pande</maintainer>
@@ -359,34 +359,34 @@ TEST(MessageMapping, ResultCarriesErrorCode) {
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>kinova_arm_interfaces</depend>
+  <depend>kinova_gen3_interfaces</depend>
   <depend>kinova_lowlevel</depend>
   <test_depend>ament_cmake_gtest</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>
 ```
 
-`kinova_arm_ros2/CMakeLists.txt` (mapping lib + test only for now; node target added in Task 4):
+`kinova_gen3_ros2/CMakeLists.txt` (mapping lib + test only for now; node target added in Task 4):
 ```cmake
 cmake_minimum_required(VERSION 3.8)
-project(kinova_arm_ros2)
+project(kinova_gen3_ros2)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(kinova_arm_interfaces REQUIRED)
+find_package(kinova_gen3_interfaces REQUIRED)
 find_package(kinova_lowlevel CONFIG REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(message_mapping rclcpp kinova_arm_interfaces)
+ament_target_dependencies(message_mapping rclcpp kinova_gen3_interfaces)
 target_link_libraries(message_mapping kinova_lowlevel::kinova_lowlevel)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(message_mapping_test test/message_mapping_test.cpp)
   target_link_libraries(message_mapping_test message_mapping)
-  ament_target_dependencies(message_mapping_test kinova_arm_interfaces)
+  ament_target_dependencies(message_mapping_test kinova_gen3_interfaces)
 endif()
 
 ament_package()
@@ -394,30 +394,30 @@ ament_package()
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `bash scripts/abra_colcon.sh --packages-select kinova_arm_ros2` then
-`ssh abra 'cd /tmp/kinova-ros2-ws && colcon test --packages-select kinova_arm_ros2 --event-handlers console_direct+ && colcon test-result --verbose'`
+Run: `bash scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then
+`ssh abra 'cd /tmp/kinova-ros2-ws && colcon test --packages-select kinova_gen3_ros2 --event-handlers console_direct+ && colcon test-result --verbose'`
 Expected: FAIL — `message_mapping.h` not found (compile error).
 
 - [ ] **Step 4: Write the mapping**
 
 ```cpp
-// kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h
+// kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h
 #pragma once
-#include "kinova_arm_interfaces/action/execute_joint_trajectory.hpp"
+#include "kinova_gen3_interfaces/action/execute_joint_trajectory.hpp"
 #include "kinova_lowlevel/interface/value_types.h"
-namespace kinova_arm_ros2 {
-using ExecuteJointTrajectory = kinova_arm_interfaces::action::ExecuteJointTrajectory;
+namespace kinova_gen3_ros2 {
+using ExecuteJointTrajectory = kinova_gen3_interfaces::action::ExecuteJointTrajectory;
 kinova::interface::TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal& g);
 ExecuteJointTrajectory::Feedback to_feedback_msg(const kinova::interface::GoalId& id,
                                                  const kinova::interface::TrajectoryFeedback& fb);
 ExecuteJointTrajectory::Result to_result_msg(const kinova::interface::TrajectoryResult& r);
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 ```cpp
-// kinova_arm_ros2/src/message_mapping.cpp
-#include "kinova_arm_ros2/message_mapping.h"
-namespace kinova_arm_ros2 {
+// kinova_gen3_ros2/src/message_mapping.cpp
+#include "kinova_gen3_ros2/message_mapping.h"
+namespace kinova_gen3_ros2 {
 using namespace kinova; using namespace kinova::interface;
 
 static JointVec tol_to_vec(const std::vector<control_msgs::msg::JointTolerance>& t) {
@@ -471,7 +471,7 @@ ExecuteJointTrajectory::Result to_result_msg(const TrajectoryResult& r) {
   m.final_error = vec_to_point(r.final_error);
   return m;
 }
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -482,9 +482,9 @@ Expected: PASS (3 tests).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_arm_ros2/package.xml kinova_arm_ros2/CMakeLists.txt \
-        kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h \
-        kinova_arm_ros2/src/message_mapping.cpp kinova_arm_ros2/test/message_mapping_test.cpp
+git add kinova_gen3_ros2/package.xml kinova_gen3_ros2/CMakeLists.txt \
+        kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h \
+        kinova_gen3_ros2/src/message_mapping.cpp kinova_gen3_ros2/test/message_mapping_test.cpp
 git commit -m "feat(ros2): value-type <-> ExecuteJointTrajectory message mapping (gtest)"
 ```
 
@@ -493,8 +493,8 @@ git commit -m "feat(ros2): value-type <-> ExecuteJointTrajectory message mapping
 ### Task 4: `Ros2Backend` — action server + driven ports
 
 **Files:**
-- Create: `kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h`, `kinova_arm_ros2/src/ros2_backend.cpp`
-- Modify: `kinova_arm_ros2/CMakeLists.txt` (add the backend to a library/target)
+- Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h`, `kinova_gen3_ros2/src/ros2_backend.cpp`
+- Modify: `kinova_gen3_ros2/CMakeLists.txt` (add the backend to a library/target)
 
 **Interfaces:**
 - Produces: `class Ros2Backend : public kinova::interface::ActionServerPort, public kinova::interface::StreamPort`.
@@ -506,22 +506,22 @@ git commit -m "feat(ros2): value-type <-> ExecuteJointTrajectory message mapping
 - [ ] **Step 1: Write the header**
 
 ```cpp
-// kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h
+// kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h
 #pragma once
 #include <map>
 #include <memory>
 #include <mutex>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_arm_interfaces/action/execute_joint_trajectory.hpp"
-#include "kinova_arm_ros2/message_mapping.h"
+#include "kinova_gen3_interfaces/action/execute_joint_trajectory.hpp"
+#include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/ports.h"
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 
 class Ros2Backend : public kinova::interface::ActionServerPort,
                     public kinova::interface::StreamPort {
  public:
-  using Action = kinova_arm_interfaces::action::ExecuteJointTrajectory;
+  using Action = kinova_gen3_interfaces::action::ExecuteJointTrajectory;
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
   explicit Ros2Backend(rclcpp::Node::SharedPtr node);
@@ -544,16 +544,16 @@ class Ros2Backend : public kinova::interface::ActionServerPort,
   std::mutex m_;
   std::map<kinova::interface::GoalId, std::shared_ptr<GoalHandle>> handles_;   // GoalId == GoalUUID
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 2: Write the implementation**
 
 ```cpp
-// kinova_arm_ros2/src/ros2_backend.cpp
-#include "kinova_arm_ros2/ros2_backend.h"
+// kinova_gen3_ros2/src/ros2_backend.cpp
+#include "kinova_gen3_ros2/ros2_backend.h"
 #include <functional>
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 using namespace kinova::interface;
 using std::placeholders::_1; using std::placeholders::_2;
 
@@ -601,26 +601,26 @@ void Ros2Backend::settle(const GoalId& id, const TrajectoryResult& r) {
   else if (r.error_code == result_code::kSuccessful) gh->succeed(msg);
   else                                         gh->abort(msg);
 }
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 3: Add the backend to CMake and build**
 
-In `kinova_arm_ros2/CMakeLists.txt`, add after the `message_mapping` library:
+In `kinova_gen3_ros2/CMakeLists.txt`, add after the `message_mapping` library:
 ```cmake
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_arm_interfaces)
+ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_gen3_interfaces)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 ```
 
-Run: `bash scripts/abra_colcon.sh --packages-select kinova_arm_ros2`
+Run: `bash scripts/abra_colcon.sh --packages-select kinova_gen3_ros2`
 Expected: builds clean (backend compiles + links against rclcpp_action, the interfaces, and the core).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h kinova_arm_ros2/src/ros2_backend.cpp kinova_arm_ros2/CMakeLists.txt
+git add kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h kinova_gen3_ros2/src/ros2_backend.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit -m "feat(ros2): Ros2Backend — action server + driven ports (feedback/settle/cancel)"
 ```
 
@@ -629,25 +629,25 @@ git commit -m "feat(ros2): Ros2Backend — action server + driven ports (feedbac
 ### Task 5: Bring-up node — DI wiring + spin (sim)
 
 **Files:**
-- Create: `kinova_arm_ros2/src/bringup_node.cpp`
-- Modify: `kinova_arm_ros2/CMakeLists.txt` (add the `kinova_arm_node` executable + install)
+- Create: `kinova_gen3_ros2/src/bringup_node.cpp`
+- Modify: `kinova_gen3_ros2/CMakeLists.txt` (add the `kinova_gen3_node` executable + install)
 
 **Interfaces:**
-- Produces: executable `kinova_arm_node` (`ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf <path>`), wiring `SimTransport`→`FeedbackTap`→`RtExecutor` + `JointPositionMode`+`JointImpedanceMode` + `Supervisor` + `Ros2Backend`, running the RT loop on the main thread and the rclcpp executor + telemetry drain on their own threads.
+- Produces: executable `kinova_gen3_node` (`ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf <path>`), wiring `SimTransport`→`FeedbackTap`→`RtExecutor` + `JointPositionMode`+`JointImpedanceMode` + `Supervisor` + `Ros2Backend`, running the RT loop on the main thread and the rclcpp executor + telemetry drain on their own threads.
 
 **Wiring (mirrors `trajectory_run`/`teleop_socket_server`):** construct the node, backend, transport (+FeedbackTap+Seqlock), two `Dynamics` (one for modes, one for the pump), both modes, `SampleRing`, `RtExecutor`; construct the `Supervisor` against the backend's ports; `backend.set_command_sink(&supervisor)`; `supervisor.start()`; spin the rclcpp executor on a thread; run the RT loop on the main thread; SIGINT → stop everything and join.
 
 - [ ] **Step 1: Write the node**
 
 ```cpp
-// kinova_arm_ros2/src/bringup_node.cpp
+// kinova_gen3_ros2/src/bringup_node.cpp
 #include <atomic>
 #include <csignal>
 #include <memory>
 #include <string>
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
-#include "kinova_arm_ros2/ros2_backend.h"
+#include "kinova_gen3_ros2/ros2_backend.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
 #include "kinova_lowlevel/interface/supervisor.h"
@@ -679,10 +679,10 @@ int main(int argc, char** argv) {
   if (use_sim) { JointFeedback init; base = std::make_unique<SimTransport>(init); }
   else {
 #ifndef KINOVA_NO_KORTEX
-    if (ip.empty()) { RCLCPP_ERROR(rclcpp::get_logger("kinova_arm_node"), "real mode needs --ip"); return 2; }
+    if (ip.empty()) { RCLCPP_ERROR(rclcpp::get_logger("kinova_gen3_node"), "real mode needs --ip"); return 2; }
     base = std::make_unique<KortexTransport>(ip);
 #else
-    RCLCPP_ERROR(rclcpp::get_logger("kinova_arm_node"), "built without KORTEX; use --sim"); return 2;
+    RCLCPP_ERROR(rclcpp::get_logger("kinova_gen3_node"), "built without KORTEX; use --sim"); return 2;
 #endif
   }
   Seqlock<JointFeedback> snap; FeedbackTap tap(*base, snap);
@@ -691,8 +691,8 @@ int main(int argc, char** argv) {
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
-  auto node = std::make_shared<rclcpp::Node>("kinova_arm_node");
-  auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node);
+  auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
+  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node);
   interface::Supervisor sup(pos, imp, exec, snap, pump_dyn, *backend, *backend);
   backend->set_command_sink(&sup);
 
@@ -704,7 +704,7 @@ int main(int argc, char** argv) {
     while (!g_stop.load() && rclcpp::ok()) ex.spin_some(std::chrono::milliseconds(10)); });
   std::thread drain([&]{ CycleSample s; while (!g_stop.load()) { while (ring.pop(s)) {} std::this_thread::sleep_for(std::chrono::milliseconds(5)); } while (ring.pop(s)) {} });
 
-  RCLCPP_INFO(node->get_logger(), "kinova_arm_node up (%s); action: /execute_joint_trajectory", use_sim ? "sim" : "real");
+  RCLCPP_INFO(node->get_logger(), "kinova_gen3_node up (%s); action: /execute_joint_trajectory", use_sim ? "sim" : "real");
   exec.run(g_stop);            // RT loop on the main thread; returns when g_stop set
 
   sup.stop(); base->safe_shutdown();
@@ -715,17 +715,17 @@ int main(int argc, char** argv) {
 
 - [ ] **Step 2: Add the executable to CMake and build**
 
-In `kinova_arm_ros2/CMakeLists.txt`, add:
+In `kinova_gen3_ros2/CMakeLists.txt`, add:
 ```cmake
-add_executable(kinova_arm_node src/bringup_node.cpp)
-ament_target_dependencies(kinova_arm_node rclcpp rclcpp_action kinova_arm_interfaces)
-target_link_libraries(kinova_arm_node ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
-target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)   # sim build; Task 7 flips this
-install(TARGETS kinova_arm_node DESTINATION lib/${PROJECT_NAME})
+add_executable(kinova_gen3_node src/bringup_node.cpp)
+ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action kinova_gen3_interfaces)
+target_link_libraries(kinova_gen3_node ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
+target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)   # sim build; Task 7 flips this
+install(TARGETS kinova_gen3_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY ../models DESTINATION share/${PROJECT_NAME} OPTIONAL)
 ```
 
-Run: `bash scripts/abra_colcon.sh --packages-select kinova_arm_ros2`
+Run: `bash scripts/abra_colcon.sh --packages-select kinova_gen3_ros2`
 Expected: builds clean.
 
 - [ ] **Step 3: Smoke-test the node starts and advertises the action**
@@ -734,7 +734,7 @@ Run:
 ```
 ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash;
   cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver;
-  timeout 6 ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf models/gen3_7dof_2f85.urdf & sleep 3;
+  timeout 6 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf & sleep 3;
   ros2 action list; kill %1 2>/dev/null"'
 ```
 Expected: `/execute_joint_trajectory` appears in `ros2 action list`; node logs "up (sim)"; clean exit.
@@ -742,7 +742,7 @@ Expected: `/execute_joint_trajectory` appears in `ros2 action list`; node logs "
 - [ ] **Step 4: Commit**
 
 ```bash
-git add kinova_arm_ros2/src/bringup_node.cpp kinova_arm_ros2/CMakeLists.txt
+git add kinova_gen3_ros2/src/bringup_node.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit -m "feat(ros2): bring-up node — DI wiring + spin (sim)"
 ```
 
@@ -751,7 +751,7 @@ git commit -m "feat(ros2): bring-up node — DI wiring + spin (sim)"
 ### Task 6: Milestone A — sim end-to-end via Python client
 
 **Files:**
-- Create: `kinova_arm_ros2/test/send_trajectory.py`
+- Create: `kinova_gen3_ros2/test/send_trajectory.py`
 - Create: `scripts/abra_e2e_sim.sh` (launch node + run client on abra)
 
 **Interfaces:**
@@ -761,7 +761,7 @@ git commit -m "feat(ros2): bring-up node — DI wiring + spin (sim)"
 
 ```python
 #!/usr/bin/env python3
-# kinova_arm_ros2/test/send_trajectory.py
+# kinova_gen3_ros2/test/send_trajectory.py
 import argparse, sys
 import rclpy
 from rclpy.action import ActionClient
@@ -770,7 +770,7 @@ from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Duration
 from control_msgs.msg import JointTolerance
 from trajectory_msgs.msg import JointTrajectoryPoint
-from kinova_arm_interfaces.action import ExecuteJointTrajectory
+from kinova_gen3_interfaces.action import ExecuteJointTrajectory
 
 class C(Node):
     def __init__(self, args):
@@ -826,11 +826,11 @@ set -uo pipefail
 source /opt/ros/humble/setup.bash
 source /tmp/kinova-ros2-ws/install/setup.bash
 cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver
-ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf models/gen3_7dof_2f85.urdf & NODE=$!
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf & NODE=$!
 sleep 3
-python3 /tmp/kinova-ros2-ws/src/kinova_arm_ros2/kinova_arm_ros2/test/send_trajectory.py --mode position --delta 0.05 --dur 0.4 --expect 0
+python3 /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py --mode position --delta 0.05 --dur 0.4 --expect 0
 R1=$?
-python3 /tmp/kinova-ros2-ws/src/kinova_arm_ros2/kinova_arm_ros2/test/send_trajectory.py --delta 0.5 --dur 2.0 --path-tol 0.2 --expect -4
+python3 /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py --delta 0.5 --dur 2.0 --path-tol 0.2 --expect -4
 R2=$?
 kill $NODE 2>/dev/null; wait $NODE 2>/dev/null
 echo "success_case=$R1 divergence_case=$R2"
@@ -839,13 +839,13 @@ echo "success_case=$R1 divergence_case=$R2"
 
 - [ ] **Step 3: Run the end-to-end test**
 
-Run: `bash scripts/abra_colcon.sh` (full build) then `ssh abra 'bash /tmp/kinova-ros2-ws/src/kinova_arm_ros2/scripts/abra_e2e_sim.sh'`
+Run: `bash scripts/abra_colcon.sh` (full build) then `ssh abra 'bash /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/scripts/abra_e2e_sim.sh'`
 Expected: the position goal streams feedback (fraction 0→1) and settles `error_code=0` / `STATUS_SUCCEEDED`; the 0.5 rad move against the static sim trips the guard and settles `error_code=-4`. Final line: `success_case=0 divergence_case=0`, script exit 0.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/send_trajectory.py scripts/abra_e2e_sim.sh
+git add kinova_gen3_ros2/test/send_trajectory.py scripts/abra_e2e_sim.sh
 git commit -m "test(ros2): milestone A — sim end-to-end ExecuteJointTrajectory (success + divergence)"
 ```
 
@@ -854,18 +854,18 @@ git commit -m "test(ros2): milestone A — sim end-to-end ExecuteJointTrajectory
 ### Task 7: Milestone B — combined KORTEX+ROS2 build
 
 **Files:**
-- Modify: `kinova_arm_ros2/CMakeLists.txt` (make the `KINOVA_NO_KORTEX` compile-def conditional on a build option)
+- Modify: `kinova_gen3_ros2/CMakeLists.txt` (make the `KINOVA_NO_KORTEX` compile-def conditional on a build option)
 
 **Interfaces:**
 - Produces: the node builds with the real `KortexTransport` compiled in when the workspace is built with `-DKINOVA_ENABLE_KORTEX=ON`, while the default (sim) build is unchanged.
 
 - [ ] **Step 1: Make the node's KORTEX gating match the core's**
 
-In `kinova_arm_ros2/CMakeLists.txt`, replace the unconditional `target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)` with:
+In `kinova_gen3_ros2/CMakeLists.txt`, replace the unconditional `target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)` with:
 ```cmake
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
-  target_compile_definitions(kinova_arm_node PRIVATE KINOVA_NO_KORTEX)
+  target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)
 endif()
 ```
 (When `-DKINOVA_ENABLE_KORTEX=ON` is passed through colcon, the node compiles the real `--ip` path and links `KortexTransport` from the core, which was itself built with KORTEX enabled.)
@@ -876,7 +876,7 @@ Run:
 ```
 bash scripts/abra_colcon.sh --cmake-args -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64
 ```
-Expected: the core compiles `kortex_transport.cpp`; `kinova_arm_node` links the KORTEX static lib (abra-local abs path, valid) and builds clean.
+Expected: the core compiles `kortex_transport.cpp`; `kinova_gen3_node` links the KORTEX static lib (abra-local abs path, valid) and builds clean.
 
 - [ ] **Step 3: Verify the KORTEX-enabled node still runs in sim**
 
@@ -884,7 +884,7 @@ Run:
 ```
 ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash;
   cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver;
-  timeout 6 ros2 run kinova_arm_ros2 kinova_arm_node --sim --urdf models/gen3_7dof_2f85.urdf & sleep 3;
+  timeout 6 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf & sleep 3;
   ros2 action list; kill %1 2>/dev/null"'
 ```
 Expected: the KORTEX-enabled binary still starts in `--sim` and advertises the action (KORTEX compiled but not exercised).
@@ -892,7 +892,7 @@ Expected: the KORTEX-enabled binary still starts in `--sim` and advertises the a
 - [ ] **Step 4: Commit**
 
 ```bash
-git add kinova_arm_ros2/CMakeLists.txt
+git add kinova_gen3_ros2/CMakeLists.txt
 git commit -m "build(ros2): combined KORTEX+ROS2 build (node gates KORTEX like the core)"
 ```
 
@@ -909,7 +909,7 @@ git commit -m "build(ros2): combined KORTEX+ROS2 build (node gates KORTEX like t
 
 1. Build the workspace with KORTEX enabled (Task 7 command). Confirm the arm IP is reachable (`ping`), arm powered, homed, workspace clear, e-stop in hand.
 2. **Dry-run first (read-only):** launch the node against the arm but send nothing; confirm it connects and advertises the action:
-   `ros2 run kinova_arm_ros2 kinova_arm_node --ip <arm-ip> --urdf models/gen3_7dof_2f85.urdf`
+   `ros2 run kinova_gen3_ros2 kinova_gen3_node --ip <arm-ip> --urdf models/gen3_7dof_2f85.urdf`
    then in another shell `ros2 action list` shows `/execute_joint_trajectory`; Ctrl-C.
 3. **Small/slow single-joint trajectory (attended):** with the node running against the arm, send a conservative goal from the client — joint 6, ~0.08–0.15 rad, ≥1 s duration, position mode, live path tolerance ~0.2:
    `python3 .../send_trajectory.py --mode position --delta 0.10 --dur 1.2 --path-tol 0.2 --expect 0`

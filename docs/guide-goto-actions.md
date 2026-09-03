@@ -31,12 +31,12 @@ Two nodes: the external planner and this repo's arm node.
 ros2 launch rammp_curobo_ros planner.launch.py config:=gen3_real.yaml
 ```
 
-Then start `kinova_arm_node` (sim or real — see the top-level `README.md`). No
+Then start `kinova_gen3_node` (sim or real — see the top-level `README.md`). No
 extra flags: it is already a client of both cuRobo planning actions.
 
 !!! warning "Both nodes must use the same RMW"
     The planner container runs with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`
-    (see `ROS_FLAGS` in the `Makefile`). If `kinova_arm_node` or your client
+    (see `ROS_FLAGS` in the `Makefile`). If `kinova_gen3_node` or your client
     runs under the default FastRTPS, discovery partly succeeds — `ros2 action
     list` shows the planner's actions — but goals are never answered, and the
     action **hangs in `phase=planning` forever** rather than failing. A
@@ -51,14 +51,14 @@ It is **dry-run by default**; pass `--go` to actually execute.
 
 ```sh
 # named configuration
-python3 kinova_arm_ros2/test/send_goto_joints.py --preset home --go
+python3 kinova_gen3_ros2/test/send_goto_joints.py --preset home --go
 
 # explicit joints (rad)
-python3 kinova_arm_ros2/test/send_goto_joints.py \
+python3 kinova_gen3_ros2/test/send_goto_joints.py \
     --joints 0 0.262 3.142 -2.269 0 0.96 1.571 --go
 
 # relative to where the arm is now
-python3 kinova_arm_ros2/test/send_goto_joints.py --delta 0.15 --joint 6 --go
+python3 kinova_gen3_ros2/test/send_goto_joints.py --delta 0.15 --joint 6 --go
 ```
 
 `test/send_goto_pose_sequence.py` does the same for `go_to_ee_pose`.
@@ -71,7 +71,7 @@ defaults to the cuRobo retract configuration, so a stock node always has one
 usable preset.
 
 ```sh
-ros2 run kinova_arm_ros2 kinova_arm_node --sim \
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \
   --ros-args -p preset_names:="['home','stow']" \
              -p presets.stow:="[0.0, 0.5, 3.0, -2.0, 0.0, 1.0, 1.5]"
 ```

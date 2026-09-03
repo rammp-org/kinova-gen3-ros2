@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14
 **Status:** Design (pending user review)
-**Repos:** `rammp-org/kinova_arm_ros2` (this repo — the new action + cuRobo client)
+**Repos:** `rammp-org/kinova_gen3_ros2` (this repo — the new action + cuRobo client)
 and a one-line core touch in `rammp-org/kinova-gen3-driver` (a new result code).
 
 ## What this is
@@ -69,7 +69,7 @@ package (no GPU stack) — for the `PlanToPose` type.
    and forward-compatible with adding a TF transform later. We strip to the bare
    `Pose` cuRobo wants before forwarding.
 
-## New interface — `kinova_arm_interfaces/action/GoToEEPose.action`
+## New interface — `kinova_gen3_interfaces/action/GoToEEPose.action`
 
 ```
 # Goal
@@ -239,14 +239,14 @@ message field) rather than disabling the guard outright. Measured on the attende
 
 ## Dependencies & build
 
-- `kinova_arm_interfaces` gains `GoToEEPose.action` and a **new `geometry_msgs`
+- `kinova_gen3_interfaces` gains `GoToEEPose.action` and a **new `geometry_msgs`
   dependency** (it currently depends on `builtin_interfaces`, `std_msgs`,
   `trajectory_msgs`, `control_msgs`, `action_msgs` — `PoseStamped` needs
   `geometry_msgs` added to `package.xml` + `CMakeLists.txt`).
-- `kinova_arm_ros2` build-depends on **`rammp_curobo_interfaces`**; add it to
-  `kinova_arm.repos` (source-built alongside the core, GPU stack NOT required).
+- `kinova_gen3_ros2` build-depends on **`rammp_curobo_interfaces`**; add it to
+  `kinova_gen3.repos` (source-built alongside the core, GPU stack NOT required).
 - New targets: `curobo_plan_client`, `goto_ee_pose_server`, `goal_router` libs,
-  linked into `kinova_arm_node`. `Ros2Backend` + Supervisor wiring updated in
+  linked into `kinova_gen3_node`. `Ros2Backend` + Supervisor wiring updated in
   `bringup_node.cpp`: construct the `GoalRouter`, pass it as the Supervisor's
   `ActionServerPort`, construct `CuroboPlanClient` + `GoToEEPoseServer`, inject the
   `CommandSink` + router into both servers.
@@ -267,7 +267,7 @@ message field) rather than disabling the guard outright. Measured on the attende
   covers the sampler/pump against `SimTransport`.
 - **Real-arm (attended, Milestone C):** the real cuRobo GPU node + our node on abra;
   a small/near base-frame target, slow, e-stop in hand, per `docs/on-robot-runbook.md`
-  and the handoff §6 operational facts (`pkill -TERM -f kinova_arm_node`, best-effort
+  and the handoff §6 operational facts (`pkill -TERM -f kinova_gen3_node`, best-effort
   `/joint_states` QoS, `ssh abra 'bash -lc "…"'`). Gated behind the sim integration.
 
 ## Milestones (each independently testable)

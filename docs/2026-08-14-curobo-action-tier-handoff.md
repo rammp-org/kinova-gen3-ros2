@@ -23,13 +23,13 @@ Kinova Gen3 arm today (single-joint and coordinated two-joint
     — `on_trajectory_goal / on_trajectory_accepted / on_trajectory_cancel /
     on_set_gains / on_query_state`. The `Supervisor` implements it. Everything
     that commands motion funnels through here.
-- **ROS2 frontend** — `rammp-org/kinova_arm_ros2` @ `main` (Plan 3, PR #1).
-  - `kinova_arm_interfaces` (ament): `ExecuteJointTrajectory.action` +
+- **ROS2 frontend** — `rammp-org/kinova_gen3_ros2` @ `main` (Plan 3, PR #1).
+  - `kinova_gen3_interfaces` (ament): `ExecuteJointTrajectory.action` +
     `JointImpedanceGains.msg`.
-  - `kinova_arm_ros2` (ament): `Ros2Backend` (the ONLY unit that includes rclcpp —
+  - `kinova_gen3_ros2` (ament): `Ros2Backend` (the ONLY unit that includes rclcpp —
     action server + driven ports + `/joint_states` publisher), pure
     value-type↔message `message_mapping`, and the DI **bring-up node**
-    `src/bringup_node.cpp` → executable `kinova_arm_node`.
+    `src/bringup_node.cpp` → executable `kinova_gen3_node`.
   - `.repos` pins the core to `main`.
 
 Design records: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.md`,
@@ -51,7 +51,7 @@ Build a **high-level, goal-oriented action tier**: `GoToEEPose`,
    generates a trajectory. We do NOT build cuRobo — we call it over ROS.
 3. **ONE node of ours hosts everything.** All action servers
    (`ExecuteJointTrajectory` **and** the high-level ones) live in the single
-   existing `kinova_arm_node`, which is ALSO a **client** of the cuRobo node.
+   existing `kinova_gen3_node`, which is ALSO a **client** of the cuRobo node.
    We do NOT add a separate orchestration node.
 4. **High-level actions feed the planned trajectory into the same `Supervisor`
    seam internally — no self-call of the `ExecuteJointTrajectory` action over ROS.**
@@ -63,7 +63,7 @@ System picture (two nodes total: ours + the external cuRobo node):
 
 ```
    GoToEEPose / ExecuteJointTrajectory
-[client] ───────────────────────────▶ ┌─ kinova_arm_node (ONE node, ours) ──────┐
+[client] ───────────────────────────▶ ┌─ kinova_gen3_node (ONE node, ours) ──────┐
                                        │  • all action servers                    │
                                        │  • Supervisor + 1 kHz RT loop            │
                                        │  • cuRobo client ────────────────────────┼──▶ [ cuRobo node ] (separate, exists)
@@ -107,7 +107,7 @@ result to client.
    `trajectory_msgs/JointTrajectory`; does it own/collision-check a world? These
    shape the goal/feedback/result of `GoToEEPose` and how our node calls it.
 2. **High-level action message shapes** — new `.action` defs in
-   `kinova_arm_interfaces` (`GoToEEPose.action`, `GoToJointConfig.action`,
+   `kinova_gen3_interfaces` (`GoToEEPose.action`, `GoToJointConfig.action`,
    `GoToPreset.action`), including the `PLANNING_FAILED` result code + feedback
    (relay cuRobo planning progress, then execution progress?).
 3. **`GoToPreset`:** does the driver need a named-preset registry (config/param),
@@ -150,14 +150,14 @@ result to client.
 - **`/joint_states` is best-effort (`SensorDataQoS`)** — subscribers/echo must use
   best-effort QoS or they receive nothing.
 - **`ros2 run` forks the node under a python wrapper**, so `kill %1`/`$!` misses the
-  real process → use **`pkill -TERM -f kinova_arm_node`** and always verify it
+  real process → use **`pkill -TERM -f kinova_gen3_node`** and always verify it
   stopped (abra is shared; a leaked node keeps servoing the arm).
 - **Combined KORTEX+ROS2 build:** `bash scripts/abra_colcon.sh --cmake-args
   -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64`.
   The core's static-lib PRIVATE KORTEX link auto-propagates into the export → node
   links KORTEX with NO core change. **The CMake cache PERSISTS the flag across
   rebuilds — always pass `-DKINOVA_ENABLE_KORTEX=ON/OFF` explicitly.**
-- **Test client** `kinova_arm_ros2/test/send_trajectory.py`: seeds waypoint-0 from
+- **Test client** `kinova_gen3_ros2/test/send_trajectory.py`: seeds waypoint-0 from
   the measured `/joint_states` pose (safe local move, never jump-to-zero);
   multi-joint via comma-lists (`--joint 5,6 --delta 0.4,-0.4`); **put a positive
   `--delta` first** (argparse treats a leading `-` value as a flag). The action
@@ -181,9 +181,9 @@ result to client.
 Subagent-driven, same loop that just worked: brainstorm (lock the §4 open items)
 → writing-plans → subagent per task with a per-task review + a whole-branch review,
 the controller running the abra build/test loop (subagents CAN ssh to abra). The
-new `.action` defs go in `kinova_arm_interfaces`; the servers + cuRobo client go in
-`kinova_arm_ros2` (the existing node). Keep the core untouched unless a new bug
+new `.action` defs go in `kinova_gen3_interfaces`; the servers + cuRobo client go in
+`kinova_gen3_ros2` (the existing node). Keep the core untouched unless a new bug
 demands it.
 
-Memory notes to rely on: `arm-interface-layer`, `kinova-arm-ros2-repo`
+Memory notes to rely on: `arm-interface-layer`, `kinova-gen3-ros2-repo`
 (both updated 2026-08-14 with status + the operational facts above).

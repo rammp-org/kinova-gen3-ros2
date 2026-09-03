@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14
 **Status:** Design (approved by user; ready to plan/implement in a fresh session)
-**Repo:** `rammp-org/kinova_arm_ros2` — **stacked on `feat/goto-ee-pose-curobo` (PR #2)**.
+**Repo:** `rammp-org/kinova_gen3_ros2` — **stacked on `feat/goto-ee-pose-curobo` (PR #2)**.
 Core is untouched (reuses `result_code::kPlanningFailed = -7`).
 
 ## What this is
@@ -106,7 +106,7 @@ Node declares `preset_names` (string[], default `["home"]`) and, per name, a
 `robot_gen3_2f85.yaml`). `GoToPresetServer` reads these at construction into its
 `const` registry; an unknown `preset_name` is rejected fail-loud in `validate`.
 
-### Interfaces (new `.action` files, `kinova_arm_interfaces`)
+### Interfaces (new `.action` files, `kinova_gen3_interfaces`)
 
 `GoToJointConfig.action` and `GoToPreset.action`. **Result and Feedback blocks are
 byte-identical to `GoToEEPose.action`** (so the templated base sets them uniformly):
@@ -163,7 +163,7 @@ Planning failure / unknown preset / bad joints short-circuit to `settle_local`
   rejected. Registry-from-params covered by the bring-up path.
 - **Regression:** the existing `ExecuteJointTrajectory` e2e-sim + `GoToEEPose`
   integration tests must stay green after the refactor.
-- All on abra (`scripts/abra_colcon.sh --packages-up-to kinova_arm_ros2 --cmake-args
+- All on abra (`scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args
   -DBUILD_TESTING=ON`); real-arm runs pin **`--cpu 11`** (per RT fix `79d1050`;
   `make sim/real` do this automatically).
 

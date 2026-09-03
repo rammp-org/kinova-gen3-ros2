@@ -26,13 +26,13 @@
 ### Task 1: Interface messages
 
 **Files:**
-- Create: `kinova_arm_interfaces/msg/GripperSetpoint.msg`
-- Create: `kinova_arm_interfaces/msg/GripperState.msg`
-- Modify: `kinova_arm_interfaces/CMakeLists.txt:31` (append to the `rosidl_generate_interfaces` list)
+- Create: `kinova_gen3_interfaces/msg/GripperSetpoint.msg`
+- Create: `kinova_gen3_interfaces/msg/GripperState.msg`
+- Modify: `kinova_gen3_interfaces/CMakeLists.txt:31` (append to the `rosidl_generate_interfaces` list)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `kinova_arm_interfaces/msg/GripperSetpoint` with fields `position` (float32), `speed` (float32), `force` (float32), `token` (uint8[16]). `kinova_arm_interfaces/msg/GripperState` with `header` (std_msgs/Header), `position` (float32), `effort` (float32), `current` (float32), `present` (bool).
+- Produces: `kinova_gen3_interfaces/msg/GripperSetpoint` with fields `position` (float32), `speed` (float32), `force` (float32), `token` (uint8[16]). `kinova_gen3_interfaces/msg/GripperState` with `header` (std_msgs/Header), `position` (float32), `effort` (float32), `current` (float32), `present` (bool).
 
 - [ ] **Step 1: Write `GripperSetpoint.msg`**
 
@@ -93,16 +93,16 @@ Run:
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'cd /home/abra/kinova_arm_ros2 && make build 2>&1 | tail -5'
+  'cd /home/abra/kinova_gen3_ros2 && make build 2>&1 | tail -5'
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'docker run --rm kinova-arm-ros2:humble bash -lc "source /ros2_ws/install/setup.bash && ros2 interface show kinova_arm_interfaces/msg/GripperSetpoint"'
+  'docker run --rm kinova-gen3-ros2:humble bash -lc "source /ros2_ws/install/setup.bash && ros2 interface show kinova_gen3_interfaces/msg/GripperSetpoint"'
 ```
 Expected: the field list prints, including `uint8[16] token` and NO `active` field.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kinova_arm_interfaces/msg/GripperSetpoint.msg kinova_arm_interfaces/msg/GripperState.msg kinova_arm_interfaces/CMakeLists.txt
+git add kinova_gen3_interfaces/msg/GripperSetpoint.msg kinova_gen3_interfaces/msg/GripperState.msg kinova_gen3_interfaces/CMakeLists.txt
 git commit -m "feat(interfaces): gripper setpoint and state messages"
 ```
 
@@ -111,40 +111,40 @@ git commit -m "feat(interfaces): gripper setpoint and state messages"
 ### Task 2: The normalized <-> radian mapping
 
 **Files:**
-- Modify: `kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h`
-- Modify: `kinova_arm_ros2/src/message_mapping.cpp`
-- Test: `kinova_arm_ros2/test/message_mapping_test.cpp`
+- Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`
+- Modify: `kinova_gen3_ros2/src/message_mapping.cpp`
+- Test: `kinova_gen3_ros2/test/message_mapping_test.cpp`
 
 **Interfaces:**
-- Consumes: `kinova_arm_interfaces/msg/GripperSetpoint`, `kinova_arm_interfaces/msg/GripperState` (Task 1); `kinova::interface::GripperSetpoint`, `kinova::interface::GripperState` from `kinova_lowlevel/interface/value_types.h`.
+- Consumes: `kinova_gen3_interfaces/msg/GripperSetpoint`, `kinova_gen3_interfaces/msg/GripperState` (Task 1); `kinova::interface::GripperSetpoint`, `kinova::interface::GripperState` from `kinova_lowlevel/interface/value_types.h`.
 - Produces:
   - `constexpr double kKnuckleUpperRad = 0.8;`
   - `double gripper_to_knuckle_rad(float normalized);`
-  - `kinova::interface::GripperSetpoint to_gripper_setpoint(const kinova_arm_interfaces::msg::GripperSetpoint& m);`
-  - `kinova_arm_interfaces::msg::GripperState to_gripper_state_msg(const kinova::interface::GripperState& g);`
+  - `kinova::interface::GripperSetpoint to_gripper_setpoint(const kinova_gen3_interfaces::msg::GripperSetpoint& m);`
+  - `kinova_gen3_interfaces::msg::GripperState to_gripper_state_msg(const kinova::interface::GripperState& g);`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `kinova_arm_ros2/test/message_mapping_test.cpp`:
+Append to `kinova_gen3_ros2/test/message_mapping_test.cpp`:
 
 ```cpp
-#include "kinova_arm_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_arm_interfaces/msg/gripper_state.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
 
 TEST(GripperMapping, NormalizedMapsOntoTheKnuckleLimits) {
-  EXPECT_DOUBLE_EQ(kinova_arm_ros2::gripper_to_knuckle_rad(0.0f), 0.0);
-  EXPECT_DOUBLE_EQ(kinova_arm_ros2::gripper_to_knuckle_rad(1.0f), 0.8);
-  EXPECT_DOUBLE_EQ(kinova_arm_ros2::gripper_to_knuckle_rad(0.5f), 0.4);
+  EXPECT_DOUBLE_EQ(kinova_gen3_ros2::gripper_to_knuckle_rad(0.0f), 0.0);
+  EXPECT_DOUBLE_EQ(kinova_gen3_ros2::gripper_to_knuckle_rad(1.0f), 0.8);
+  EXPECT_DOUBLE_EQ(kinova_gen3_ros2::gripper_to_knuckle_rad(0.5f), 0.4);
 }
 
 // The ROS message has no `active`; core's struct does. to_gripper_setpoint must leave it
 // alone rather than inventing a value -- set_target discards it either way, but a caller
 // reading the struct should not see a fabricated flag.
 TEST(GripperMapping, SetpointCarriesAllThreeFieldsAndTheToken) {
-  kinova_arm_interfaces::msg::GripperSetpoint m;
+  kinova_gen3_interfaces::msg::GripperSetpoint m;
   m.position = 0.25f; m.speed = 0.5f; m.force = 0.75f;
   m.token[0] = 7; m.token[15] = 9;
-  const auto s = kinova_arm_ros2::to_gripper_setpoint(m);
+  const auto s = kinova_gen3_ros2::to_gripper_setpoint(m);
   EXPECT_FLOAT_EQ(s.command.position, 0.25f);
   EXPECT_FLOAT_EQ(s.command.speed, 0.5f);
   EXPECT_FLOAT_EQ(s.command.force, 0.75f);
@@ -155,7 +155,7 @@ TEST(GripperMapping, SetpointCarriesAllThreeFieldsAndTheToken) {
 TEST(GripperMapping, StateRoundTripsEveryField) {
   kinova::interface::GripperState g;
   g.position = 0.3f; g.effort = 0.05f; g.current = 0.05f; g.present = true;
-  const auto m = kinova_arm_ros2::to_gripper_state_msg(g);
+  const auto m = kinova_gen3_ros2::to_gripper_state_msg(g);
   EXPECT_FLOAT_EQ(m.position, 0.3f);
   EXPECT_FLOAT_EQ(m.effort, 0.05f);
   EXPECT_FLOAT_EQ(m.current, 0.05f);
@@ -168,17 +168,17 @@ TEST(GripperMapping, StateRoundTripsEveryField) {
 Run:
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'docker run --rm kinova-arm-ros2:humble bash -lc "cd /ros2_ws && colcon build --packages-select kinova_arm_ros2 2>&1 | tail -20"'
+  'docker run --rm kinova-gen3-ros2:humble bash -lc "cd /ros2_ws && colcon build --packages-select kinova_gen3_ros2 2>&1 | tail -20"'
 ```
-Expected: FAIL to compile — `gripper_to_knuckle_rad` is not a member of `kinova_arm_ros2`.
+Expected: FAIL to compile — `gripper_to_knuckle_rad` is not a member of `kinova_gen3_ros2`.
 
 - [ ] **Step 3: Declare the functions in the header**
 
-Add to `kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h`, inside `namespace kinova_arm_ros2`, and add the two `#include`s at the top alongside the existing ones:
+Add to `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`, inside `namespace kinova_gen3_ros2`, and add the two `#include`s at the top alongside the existing ones:
 
 ```cpp
-#include "kinova_arm_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_arm_interfaces/msg/gripper_state.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
 
 // robotiq_85_left_knuckle_joint's URDF upper limit. The gripper's ONE actuated DOF;
 // robot_state_publisher derives the five mimics from it (verified 2026-09-03).
@@ -188,8 +188,8 @@ inline constexpr double kKnuckleUpperRad = 0.8;
 double gripper_to_knuckle_rad(float normalized);
 
 kinova::interface::GripperSetpoint to_gripper_setpoint(
-    const kinova_arm_interfaces::msg::GripperSetpoint& m);
-kinova_arm_interfaces::msg::GripperState to_gripper_state_msg(
+    const kinova_gen3_interfaces::msg::GripperSetpoint& m);
+kinova_gen3_interfaces::msg::GripperState to_gripper_state_msg(
     const kinova::interface::GripperState& g);
 ```
 
@@ -201,7 +201,7 @@ double gripper_to_knuckle_rad(float normalized) {
 }
 
 kinova::interface::GripperSetpoint to_gripper_setpoint(
-    const kinova_arm_interfaces::msg::GripperSetpoint& m) {
+    const kinova_gen3_interfaces::msg::GripperSetpoint& m) {
   kinova::interface::GripperSetpoint s;
   // No `active`: the ROS message has none, and set_target arms stamping regardless.
   // Clamping is core's job -- set_target is the ONE place the [0,1] range is enforced
@@ -213,9 +213,9 @@ kinova::interface::GripperSetpoint to_gripper_setpoint(
   return s;
 }
 
-kinova_arm_interfaces::msg::GripperState to_gripper_state_msg(
+kinova_gen3_interfaces::msg::GripperState to_gripper_state_msg(
     const kinova::interface::GripperState& g) {
-  kinova_arm_interfaces::msg::GripperState m;
+  kinova_gen3_interfaces::msg::GripperState m;
   // g.stamp_s is deliberately NOT used: it is QUERY time, not sample time. The caller
   // stamps with the message it is publishing alongside.
   m.position = g.position;
@@ -233,14 +233,14 @@ Add `#include <algorithm>` at the top of the file if not already present.
 Run:
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'docker run --rm kinova-arm-ros2:humble bash -lc "cd /ros2_ws && colcon build --packages-select kinova_arm_ros2 >/dev/null 2>&1 && colcon test --packages-select kinova_arm_ros2 >/dev/null 2>&1; colcon test-result --verbose 2>&1 | tail -5"'
+  'docker run --rm kinova-gen3-ros2:humble bash -lc "cd /ros2_ws && colcon build --packages-select kinova_gen3_ros2 >/dev/null 2>&1 && colcon test --packages-select kinova_gen3_ros2 >/dev/null 2>&1; colcon test-result --verbose 2>&1 | tail -5"'
 ```
 Expected: `0 errors, 0 failures`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/message_mapping.h kinova_arm_ros2/src/message_mapping.cpp kinova_arm_ros2/test/message_mapping_test.cpp
+git add kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h kinova_gen3_ros2/src/message_mapping.cpp kinova_gen3_ros2/test/message_mapping_test.cpp
 git commit -m "feat(ros2): map gripper setpoints and state; normalized to knuckle radians"
 ```
 
@@ -249,19 +249,19 @@ git commit -m "feat(ros2): map gripper setpoints and state; normalized to knuckl
 ### Task 3: GripperServer
 
 **Files:**
-- Create: `kinova_arm_ros2/include/kinova_arm_ros2/gripper_server.h`
-- Create: `kinova_arm_ros2/src/gripper_server.cpp`
-- Create: `kinova_arm_ros2/test/fake_gripper_sink.h`
-- Create: `kinova_arm_ros2/test/gripper_server_test.cpp`
-- Modify: `kinova_arm_ros2/CMakeLists.txt` (add `src/gripper_server.cpp` to the `ros2_backend` library sources; register `gripper_server_test`)
+- Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/gripper_server.h`
+- Create: `kinova_gen3_ros2/src/gripper_server.cpp`
+- Create: `kinova_gen3_ros2/test/fake_gripper_sink.h`
+- Create: `kinova_gen3_ros2/test/gripper_server_test.cpp`
+- Modify: `kinova_gen3_ros2/CMakeLists.txt` (add `src/gripper_server.cpp` to the `ros2_backend` library sources; register `gripper_server_test`)
 
 **Interfaces:**
 - Consumes: `to_gripper_setpoint`, `to_gripper_state_msg` (Task 2); `kinova::interface::GripperSink`.
-- Produces: `class GripperServer { GripperServer(rclcpp::Node::SharedPtr, kinova::interface::GripperSink&, bool expect_gripper); void publish_state(const builtin_interfaces::msg::Time& stamp); };` and the `kinova_arm_node: Gripper` REP 107 task.
+- Produces: `class GripperServer { GripperServer(rclcpp::Node::SharedPtr, kinova::interface::GripperSink&, bool expect_gripper); void publish_state(const builtin_interfaces::msg::Time& stamp); };` and the `kinova_gen3_node: Gripper` REP 107 task.
 
 - [ ] **Step 1: Write the fake sink**
 
-Create `kinova_arm_ros2/test/fake_gripper_sink.h`:
+Create `kinova_gen3_ros2/test/fake_gripper_sink.h`:
 
 ```cpp
 #pragma once
@@ -291,14 +291,14 @@ struct FakeGripperSink : public kinova::interface::GripperSink {
 
 - [ ] **Step 2: Write the failing test**
 
-Create `kinova_arm_ros2/test/gripper_server_test.cpp`:
+Create `kinova_gen3_ros2/test/gripper_server_test.cpp`:
 
 ```cpp
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
-#include "kinova_arm_ros2/gripper_server.h"
-#include "kinova_arm_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_arm_interfaces/msg/gripper_state.hpp"
+#include "kinova_gen3_ros2/gripper_server.h"
+#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
 #include "fake_gripper_sink.h"
 
 using namespace std::chrono_literals;
@@ -321,13 +321,13 @@ class GripperServerTest : public ::testing::Test {
 
 TEST_F(GripperServerTest, ASetpointReachesTheSinkWithAllThreeFields) {
   FakeGripperSink sink;
-  kinova_arm_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
+  kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
 
-  auto pub = node_->create_publisher<kinova_arm_interfaces::msg::GripperSetpoint>(
+  auto pub = node_->create_publisher<kinova_gen3_interfaces::msg::GripperSetpoint>(
       "/setpoint/gripper", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort());
   spin_for(200ms);   // let discovery settle
 
-  kinova_arm_interfaces::msg::GripperSetpoint m;
+  kinova_gen3_interfaces::msg::GripperSetpoint m;
   m.position = 0.6f; m.speed = 0.4f; m.force = 0.2f; m.token[0] = 3;
   for (int i = 0; i < 20 && sink.count() == 0; ++i) { pub->publish(m); spin_for(20ms); }
 
@@ -342,13 +342,13 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
   FakeGripperSink sink;
   sink.state.position = 0.3f; sink.state.effort = 0.05f;
   sink.state.current = 0.05f; sink.state.present = true;
-  kinova_arm_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
+  kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
 
-  kinova_arm_interfaces::msg::GripperState got;
+  kinova_gen3_interfaces::msg::GripperState got;
   bool seen = false;
-  auto sub = node_->create_subscription<kinova_arm_interfaces::msg::GripperState>(
+  auto sub = node_->create_subscription<kinova_gen3_interfaces::msg::GripperState>(
       "/gripper_state", rclcpp::SensorDataQoS(),
-      [&](kinova_arm_interfaces::msg::GripperState::SharedPtr msg) { got = *msg; seen = true; });
+      [&](kinova_gen3_interfaces::msg::GripperState::SharedPtr msg) { got = *msg; seen = true; });
   spin_for(200ms);
 
   for (int i = 0; i < 20 && !seen; ++i) {
@@ -367,25 +367,25 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
 Run:
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'docker run --rm kinova-arm-ros2:humble bash -lc "cd /ros2_ws && colcon build --packages-select kinova_arm_ros2 2>&1 | tail -10"'
+  'docker run --rm kinova-gen3-ros2:humble bash -lc "cd /ros2_ws && colcon build --packages-select kinova_gen3_ros2 2>&1 | tail -10"'
 ```
-Expected: FAIL — `kinova_arm_ros2/gripper_server.h: No such file or directory`.
+Expected: FAIL — `kinova_gen3_ros2/gripper_server.h: No such file or directory`.
 
 - [ ] **Step 4: Write the header**
 
-Create `kinova_arm_ros2/include/kinova_arm_ros2/gripper_server.h`:
+Create `kinova_gen3_ros2/include/kinova_gen3_ros2/gripper_server.h`:
 
 ```cpp
-// kinova_arm_ros2/include/kinova_arm_ros2/gripper_server.h
+// kinova_gen3_ros2/include/kinova_gen3_ros2/gripper_server.h
 #pragma once
 #include <memory>
 #include "rclcpp/rclcpp.hpp"
 #include "builtin_interfaces/msg/time.hpp"
-#include "kinova_arm_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_arm_interfaces/msg/gripper_state.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
+#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "kinova_lowlevel/interface/ports.h"
-namespace kinova_arm_ros2 {
+namespace kinova_gen3_ros2 {
 
 // The ROS face of core's GripperSink: /setpoint/gripper in, /gripper_state out.
 //
@@ -397,8 +397,8 @@ namespace kinova_arm_ros2 {
 // rides the ARM's token by core's spec decision, one physical machine one holder.
 class GripperServer {
  public:
-  using GripperSetpointMsg = kinova_arm_interfaces::msg::GripperSetpoint;
-  using GripperStateMsg    = kinova_arm_interfaces::msg::GripperState;
+  using GripperSetpointMsg = kinova_gen3_interfaces::msg::GripperSetpoint;
+  using GripperStateMsg    = kinova_gen3_interfaces::msg::GripperState;
 
   // expect_gripper: "expected" cannot be inferred from the node's own model -- it loads
   // the FROZEN 7-DOF URDF, where the Robotiq joints are type="fixed", so its model never
@@ -422,17 +422,17 @@ class GripperServer {
   rclcpp::Publisher<GripperStateMsg>::SharedPtr state_pub_;
   std::unique_ptr<diagnostic_updater::Updater> updater_;
 };
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 5: Write the implementation**
 
-Create `kinova_arm_ros2/src/gripper_server.cpp`:
+Create `kinova_gen3_ros2/src/gripper_server.cpp`:
 
 ```cpp
-#include "kinova_arm_ros2/gripper_server.h"
-#include "kinova_arm_ros2/message_mapping.h"
-namespace kinova_arm_ros2 {
+#include "kinova_gen3_ros2/gripper_server.h"
+#include "kinova_gen3_ros2/message_mapping.h"
+namespace kinova_gen3_ros2 {
 
 GripperServer::GripperServer(rclcpp::Node::SharedPtr node,
                              kinova::interface::GripperSink& sink,
@@ -479,18 +479,18 @@ void GripperServer::publish_state(const builtin_interfaces::msg::Time& stamp) {
   msg.header.stamp = stamp;
   state_pub_->publish(msg);
 }
-}  // namespace kinova_arm_ros2
+}  // namespace kinova_gen3_ros2
 ```
 
 - [ ] **Step 6: Register the source and the test in CMakeLists.txt**
 
-In `kinova_arm_ros2/CMakeLists.txt`, add a `gripper_server` library. This repo uses ONE
+In `kinova_gen3_ros2/CMakeLists.txt`, add a `gripper_server` library. This repo uses ONE
 LIBRARY PER SOURCE FILE (`message_mapping`, `goal_router`, `ros2_backend`,
 `arbitration_server`, `stream_server` are each their own `add_library`) — there is no
 combined library to append to. It must link `message_mapping`, because
 `to_gripper_setpoint`/`to_gripper_state_msg` live there; `ros2_backend` links it the same
 way at line 48. Omitting that link fails at the link step, not at compile:
-`undefined reference to kinova_arm_ros2::to_gripper_setpoint(...)`.
+`undefined reference to kinova_gen3_ros2::to_gripper_setpoint(...)`.
 
 Then add a test target next to the existing `stream_server_test` registration, following its
 exact form:
@@ -501,7 +501,7 @@ target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_low
 
 ament_add_gtest(gripper_server_test test/gripper_server_test.cpp)
 target_link_libraries(gripper_server_test gripper_server)
-ament_target_dependencies(gripper_server_test rclcpp kinova_arm_interfaces)
+ament_target_dependencies(gripper_server_test rclcpp kinova_gen3_interfaces)
 target_include_directories(gripper_server_test PRIVATE test)
 ```
 
@@ -513,14 +513,14 @@ Run:
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'cd /home/abra/kinova_arm_ros2 && make build >/dev/null 2>&1; docker run --rm --network host --ipc host kinova-arm-ros2:humble bash -lc "cd /ros2_ws && colcon test --packages-select kinova_arm_ros2 >/dev/null 2>&1; colcon test-result --verbose 2>&1 | tail -6"'
+  'cd /home/abra/kinova_gen3_ros2 && make build >/dev/null 2>&1; docker run --rm --network host --ipc host kinova-gen3-ros2:humble bash -lc "cd /ros2_ws && colcon test --packages-select kinova_gen3_ros2 >/dev/null 2>&1; colcon test-result --verbose 2>&1 | tail -6"'
 ```
 Expected: `0 errors, 0 failures`, and the count has grown by the two new tests.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/gripper_server.h kinova_arm_ros2/src/gripper_server.cpp kinova_arm_ros2/test/fake_gripper_sink.h kinova_arm_ros2/test/gripper_server_test.cpp kinova_arm_ros2/CMakeLists.txt
+git add kinova_gen3_ros2/include/kinova_gen3_ros2/gripper_server.h kinova_gen3_ros2/src/gripper_server.cpp kinova_gen3_ros2/test/fake_gripper_sink.h kinova_gen3_ros2/test/gripper_server_test.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit -m "feat(ros2): GripperServer -- /setpoint/gripper and /gripper_state"
 ```
 
@@ -529,9 +529,9 @@ git commit -m "feat(ros2): GripperServer -- /setpoint/gripper and /gripper_state
 ### Task 4: The knuckle joint in /joint_states
 
 **Files:**
-- Modify: `kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h:24` (add the setter next to `set_command_sink`) and the private members
-- Modify: `kinova_arm_ros2/src/ros2_backend.cpp:91-103` (`publish_state`)
-- Test: `kinova_arm_ros2/test/gripper_server_test.cpp` (append)
+- Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h:24` (add the setter next to `set_command_sink`) and the private members
+- Modify: `kinova_gen3_ros2/src/ros2_backend.cpp:91-103` (`publish_state`)
+- Test: `kinova_gen3_ros2/test/gripper_server_test.cpp` (append)
 
 **Interfaces:**
 - Consumes: `gripper_to_knuckle_rad` (Task 2); `kinova::interface::GripperSink`.
@@ -539,10 +539,10 @@ git commit -m "feat(ros2): GripperServer -- /setpoint/gripper and /gripper_state
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `kinova_arm_ros2/test/gripper_server_test.cpp`:
+Append to `kinova_gen3_ros2/test/gripper_server_test.cpp`:
 
 ```cpp
-#include "kinova_arm_ros2/ros2_backend.h"
+#include "kinova_gen3_ros2/ros2_backend.h"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include <cmath>
 
@@ -552,7 +552,7 @@ Append to `kinova_arm_ros2/test/gripper_server_test.cpp`:
 TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
   FakeGripperSink sink;
   sink.state.position = 0.5f; sink.state.present = false;
-  auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node_);
+  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_);
   backend->set_gripper_sink(&sink);
 
   sensor_msgs::msg::JointState got;
@@ -575,7 +575,7 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
 
 // Without a sink wired, the message is exactly what it was before this tier.
 TEST_F(GripperServerTest, NoGripperSinkMeansSevenJointsAsBefore) {
-  auto backend = std::make_shared<kinova_arm_ros2::Ros2Backend>(node_);
+  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_);
   sensor_msgs::msg::JointState got;
   bool seen = false;
   auto sub = node_->create_subscription<sensor_msgs::msg::JointState>(
@@ -593,7 +593,7 @@ TEST_F(GripperServerTest, NoGripperSinkMeansSevenJointsAsBefore) {
 - [ ] **Step 2: Run to verify it fails**
 
 Run the colcon build command from Task 3 Step 3.
-Expected: FAIL — `'class kinova_arm_ros2::Ros2Backend' has no member named 'set_gripper_sink'`.
+Expected: FAIL — `'class kinova_gen3_ros2::Ros2Backend' has no member named 'set_gripper_sink'`.
 
 - [ ] **Step 3: Add the setter and member to ros2_backend.h**
 
@@ -613,7 +613,7 @@ And in the private section, next to `sink_` (line 54):
 
 - [ ] **Step 4: Append the joint in publish_state**
 
-In `kinova_arm_ros2/src/ros2_backend.cpp`, after the `for` loop that fills the seven arm joints (line 102) and BEFORE `state_pub_->publish(msg)` (line 103), insert:
+In `kinova_gen3_ros2/src/ros2_backend.cpp`, after the `for` loop that fills the seven arm joints (line 102) and BEFORE `state_pub_->publish(msg)` (line 103), insert:
 
 ```cpp
   if (gripper_ != nullptr) {
@@ -639,7 +639,7 @@ In `kinova_arm_ros2/src/ros2_backend.cpp`, after the `for` loop that fills the s
   }
 ```
 
-Add `#include <limits>` and `#include "kinova_arm_ros2/message_mapping.h"` at the top of the file if not already present.
+Add `#include <limits>` and `#include "kinova_gen3_ros2/message_mapping.h"` at the top of the file if not already present.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -649,7 +649,7 @@ Expected: `0 errors, 0 failures`.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_arm_ros2/include/kinova_arm_ros2/ros2_backend.h kinova_arm_ros2/src/ros2_backend.cpp kinova_arm_ros2/test/gripper_server_test.cpp
+git add kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h kinova_gen3_ros2/src/ros2_backend.cpp kinova_gen3_ros2/test/gripper_server_test.cpp
 git commit -m "feat(ros2): publish the gripper's actuated joint in /joint_states"
 ```
 
@@ -658,7 +658,7 @@ git commit -m "feat(ros2): publish the gripper's actuated joint in /joint_states
 ### Task 5: Wire it up in bringup_node
 
 **Files:**
-- Modify: `kinova_arm_ros2/src/bringup_node.cpp:94` (decorator chain), `:160-172` (deps + servers), and the diagnostics setup
+- Modify: `kinova_gen3_ros2/src/bringup_node.cpp:94` (decorator chain), `:160-172` (deps + servers), and the diagnostics setup
 
 **Interfaces:**
 - Consumes: `GripperServer` (Task 3), `Ros2Backend::set_gripper_sink` (Task 4).
@@ -709,11 +709,11 @@ After the `StreamServer stream_server(node, arb);` line, add:
   // Wired to the Arbiter, exactly like StreamServer: that is what makes the gripper's
   // token load-bearing. There is no session to open -- Arbiter::on_gripper_setpoint
   // gates on admit(token) alone.
-  kinova_arm_ros2::GripperServer gripper_server(node, arb, expect_gripper);
+  kinova_gen3_ros2::GripperServer gripper_server(node, arb, expect_gripper);
   backend->set_gripper_sink(&arb);
 ```
 
-Add `#include "kinova_arm_ros2/gripper_server.h"` to the includes.
+Add `#include "kinova_gen3_ros2/gripper_server.h"` to the includes.
 
 - [ ] **Step 4: Declare expect_gripper**
 
@@ -746,11 +746,11 @@ Run:
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'cd /home/abra/kinova_arm_ros2 && make build 2>&1 | tail -4'
+  'cd /home/abra/kinova_gen3_ros2 && make build 2>&1 | tail -4'
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
   'docker rm -f kg >/dev/null 2>&1; docker run -d --name kg --network host --ipc host \
-     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp kinova-arm-ros2:humble \
-     /ros2_ws/install/kinova_arm_ros2/lib/kinova_arm_ros2/kinova_arm_node --sim \
+     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp kinova-gen3-ros2:humble \
+     /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node --sim \
      --urdf /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf >/dev/null; sleep 6; \
    docker exec kg /ros_entrypoint.sh timeout 8 ros2 topic echo --once --qos-reliability best_effort /joint_states | head -12; \
    docker exec kg /ros_entrypoint.sh timeout 8 ros2 topic echo --once --qos-reliability best_effort /gripper_state; \
@@ -761,7 +761,7 @@ Expected: `/joint_states` lists 8 names ending in `robotiq_85_left_knuckle_joint
 - [ ] **Step 7: Commit**
 
 ```bash
-git add kinova_arm_ros2/src/bringup_node.cpp
+git add kinova_gen3_ros2/src/bringup_node.cpp
 git commit -m "feat(ros2): wire the GripperController; gripper setpoints reach the arm"
 ```
 
@@ -770,8 +770,8 @@ git commit -m "feat(ros2): wire the GripperController; gripper setpoints reach t
 ### Task 6: Make the articulated model the default
 
 **Files:**
-- Modify: `kinova_arm_description/launch/description.launch.py:7,15,49`
-- Modify: `kinova_arm_description/launch/bringup.launch.py:41`
+- Modify: `kinova_gen3_description/launch/description.launch.py:7,15,49`
+- Modify: `kinova_gen3_description/launch/bringup.launch.py:41`
 
 **Interfaces:**
 - Consumes: the joint published in Task 4.
@@ -808,14 +808,14 @@ Run:
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
   'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash; \
-   cd /home/abra/kinova_arm_ros2/kinova_arm_description && timeout 60 python3 -m pytest test/test_tf_updates.py -q 2>&1 | tail -5'
+   cd /home/abra/kinova_gen3_ros2/kinova_gen3_description && timeout 60 python3 -m pytest test/test_tf_updates.py -q 2>&1 | tail -5'
 ```
 Expected: the existing TF test still passes (the arm joints are unaffected).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kinova_arm_description/launch/description.launch.py kinova_arm_description/launch/bringup.launch.py
+git add kinova_gen3_description/launch/description.launch.py kinova_gen3_description/launch/bringup.launch.py
 git commit -m "feat(description): articulate the gripper by default"
 ```
 
@@ -824,10 +824,10 @@ git commit -m "feat(description): articulate the gripper by default"
 ### Task 7: Conformance section
 
 **Files:**
-- Create: `kinova_arm_ros2/test/conformance/checks_gripper.py`
-- Modify: `kinova_arm_ros2/test/conformance/harness.py` (register the `gripper_state` topic)
-- Modify: `kinova_arm_ros2/test/conformance/run_conformance.py:34` (`SECTION_ORDER`)
-- Modify: `kinova_arm_ros2/test/conformance/README.md` (coverage table)
+- Create: `kinova_gen3_ros2/test/conformance/checks_gripper.py`
+- Modify: `kinova_gen3_ros2/test/conformance/harness.py` (register the `gripper_state` topic)
+- Modify: `kinova_gen3_ros2/test/conformance/run_conformance.py:34` (`SECTION_ORDER`)
+- Modify: `kinova_gen3_ros2/test/conformance/README.md` (coverage table)
 
 **Interfaces:**
 - Consumes: `harness.Ctx`, `harness.tok`, `REGISTRY`, `PASS`, `FAIL`, `Result`.
@@ -835,7 +835,7 @@ git commit -m "feat(description): articulate the gripper by default"
 
 - [ ] **Step 1: Write the checks**
 
-Create `kinova_arm_ros2/test/conformance/checks_gripper.py`:
+Create `kinova_gen3_ros2/test/conformance/checks_gripper.py`:
 
 ```python
 """The gripper tier.
@@ -846,7 +846,7 @@ still actuation, so the e-stop must already be proven in this session.
 """
 import time
 
-from kinova_arm_interfaces.msg import GripperSetpoint, GripperState
+from kinova_gen3_interfaces.msg import GripperSetpoint, GripperState
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from harness import FAIL, PASS, REGISTRY, SKIP, ZERO_TOKEN, Result, tok
@@ -940,7 +940,7 @@ topic that was never registered. In `harness.py`, add the import and one `self.s
 line beside the existing three in `Ctx.__init__`:
 
 ```python
-from kinova_arm_interfaces.msg import GripperState
+from kinova_gen3_interfaces.msg import GripperState
 ...
         self.sub(GripperState, "gripper_state", SENSOR_QOS)
 ```
@@ -966,11 +966,11 @@ Run:
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
   'docker rm -f kg >/dev/null 2>&1; docker run -d --name kg --network host --ipc host \
-     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp --cap-add SYS_NICE kinova-arm-ros2:humble \
-     /ros2_ws/install/kinova_arm_ros2/lib/kinova_arm_ros2/kinova_arm_node --sim \
+     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp --cap-add SYS_NICE kinova-gen3-ros2:humble \
+     /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node --sim \
      --urdf /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf \
      --ros-args -p arbitration_mode:=enforced >/dev/null; sleep 7; \
-   docker exec -w /ros2_ws/src/kinova_arm_ros2/kinova_arm_ros2/test/conformance kg \
+   docker exec -w /ros2_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/conformance kg \
      /ros_entrypoint.sh python3 -u run_conformance.py 2>&1 | tail -20; \
    docker rm -f kg >/dev/null'
 ```
@@ -990,7 +990,7 @@ Add a row to the coverage table:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_arm_ros2/test/conformance/checks_gripper.py kinova_arm_ros2/test/conformance/harness.py kinova_arm_ros2/test/conformance/run_conformance.py kinova_arm_ros2/test/conformance/README.md
+git add kinova_gen3_ros2/test/conformance/checks_gripper.py kinova_gen3_ros2/test/conformance/harness.py kinova_gen3_ros2/test/conformance/run_conformance.py kinova_gen3_ros2/test/conformance/README.md
 git commit -m "test(ros2): conformance section for the gripper tier"
 ```
 
@@ -1002,7 +1002,7 @@ git commit -m "test(ros2): conformance section for the gripper tier"
 
 ```bash
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'cd /home/abra/kinova_arm_ros2 && make build 2>&1 | tail -3'
+  'cd /home/abra/kinova_gen3_ros2 && make build 2>&1 | tail -3'
 ```
 Expected: `Summary: 4 packages finished`, no errors.
 

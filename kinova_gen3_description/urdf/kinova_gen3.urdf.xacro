@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  The Gen3 7-DOF, composed from upstream descriptions rather than hand-edited.
+
+  NOT built on kortex_description's load_robot/load_gripper: that shim passes
+  isaac_joint_commands / isaac_joint_states down to robotiq_description's
+  robotiq_gripper macro, which accepts neither (kortex_description 0.2.3 against the
+  robotiq_description in Humble). Composing load_arm and robotiq_gripper directly
+  sidesteps the version skew and costs nothing; the shim adds no geometry.
+
+  Joints come out UNPREFIXED: joint_1 .. joint_7, which is what Ros2Backend publishes
+  on /joint_states and what every other Kinova stack uses. The gen3_ prefix in the old
+  hand-edited model came from a Clearpath mobile-base workspace and meant nothing here.
+-->
+<robot name="kinova_gen3" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:arg name="gripper" default="robotiq_2f_85"/>   <!-- robotiq_2f_85 | none -->
+  <xacro:arg name="camera"  default="true"/>            <!-- wrist vision module -->
+  <xacro:arg name="prefix"  default=""/>                <!-- for a future mobile base -->
+
+  <link name="world"/>
+
+  <xacro:include filename="$(find kortex_description)/arms/gen3/7dof/urdf/gen3_macro.xacro"/>
+  <xacro:include filename="$(find robotiq_description)/urdf/robotiq_2f_85_macro.urdf.xacro"/>
+
+  <!-- load_arm REQUIRES connection parameters because it emits a ros2_control block we
+       do not want and cannot opt out of. They are dummies: nothing here connects to an
+       arm, and the block is stripped from the expanded URDF at build time. See
+       scripts/strip_ros2_control.py for why that matters. -->
+  <xacro:load_arm parent="world" dof="7" vision="$(arg camera)" prefix="$(arg prefix)"
+      robot_ip="0.0.0.0" username="admin" password="admin"
+      port="10000" port_realtime="10001"
+      session_inactivity_timeout_ms="6000" connection_inactivity_timeout_ms="2000"
+      gripper_joint_name="$(arg prefix)robotiq_85_left_knuckle_joint"
+      use_internal_bus_gripper_comm="false">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:load_arm>
+
+  <!-- include_ros2_control=false: the gripper macro DOES offer the opt-out the arm
+       macro lacks, so this half emits geometry only. -->
+  <xacro:if value="${'$(arg gripper)' == 'robotiq_2f_85'}">
+    <xacro:robotiq_gripper name="RobotiqGripper" prefix="$(arg prefix)"
+        parent="$(arg prefix)end_effector_link" include_ros2_control="false">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </xacro:robotiq_gripper>
+  </xacro:if>
+
+</robot>

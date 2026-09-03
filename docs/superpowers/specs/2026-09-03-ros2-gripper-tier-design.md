@@ -49,7 +49,7 @@ Four facts from core drive every decision below.
 ## Command path
 
 ```
-/setpoint/gripper  kinova_arm_interfaces/GripperSetpoint   (best-effort, depth 1)
+/setpoint/gripper  kinova_gen3_interfaces/GripperSetpoint   (best-effort, depth 1)
   float32   position    # 0 open .. 1 closed
   float32   speed       # fraction of max closing speed
   float32   force       # CURRENT CEILING, not a force setpoint
@@ -148,7 +148,7 @@ the mechanism this section originally planned.
 ### `/gripper_state`
 
 ```
-/gripper_state   kinova_arm_interfaces/GripperState   (best-effort, sensor QoS)
+/gripper_state   kinova_gen3_interfaces/GripperState   (best-effort, sensor QoS)
   std_msgs/Header header
   float32 position    # 0 open .. 1 closed, normalized
   float32 effort      # 0..1 fraction of kGripperMaxCurrentA (1.0 A), NOT Newtons
@@ -174,11 +174,11 @@ published, TF for the OTHER segments still resolves; only the unpublished joint'
 child link is missing — RSP publishes per-segment, not all-or-nothing for the whole
 robot). `present` on `/gripper_state` carries the truth about presence instead.
 
-A third REP 107 diagnostics task, `kinova_arm_node: Gripper`, reports the presence and the
+A third REP 107 diagnostics task, `kinova_gen3_node: Gripper`, reports the presence and the
 current, and WARNs when a gripper was expected but `present == false`.
 
 "Expected" cannot be inferred from the node's own model: the node loads
-`kinova_arm_7dof.urdf`, in which the gripper joints are frozen, so its model never has a
+`kinova_gen3_7dof.urdf`, in which the gripper joints are frozen, so its model never has a
 gripper regardless of the hardware. It therefore takes an `expect_gripper` bool parameter,
 default `true`, and WARNs on `expect_gripper && !present`. A robot genuinely built without
 one sets it false and the task reports OK. Without the parameter the task would either
@@ -212,7 +212,7 @@ Three docstrings justify the old `false` default with the disproved claim that R
 derive mimics (`description.launch.py` twice, `bringup.launch.py` once). They are corrected,
 not just contradicted.
 
-The driver keeps `kinova_arm_7dof.urdf` — core's `Dynamics` asserts `nv == 7`. One file for
+The driver keeps `kinova_gen3_7dof.urdf` — core's `Dynamics` asserts `nv == 7`. One file for
 both consumers is #14.
 
 ## Out of scope

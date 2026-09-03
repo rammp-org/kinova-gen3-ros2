@@ -1,8 +1,8 @@
-# `kinova_arm_description` — a regenerable robot model, TF, and launch (design)
+# `kinova_gen3_description` — a regenerable robot model, TF, and launch (design)
 
 **Date:** 2026-08-31
 **Status:** Design (approved by user; ready to plan/implement)
-**Repo:** `rammp-org/kinova_arm_ros2`
+**Repo:** `rammp-org/kinova_gen3_ros2`
 **Core dependency:** none new. Relies on core PR #33, already open, for the
 `package://` mesh rewrite.
 
@@ -47,16 +47,16 @@ file or say how it was made.
 ## Package layout
 
 ```
-kinova_arm_description/
+kinova_gen3_description/
   package.xml            exec_depends: kortex_description, robotiq_description,
                          realsense2_description, robot_state_publisher, xacro
   CMakeLists.txt         ament_cmake; installs urdf/ and launch/, and expands
                          the xacro to a plain .urdf at build time
   urdf/
-    kinova_arm.urdf.xacro       the composition; args: gripper, camera, prefix
+    kinova_gen3.urdf.xacro       the composition; args: gripper, camera, prefix
   launch/
     description.launch.py       /robot_description + robot_state_publisher
-    bringup.launch.py           includes description, starts kinova_arm_node
+    bringup.launch.py           includes description, starts kinova_gen3_node
 ```
 
 No RViz config: the approved scope is the two launch files. `rviz2` against
@@ -69,7 +69,7 @@ costs three lines and no vendoring. **No meshes are copied into this repo.**
 
 ## The model
 
-`kinova_arm.urdf.xacro` composes the upstream macros:
+`kinova_gen3.urdf.xacro` composes the upstream macros:
 
 ```xml
 <xacro:arg name="gripper" default="robotiq_2f_85"/>   <!-- or "none" -->
@@ -182,7 +182,7 @@ Two honest limits, documented rather than hidden:
 `/robot_description`, starts `robot_state_publisher`. Nothing arm-specific, no driver, so
 a client wanting only TF can include it.
 
-**`bringup.launch.py`** — includes the above, then starts `kinova_arm_node`. Exposes the
+**`bringup.launch.py`** — includes the above, then starts `kinova_gen3_node`. Exposes the
 driver's CLI as launch arguments (`sim`, `ip`, `urdf`, `cpu`, `rt_priority`, `rate`,
 `max_ref_speed`) and its parameters (`arbitration_mode`, `estop_clear_max_age_s`). `urdf`
 defaults to this package's expanded file, so the driver and TF use the *same model* by
@@ -260,5 +260,5 @@ an eyeball.
 - **Moving core's `models/` out.** Core keeps its copy for ROS-free tests. Consolidating to
   one source of truth needs core to depend on an ament package, which is a bigger change
   than this earns.
-- **MoveIt configuration.** A `kinova_arm_moveit_config` is the obvious next sibling, but
+- **MoveIt configuration.** A `kinova_gen3_moveit_config` is the obvious next sibling, but
   nothing here needs it.

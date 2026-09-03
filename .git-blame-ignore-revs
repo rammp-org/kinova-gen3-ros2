@@ -1,0 +1,8 @@
+# Bulk reformats -- commits that changed formatting and nothing else.
+#
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub honours this file automatically.
+
+# style: apply the org clang-format
+2ab7361fbadab56dbe7dab9276a0d58ff4b76aeb

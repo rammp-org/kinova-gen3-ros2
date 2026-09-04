@@ -36,11 +36,12 @@ because the ROS action protocol cannot carry one.
   `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then `colcon test`.
 - Match existing style: dense explanatory comments stating *why*, terse code.
 
----
+______________________________________________________________________
 
 ### Task 1: Interface definitions
 
 **Files:**
+
 - Create: `kinova_gen3_interfaces/msg/EStop.msg`
 - Create: `kinova_gen3_interfaces/msg/ControlStatus.msg`
 - Create: `kinova_gen3_interfaces/srv/AcquireControl.srv`
@@ -53,7 +54,9 @@ because the ROS action protocol cannot carry one.
 - Modify: `kinova_gen3_interfaces/action/GoToPreset.action`
 
 **Interfaces:**
+
 - Consumes: nothing.
+
 - Produces: `kinova_gen3_interfaces::msg::EStop` (header `msg/e_stop.hpp`),
   `msg::ControlStatus` (`msg/control_status.hpp`), `srv::AcquireControl`,
   `srv::ReleaseControl`, `srv::RevokeControl`, and a `uint8[16] token` field on all four
@@ -94,6 +97,7 @@ uint64 rejected_count        # commands refused since start
 - [ ] **Step 3: Write the three service definitions**
 
 `srv/AcquireControl.srv`:
+
 ```
 # Acquire control of the arm. SEIZES: if another owner holds the arm this succeeds
 # anyway, halting their in-flight motion (settled -9). By operational contract this
@@ -107,6 +111,7 @@ string    message
 ```
 
 `srv/ReleaseControl.srv`:
+
 ```
 # Release control you hold. Refused unless the token matches the current owner.
 uint8[16] token
@@ -116,6 +121,7 @@ string message
 ```
 
 `srv/RevokeControl.srv`:
+
 ```
 # Operator override: take the arm from whoever holds it. Deliberately carries NO
 # token -- this is the recovery path for a crashed owner, since ownership has no lease.
@@ -128,25 +134,31 @@ string message
 - [ ] **Step 4: Add `uint8[16] token` to all four action goals**
 
 In `ExecuteJointTrajectory.action`, after the `string sender_id` line:
+
 ```
 string  sender_id
 uint8[16] token             # arbitration capability from /acquire_control; zeros = none
 ```
+
 and extend the result-code comment:
+
 ```
 int32   error_code          # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4, GOAL_TOLERANCE_VIOLATED=-5, PREEMPTED=-6, NOT_AUTHORIZED=-8, HALTED=-9
 ```
 
 In `GoToEEPose.action`, `GoToJointConfig.action` and `GoToPreset.action`, after each
 `string sender_id` line add the identical field:
+
 ```
 uint8[16] token                    # arbitration capability from /acquire_control
 ```
+
 and append `, NOT_AUTHORIZED=-8, HALTED=-9` to each `error_code` comment.
 
 - [ ] **Step 5: Register the new files in `kinova_gen3_interfaces/CMakeLists.txt`**
 
 Extend the `rosidl_generate_interfaces` call:
+
 ```cmake
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ExecuteJointTrajectory.action"
@@ -169,12 +181,14 @@ Expected: build succeeds.
 
 Then confirm the generated names (this also pins the `EStop` → `e_stop.hpp` mapping the
 later tasks `#include`):
+
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
   ros2 interface show kinova_gen3_interfaces/msg/EStop && \
   ros2 interface show kinova_gen3_interfaces/srv/AcquireControl && \
   ls /tmp/kinova-ros2-ws/install/kinova_gen3_interfaces/include/kinova_gen3_interfaces/kinova_gen3_interfaces/msg/ | grep -i stop'"
 ```
+
 Expected: both definitions print, and the header is `e_stop.hpp`. **If the header is named
 differently, use that name in Tasks 2–5.**
 
@@ -185,11 +199,12 @@ git add kinova_gen3_interfaces/
 git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, tokens on goals"
 ```
 
----
+______________________________________________________________________
 
 ### Task 2: `ArbitrationServer` — ownership services
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h`
 - Create: `kinova_gen3_ros2/src/arbitration_server.cpp`
 - Create: `kinova_gen3_ros2/test/fake_arbitration_sink.h`
@@ -198,8 +213,10 @@ git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, token
 - Modify: `kinova_gen3_ros2/package.xml`
 
 **Interfaces:**
+
 - Consumes: Task 1's `srv::AcquireControl`, `srv::ReleaseControl`, `srv::RevokeControl`,
   `msg::ControlStatus`, `msg::EStop`.
+
 - Produces: `kinova_gen3_ros2::ArbitrationServer`, constructed as
   `ArbitrationServer(rclcpp::Node::SharedPtr, kinova::interface::ArbitrationSink&, const std::string& hardware_id, double estop_clear_max_age_s)`,
   with one public method `void publish_status_if_changed()`. Task 8 constructs it.
@@ -208,6 +225,7 @@ git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, token
 - [ ] **Step 1: Write the fake sink**
 
 `kinova_gen3_ros2/test/fake_arbitration_sink.h`:
+
 ```cpp
 #pragma once
 #include <mutex>
@@ -248,6 +266,7 @@ struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
 - [ ] **Step 2: Write the failing test**
 
 `kinova_gen3_ros2/test/arbitration_server_test.cpp`:
+
 ```cpp
 #include <gtest/gtest.h>
 #include <chrono>
@@ -367,6 +386,7 @@ Expected: FAIL — `kinova_gen3_ros2/arbitration_server.h: No such file or direc
 - [ ] **Step 4: Write the header**
 
 `kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h`:
+
 ```cpp
 // kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h
 #pragma once
@@ -442,6 +462,7 @@ class ArbitrationServer {
 - [ ] **Step 5: Write the implementation**
 
 `kinova_gen3_ros2/src/arbitration_server.cpp`:
+
 ```cpp
 // kinova_gen3_ros2/src/arbitration_server.cpp
 #include "kinova_gen3_ros2/arbitration_server.h"
@@ -648,6 +669,7 @@ void ArbitrationServer::diagnostics(diagnostic_updater::DiagnosticStatusWrapper&
 - [ ] **Step 6: Add the build targets and dependencies**
 
 In `kinova_gen3_ros2/package.xml`, after the `<depend>sensor_msgs</depend>` line:
+
 ```xml
   <depend>diagnostic_updater</depend>
   <depend>diagnostic_msgs</depend>
@@ -655,12 +677,15 @@ In `kinova_gen3_ros2/package.xml`, after the `<depend>sensor_msgs</depend>` line
 ```
 
 In `kinova_gen3_ros2/CMakeLists.txt`, after the `find_package(rammp_curobo_interfaces REQUIRED)` line:
+
 ```cmake
 find_package(diagnostic_updater REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 ```
+
 and after the `ros2_backend` library block:
+
 ```cmake
 add_library(arbitration_server src/arbitration_server.cpp)
 target_include_directories(arbitration_server PUBLIC
@@ -669,7 +694,9 @@ ament_target_dependencies(arbitration_server
   rclcpp kinova_gen3_interfaces diagnostic_updater diagnostic_msgs std_msgs)
 target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 ```
+
 and inside the `if(BUILD_TESTING)` block:
+
 ```cmake
   ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
   target_include_directories(arbitration_server_test PRIVATE test)
@@ -677,16 +704,19 @@ and inside the `if(BUILD_TESTING)` block:
   ament_target_dependencies(arbitration_server_test
     rclcpp kinova_gen3_interfaces diagnostic_updater diagnostic_msgs)
 ```
+
 and add `arbitration_server` to the `kinova_gen3_node` `target_link_libraries` list.
 
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then
+
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && cd /tmp/kinova-ros2-ws && \
   colcon test --packages-select kinova_gen3_ros2 --ctest-args -R arbitration_server_test && \
   colcon test-result --all --verbose'"
 ```
+
 Expected: 4 tests, 0 failures.
 
 - [ ] **Step 8: Commit**
@@ -700,22 +730,26 @@ git add kinova_gen3_ros2/include/kinova_gen3_ros2/arbitration_server.h \
 git commit -m "feat(ros2): ArbitrationServer — acquire/release/revoke over the ArbitrationSink"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: `/estop` staleness policy
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `ArbitrationServer` and `FakeArbitrationSink` from Task 2. The implementation
   already shipped in Task 2 Step 5; this task proves the asymmetry and pins it.
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
 
 Append to `arbitration_server_test.cpp`, and add a publisher helper to the fixture first — put
 this method inside `ArbitrationServerTest`:
+
 ```cpp
   // Publishes on /estop and spins until ArbitrationServer has had a chance to handle it.
   void publish_estop(bool engaged, const rclcpp::Time& stamp, const std::string& src) {
@@ -734,7 +768,9 @@ this method inside `ArbitrationServerTest`:
     std::this_thread::sleep_for(200ms);
   }
 ```
+
 and the tests:
+
 ```cpp
 TEST_F(ArbitrationServerTest, EstopEngageCallsEstop) {
   publish_estop(true, node_->now(), "operator");
@@ -802,20 +838,24 @@ git add kinova_gen3_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): /estop staleness is asymmetric — stale stops honoured, stale clears refused"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: `/control_status` on-change publishing and the seizure warning
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `ArbitrationServer` from Task 2 (implementation already present).
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
 
 Add this helper method to `ArbitrationServerTest`:
+
 ```cpp
   // Collects /control_status messages. transient_local matches the publisher, so a
   // subscriber created after the fact still receives the latest state.
@@ -834,7 +874,9 @@ Add this helper method to `ArbitrationServerTest`:
     return got;
   }
 ```
+
 and the tests:
+
 ```cpp
 // The 10 Hz timer must NOT republish an unchanged status, or "on change" means
 // "at 10 Hz forever" and the header stamp is the only thing that ever differs.
@@ -903,15 +945,18 @@ git add kinova_gen3_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): /control_status publishes on change, latches, and records seizure"
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: REP 107 `/diagnostics`
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/test/arbitration_server_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `ArbitrationServer` from Task 2 (implementation already present).
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing test**
@@ -947,6 +992,7 @@ TEST_F(ArbitrationServerTest, DiagnosticsReportsErrorWhileEstopped) {
   EXPECT_TRUE(found) << "no DiagnosticStatus named '...Arbitration'";
 }
 ```
+
 Add `#include "diagnostic_msgs/msg/diagnostic_array.hpp"` to the test's includes.
 
 - [ ] **Step 2: Run the test**
@@ -966,18 +1012,21 @@ git add kinova_gen3_ros2/test/arbitration_server_test.cpp
 git commit -m "test(ros2): REP 107 diagnostics — ERROR while e-stopped, counts as KeyValues"
 ```
 
----
+______________________________________________________________________
 
 ### Task 6: Token through the `ExecuteJointTrajectory` path
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/message_mapping.cpp` (in `to_trajectory_goal`)
 - Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h:38` (`handles_`)
 - Modify: `kinova_gen3_ros2/src/ros2_backend.cpp` (`handle_cancel`, `handle_accepted`)
 - Modify: `kinova_gen3_ros2/test/message_mapping_test.cpp`
 
 **Interfaces:**
+
 - Consumes: Task 1's `token` field on `ExecuteJointTrajectory::Goal`.
+
 - Produces: `Ros2Backend` now stores a `kinova::interface::Token` per accepted goal and
   replays it on cancel. `to_trajectory_goal(const ExecuteJointTrajectory::Goal&)` copies
   `g.token` into `tg.token`.
@@ -985,6 +1034,7 @@ git commit -m "test(ros2): REP 107 diagnostics — ERROR while e-stopped, counts
 - [ ] **Step 1: Write the failing test**
 
 Append to `kinova_gen3_ros2/test/message_mapping_test.cpp`:
+
 ```cpp
 // The file already has `using namespace kinova_gen3_ros2;` at the top, so
 // to_trajectory_goal is called unqualified, and goals are spelled out in full.
@@ -1011,6 +1061,7 @@ Expected: FAIL — `tg.token` is all zeros (the mapping drops it).
 
 In `kinova_gen3_ros2/src/message_mapping.cpp`, in `to_trajectory_goal`, after
 `tg.sender_id = g.sender_id;`:
+
 ```cpp
   // uint8[16] generates as std::array<uint8_t,16>, which IS interface::Token.
   tg.token = g.token;
@@ -1020,6 +1071,7 @@ In `kinova_gen3_ros2/src/message_mapping.cpp`, in `to_trajectory_goal`, after
 
 In `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h`, replace the `handles_`
 member with an entry that carries the token:
+
 ```cpp
   // The goal's token, kept so cancel can replay it. A ROS action cancel carries no
   // payload (action_msgs/CancelGoal is one GoalInfo), so without this a cancel would
@@ -1030,6 +1082,7 @@ member with an entry that carries the token:
 ```
 
 In `kinova_gen3_ros2/src/ros2_backend.cpp`, `handle_accepted`:
+
 ```cpp
 void Ros2Backend::handle_accepted(std::shared_ptr<GoalHandle> gh) {
   const GoalId id = gh->get_goal_id();
@@ -1038,7 +1091,9 @@ void Ros2Backend::handle_accepted(std::shared_ptr<GoalHandle> gh) {
   sink_->on_trajectory_accepted(id, tg);
 }
 ```
+
 `handle_cancel`:
+
 ```cpp
 rclcpp_action::CancelResponse Ros2Backend::handle_cancel(std::shared_ptr<GoalHandle> gh) {
   if (!sink_) return rclcpp_action::CancelResponse::REJECT;
@@ -1057,16 +1112,20 @@ rclcpp_action::CancelResponse Ros2Backend::handle_cancel(std::shared_ptr<GoalHan
 ```
 
 Then fix the two other `handles_` readers, which now go through `.gh`:
+
 - in `publish_feedback`: `gh = it->second.gh;` (already reads `it->second`; change to `it->second.gh`)
+
 - in `settle`: same change.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_ros2` then
+
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && cd /tmp/kinova-ros2-ws && \
   colcon test --packages-select kinova_gen3_ros2 && colcon test-result --all --verbose'"
 ```
+
 Expected: all tests pass, including the 14 pre-existing `message_mapping_test` cases.
 
 - [ ] **Step 6: Commit**
@@ -1078,23 +1137,27 @@ git add kinova_gen3_ros2/src/message_mapping.cpp kinova_gen3_ros2/src/ros2_backe
 git commit -m "feat(ros2): carry the arbitration token on trajectory goals and replay it on cancel"
 ```
 
----
+______________________________________________________________________
 
 ### Task 7: Token through the `PlannedMoveServer` path
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/planned_move_server.h`
   (`struct Goal` at :268, `goals_[id] = Goal{gh, false}` at :146, the two
   `on_trajectory_cancel` call sites, and the `tg.sender_id` line)
 
 **Interfaces:**
+
 - Consumes: Task 1's `token` field on the three GoTo action goals.
+
 - Produces: `PlannedMoveServer<ActionT>::Goal` gains a `kinova::interface::Token token`
   field; both cancel paths replay it.
 
 - [ ] **Step 1: Add the token to the stored goal**
 
 Replace the `Goal` struct (currently at :268):
+
 ```cpp
   // token: the goal's arbitration capability, kept so cancel can replay it. A ROS
   // action cancel carries no payload, so a cancel with a zero token would be REFUSED
@@ -1104,6 +1167,7 @@ Replace the `Goal` struct (currently at :268):
 ```
 
 At :146, capture the token when the goal is recorded:
+
 ```cpp
     { std::lock_guard<std::mutex> l(m_);
       goals_[id] = Goal{gh, false, false, gh->get_goal()->token}; }
@@ -1112,6 +1176,7 @@ At :146, capture the token when the goal is recorded:
 - [ ] **Step 2: Put the token on the planned trajectory**
 
 Next to the existing `tg.sender_id` line:
+
 ```cpp
     kinova::interface::TrajectoryGoal tg = to_trajectory_goal(outcome.trajectory);
     tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
@@ -1123,6 +1188,7 @@ Next to the existing `tg.sender_id` line:
 
 In `handle_cancel` (the `if (executing)` branch), read the token under the same lock that
 already reads `executing`:
+
 ```cpp
     bool executing = false;
     kinova::interface::Token token{};
@@ -1139,6 +1205,7 @@ already reads `executing`:
 ```
 
 In `start_execution`'s re-issue at the end, read the token alongside `cancel_requested`:
+
 ```cpp
     bool canceled = false;
     kinova::interface::Token cancel_token{};
@@ -1163,15 +1230,18 @@ git add kinova_gen3_ros2/include/kinova_gen3_ros2/planned_move_server.h
 git commit -m "feat(ros2): PlannedMoveServer carries the goal token and replays it on cancel"
 ```
 
----
+______________________________________________________________________
 
 ### Task 8: Wire the Arbiter into `bringup_node`
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/bringup_node.cpp`
 
 **Interfaces:**
+
 - Consumes: `ArbitrationServer` (Task 2), core's `interface::Arbiter`.
+
 - Produces: the running node exposes `/acquire_control`, `/release_control`,
   `/revoke_control`, `/estop`, `/control_status`, `/diagnostics`, and gates all four
   actions through the Arbiter.
@@ -1179,10 +1249,13 @@ git commit -m "feat(ros2): PlannedMoveServer carries the goal token and replays 
 - [ ] **Step 1: Add the includes**
 
 After `#include "kinova_lowlevel/interface/supervisor.h"`:
+
 ```cpp
 #include "kinova_lowlevel/interface/arbiter.h"
 ```
+
 and after `#include "kinova_gen3_ros2/goto_preset_server.h"`:
+
 ```cpp
 #include "kinova_gen3_ros2/arbitration_server.h"
 ```
@@ -1190,6 +1263,7 @@ and after `#include "kinova_gen3_ros2/goto_preset_server.h"`:
 - [ ] **Step 2: Declare the parameters**
 
 Immediately after `auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");`:
+
 ```cpp
   // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with no
   // setter, so a dynamic parameter would appear to work and silently do nothing.
@@ -1209,6 +1283,7 @@ Immediately after `auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node"
   const double estop_clear_max_age_s =
       node->declare_parameter("estop_clear_max_age_s", 1.0);
 ```
+
 Add `#include "rcl_interfaces/msg/parameter_descriptor.hpp"` to the includes.
 
 - [ ] **Step 3: Insert the Arbiter and ArbitrationServer**
@@ -1216,6 +1291,7 @@ Add `#include "rcl_interfaces/msg/parameter_descriptor.hpp"` to the includes.
 Replace the four `set_command_sink(&sup)` lines. Declaration order matters — destruction
 is reverse, and `arbitration_server` must stop accepting ROS calls before `arb` stops
 delegating, which must happen before `sup` goes away:
+
 ```cpp
   interface::Supervisor sup(pos, imp, tau, exec, snap, pump_dyn, *backend, router);
   // Supervisor implements BOTH CommandSink and StreamSink, so it is passed twice --
@@ -1238,6 +1314,7 @@ delegating, which must happen before `sup` goes away:
 - [ ] **Step 4: Extend the start-up log**
 
 Replace the existing `RCLCPP_INFO` "kinova_gen3_node up" call:
+
 ```cpp
   RCLCPP_INFO(node->get_logger(),
               "kinova_gen3_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
@@ -1263,6 +1340,7 @@ ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2
   ros2 topic echo --once /control_status && \
   pkill -TERM -f kinova_gen3_node'"
 ```
+
 Expected: the three services and three topics are listed, and `/control_status` echoes
 with `arbitration_enabled: false`.
 
@@ -1273,15 +1351,17 @@ git add kinova_gen3_ros2/src/bringup_node.cpp
 git commit -m "feat(ros2): wire the Arbiter and ArbitrationServer into the node"
 ```
 
----
+______________________________________________________________________
 
 ### Task 9: End-to-end arbitration integration test
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/test/arbitration_integration_test.cpp`
 - Modify: `kinova_gen3_ros2/CMakeLists.txt`
 
 **Interfaces:**
+
 - Consumes: everything above, plus core's `interface::Arbiter`.
 - Produces: nothing new.
 
@@ -1291,6 +1371,7 @@ refused under `kEnforced`, and an e-stop that cannot get past a busy arbiter.
 - [ ] **Step 1: Write the failing tests**
 
 `kinova_gen3_ros2/test/arbitration_integration_test.cpp`:
+
 ```cpp
 #include <gtest/gtest.h>
 #include <atomic>
@@ -1433,6 +1514,7 @@ TEST(ArbitrationIntegration, EstopHaltReachesTheArmWhileADelegatedCallBlocks) {
 - [ ] **Step 2: Register the test**
 
 In `kinova_gen3_ros2/CMakeLists.txt`, inside `if(BUILD_TESTING)`:
+
 ```cmake
   ament_add_gtest(arbitration_integration_test test/arbitration_integration_test.cpp)
   target_link_libraries(arbitration_integration_test kinova_lowlevel::kinova_lowlevel)
@@ -1449,6 +1531,7 @@ Expected: 5 new tests pass, and the whole suite is green.
 ```bash
 ssh abra "bash /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/scripts/abra_e2e_sim.sh 2>&1 | tail -5"
 ```
+
 Expected: `success_case=0 divergence_case=0`, and `colcon test-result --all` reports zero
 failures across every test in the package.
 
@@ -1459,7 +1542,7 @@ git add kinova_gen3_ros2/test/arbitration_integration_test.cpp kinova_gen3_ros2/
 git commit -m "test(ros2): arbitration end-to-end — token'd cancel, stale tokens, e-stop under load"
 ```
 
----
+______________________________________________________________________
 
 ## Deliberate test-scope calls
 
@@ -1480,7 +1563,7 @@ Two items in the spec's testing section are **not** rebuilt here, on purpose:
 ## Documentation (fold into Task 9's commit or its own)
 
 - [ ] Update `docs/guide-goto-actions.md` and `README.md` with the new services/topics,
-      the `arbitration_mode` parameter, and the acquire → command → release flow.
+  the `arbitration_mode` parameter, and the acquire → command → release flow.
 - [ ] Note in `README.md` that `/estop` is open to any publisher by design and that
-      arbitration is cooperative coordination, not authorization (link the spec's
-      "What arbitration is, and is not").
+  arbitration is cooperative coordination, not authorization (link the spec's
+  "What arbitration is, and is not").

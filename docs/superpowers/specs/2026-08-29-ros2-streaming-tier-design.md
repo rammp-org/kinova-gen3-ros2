@@ -25,7 +25,7 @@ directly over ROS was tried and rejected during design, for two reasons:
    5 legal. That is the same defect core designed *out* of its setpoint structs — "there
    is deliberately no tag field on the setpoint itself, so 'kind says pose, pose field is
    garbage' is not representable." Two fields at the session level puts it back.
-2. **It does not survive the next controller.** Impedance-plus-feedforward-torque is not a
+1. **It does not survive the next controller.** Impedance-plus-feedforward-torque is not a
    cell in the matrix — it is one controller taking *two simultaneous inputs*. Any flat
    enum answer to that is a name like `JOINT_POSITION_COMPLIANT_PLUS_FF`, and the enum
    stops describing anything.
@@ -36,8 +36,10 @@ with the channels to publish on.
 
 - A client never states a `(kind, mode)` pair, and never restates something the driver
   already knows. It names a controller; the driver names the topics.
+
 - Adding a controller is a table entry plus, at most, a message type — never a schema
   change to `OpenStream`, which is why `controller` is a **string** rather than an enum.
+
 - `channels` is a **list from day one**. Core admits exactly one `SetpointKind` per
   session, so a controller whose registry row declares more than one channel cannot be
   opened today and is reported `available: false`. The rule applies to the *controller's*
@@ -70,15 +72,15 @@ get checked at all.
 A static table in `StreamServer`, one row per controller, mapping to core's pair. It is
 the only place the collapse lives.
 
-| controller | channel | core pair | available |
-|---|---|---|---|
-| `joint_position` | `joint_position` | `kJointPosition` × `kPosition` | yes |
-| `joint_impedance` | `joint_position` | `kJointPosition` × `kImpedance` | yes |
-| `ee_pose_impedance` | `pose` | `kEePose` × `kImpedance` | yes |
-| `joint_torque` | `joint_torque` | `kJointTorque` × `kTorque` | yes |
-| `joint_velocity` | `joint_velocity` | `kJointVelocity` × `kVelocity` | no |
-| `ee_twist` | `twist` | `kEeTwist` × `kVelocity` | no |
-| `cartesian_impedance` | `pose`, `wrench` | — (no `kEeWrench` in core) | no |
+| controller            | channel          | core pair                       | available |
+| --------------------- | ---------------- | ------------------------------- | --------- |
+| `joint_position`      | `joint_position` | `kJointPosition` × `kPosition`  | yes       |
+| `joint_impedance`     | `joint_position` | `kJointPosition` × `kImpedance` | yes       |
+| `ee_pose_impedance`   | `pose`           | `kEePose` × `kImpedance`        | yes       |
+| `joint_torque`        | `joint_torque`   | `kJointTorque` × `kTorque`      | yes       |
+| `joint_velocity`      | `joint_velocity` | `kJointVelocity` × `kVelocity`  | no        |
+| `ee_twist`            | `twist`          | `kEeTwist` × `kVelocity`        | no        |
+| `cartesian_impedance` | `pose`, `wrench` | — (no `kEeWrench` in core)      | no        |
 
 **`available` is computed live from `pair_supported()`, never hand-maintained**, so it
 cannot drift from core. `cartesian_impedance` is the exception: core has no `kEeWrench`
@@ -136,15 +138,15 @@ rule from spec 1 intact: *a token rides on every message that can command motion
 
 ### Topics and QoS
 
-| Topic | Dir | Type | QoS |
-|---|---|---|---|
-| `/setpoint/joint_position` | sub | `JointSetpoint` | **best-effort, KeepLast(1)** |
-| `/setpoint/joint_velocity` | sub | `JointSetpoint` | best-effort, KeepLast(1) |
-| `/setpoint/joint_torque` | sub | `JointSetpoint` | best-effort, KeepLast(1) |
-| `/setpoint/pose` | sub | `PoseSetpoint` | best-effort, KeepLast(1) |
-| `/setpoint/twist` | sub | `TwistSetpoint` | best-effort, KeepLast(1) |
-| `/setpoint/wrench` | sub | `WrenchSetpoint` | best-effort, KeepLast(1) |
-| `/stream_status` | pub | `StreamStatus` | reliable, transient_local, depth 1, on change |
+| Topic                      | Dir | Type             | QoS                                           |
+| -------------------------- | --- | ---------------- | --------------------------------------------- |
+| `/setpoint/joint_position` | sub | `JointSetpoint`  | **best-effort, KeepLast(1)**                  |
+| `/setpoint/joint_velocity` | sub | `JointSetpoint`  | best-effort, KeepLast(1)                      |
+| `/setpoint/joint_torque`   | sub | `JointSetpoint`  | best-effort, KeepLast(1)                      |
+| `/setpoint/pose`           | sub | `PoseSetpoint`   | best-effort, KeepLast(1)                      |
+| `/setpoint/twist`          | sub | `TwistSetpoint`  | best-effort, KeepLast(1)                      |
+| `/setpoint/wrench`         | sub | `WrenchSetpoint` | best-effort, KeepLast(1)                      |
+| `/stream_status`           | pub | `StreamStatus`   | reliable, transient_local, depth 1, on change |
 
 **Setpoint QoS is dictated by core's semantics, not chosen.** From the streaming guide:
 *"Dropping an intermediate setpoint is correct, not lossy... 42 already says where the arm
@@ -159,12 +161,12 @@ it; setpoints there are dropped by `admit()` like any other unmatched kind.
 
 Four callback groups. The separation is the design, not tuning.
 
-| Group | Contents | Why |
-|---|---|---|
-| e-stop | `/estop` | Must never wait. Unchanged from spec 1. |
-| session | `open_stream`, `close_stream`, `list_controllers` | **`on_stream_open` sleeps `mode_settle_s` (250 ms)** holding the arbiter mutex. |
-| setpoints | the six topics | Must not queue behind that 250 ms open. `MutuallyExclusive` — one logical writer, matching core's single-writer double buffer. |
-| default | actions, status, diagnostics | Everything else. |
+| Group     | Contents                                          | Why                                                                                                                            |
+| --------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| e-stop    | `/estop`                                          | Must never wait. Unchanged from spec 1.                                                                                        |
+| session   | `open_stream`, `close_stream`, `list_controllers` | **`on_stream_open` sleeps `mode_settle_s` (250 ms)** holding the arbiter mutex.                                                |
+| setpoints | the six topics                                    | Must not queue behind that 250 ms open. `MutuallyExclusive` — one logical writer, matching core's single-writer double buffer. |
+| default   | actions, status, diagnostics                      | Everything else.                                                                                                               |
 
 Putting session control in the e-stop group would rebuild in ROS the exact stall spec 1
 exists to prevent.

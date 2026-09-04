@@ -31,41 +31,45 @@ namespace kinova_gen3_ros2::test {
 //     carries only 4 positions instead of 7 -- models a malformed/buggy
 //     planner response for testing the caller's fail-loud width guard.
 class FakeCuroboServer {
- public:
+public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
   using PlanToJoints = rammp_curobo_interfaces::action::PlanToJoints;
   using GoalHandle = rclcpp_action::ServerGoalHandle<PlanToPose>;
   using JointsGoalHandle = rclcpp_action::ServerGoalHandle<PlanToJoints>;
 
   FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
-                    bool reject = false, std::shared_future<void> gate = {},
-                    std::shared_ptr<std::promise<void>> started = nullptr,
-                    bool reject_cancel = false, bool bad_width = false)
+                   bool reject = false, std::shared_future<void> gate = {},
+                   std::shared_ptr<std::promise<void>> started = nullptr,
+                   bool reject_cancel = false, bool bad_width = false)
       : node_(node), succeed_(succeed), n_points_(n_points), reject_(reject),
         gate_(std::move(gate)), started_(std::move(started)),
         reject_cancel_(reject_cancel), bad_width_(bad_width) {
     server_ = rclcpp_action::create_server<PlanToPose>(
         node_, "/rammp_curobo/plan_to_pose",
-        [this](const rclcpp_action::GoalUUID&, std::shared_ptr<const PlanToPose::Goal>) {
+        [this](const rclcpp_action::GoalUUID &,
+               std::shared_ptr<const PlanToPose::Goal>) {
           return reject_ ? rclcpp_action::GoalResponse::REJECT
-                          : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+                         : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
         },
         [this](std::shared_ptr<GoalHandle>) {
           return reject_cancel_ ? rclcpp_action::CancelResponse::REJECT
-                                 : rclcpp_action::CancelResponse::ACCEPT;
+                                : rclcpp_action::CancelResponse::ACCEPT;
         },
         [this](std::shared_ptr<GoalHandle> gh) { execute<PlanToPose>(gh); });
     joints_server_ = rclcpp_action::create_server<PlanToJoints>(
         node_, "/rammp_curobo/plan_to_joints",
-        [this](const rclcpp_action::GoalUUID&, std::shared_ptr<const PlanToJoints::Goal>) {
+        [this](const rclcpp_action::GoalUUID &,
+               std::shared_ptr<const PlanToJoints::Goal>) {
           return reject_ ? rclcpp_action::GoalResponse::REJECT
-                          : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+                         : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
         },
         [this](std::shared_ptr<JointsGoalHandle>) {
           return reject_cancel_ ? rclcpp_action::CancelResponse::REJECT
-                                 : rclcpp_action::CancelResponse::ACCEPT;
+                                : rclcpp_action::CancelResponse::ACCEPT;
         },
-        [this](std::shared_ptr<JointsGoalHandle> gh) { execute<PlanToJoints>(gh); });
+        [this](std::shared_ptr<JointsGoalHandle> gh) {
+          execute<PlanToJoints>(gh);
+        });
   }
 
   // What the caller actually asked us to plan FROM. Empty means the caller
@@ -76,17 +80,22 @@ class FakeCuroboServer {
     return last_start_joints_;
   }
 
- private:
+private:
   // Shared by both tiers; only the Result type differs. PlanToJoints::Result
   // additionally carries goal_mismatch_rad, which stays at its 0.0 default -
   // the canned plan is treated as reaching the requested joints exactly.
-  // `started_` is a one-shot promise, so a single test must drive only one tier.
+  // `started_` is a one-shot promise, so a single test must drive only one
+  // tier.
   template <typename ActionT>
   void execute(std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> gh) {
-    { std::lock_guard<std::mutex> l(seen_m_);
-      last_start_joints_ = gh->get_goal()->start_joints; }
-    if (started_) started_->set_value();
-    if (gate_.valid()) gate_.wait();
+    {
+      std::lock_guard<std::mutex> l(seen_m_);
+      last_start_joints_ = gh->get_goal()->start_joints;
+    }
+    if (started_)
+      started_->set_value();
+    if (gate_.valid())
+      gate_.wait();
     auto result = std::make_shared<typename ActionT::Result>();
     if (!succeed_) {
       result->success = false;
@@ -96,14 +105,16 @@ class FakeCuroboServer {
     }
     result->success = true;
     result->message = "fake plan ok";
-    result->trajectory.joint_names =
-        {"joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6", "joint_7"};
+    result->trajectory.joint_names = {"joint_1", "joint_2", "joint_3",
+                                      "joint_4", "joint_5", "joint_6",
+                                      "joint_7"};
     for (int k = 0; k < n_points_; ++k) {
       trajectory_msgs::msg::JointTrajectoryPoint p;
       p.positions.assign((bad_width_ && k == 0) ? 4 : 7, 0.01 * (k + 1));
       const double t = 0.02 * (k + 1);
       p.time_from_start.sec = static_cast<int32_t>(t);
-      p.time_from_start.nanosec = static_cast<uint32_t>((t - static_cast<int32_t>(t)) * 1e9);
+      p.time_from_start.nanosec =
+          static_cast<uint32_t>((t - static_cast<int32_t>(t)) * 1e9);
       result->trajectory.points.push_back(p);
     }
     gh->succeed(result);
@@ -121,4 +132,4 @@ class FakeCuroboServer {
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
 };
-}  // namespace kinova_gen3_ros2::test
+} // namespace kinova_gen3_ros2::test

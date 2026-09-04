@@ -1,0 +1,19 @@
+# The planner this module calls.
+#
+# Owned by rammp-org/RAMMP-CuRobo; declared here only because sheppy cannot
+# express "and also start that one" -- depends_on is ignored, and running the
+# driver without this leaves go_to_ee_pose, go_to_joint_config and go_to_preset
+# accepting goals that can never succeed.
+#
+# If the planner grows its own fragment, replace this with a reference to it
+# rather than keeping two descriptions of one contract.
+id: curobo_planner
+tier: experimental
+kind: docker
+compose:
+  file: deploy/compose.yaml
+  service: curobo_planner
+# Its actions -- /rammp_curobo/plan_to_pose and /rammp_curobo/plan_to_joints --
+# are not expressible here: the schema has publishes/subscribes only.
+publishes: []
+subscribes: []

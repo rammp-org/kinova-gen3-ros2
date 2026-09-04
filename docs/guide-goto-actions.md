@@ -3,11 +3,11 @@
 Three actions move the arm to a goal you describe, planning the collision-free
 path for you rather than expecting one:
 
-| action | goal | plans via |
-| --- | --- | --- |
-| `go_to_ee_pose` | tool pose in `base_link` | cuRobo `plan_to_pose` |
-| `go_to_joint_config` | explicit 7 joint angles (rad) | cuRobo `plan_to_joints` |
-| `go_to_preset` | a **name** for a joint configuration | cuRobo `plan_to_joints` |
+| action               | goal                                 | plans via               |
+| -------------------- | ------------------------------------ | ----------------------- |
+| `go_to_ee_pose`      | tool pose in `base_link`             | cuRobo `plan_to_pose`   |
+| `go_to_joint_config` | explicit 7 joint angles (rad)        | cuRobo `plan_to_joints` |
+| `go_to_preset`       | a **name** for a joint configuration | cuRobo `plan_to_joints` |
 
 They contrast with `execute_joint_trajectory`, which takes an already-planned
 trajectory. All three share one lifecycle — `PlannedMoveServer<ActionT>` — so
@@ -35,14 +35,12 @@ Then start `kinova_gen3_node` (sim or real — see the top-level `README.md`). N
 extra flags: it is already a client of both cuRobo planning actions.
 
 !!! warning "Both nodes must use the same RMW"
-    The planner container runs with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`
-    (see `ROS_FLAGS` in the `Makefile`). If `kinova_gen3_node` or your client
-    runs under the default FastRTPS, discovery partly succeeds — `ros2 action
-    list` shows the planner's actions — but goals are never answered, and the
-    action **hangs in `phase=planning` forever** rather than failing. A
-    `RTPS_READER_HISTORY ... payload size` error in the log is the tell. Export
-    `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in every shell involved; `make
-    sim` / `make real` already do.
+The planner container runs with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`
+(see `ROS_FLAGS` in the `Makefile`). If `kinova_gen3_node` or your client
+runs under the default FastRTPS, discovery partly succeeds — `ros2 action     list` shows the planner's actions — but goals are never answered, and the
+action **hangs in `phase=planning` forever** rather than failing. A
+`RTPS_READER_HISTORY ... payload size` error in the log is the tell. Export
+`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in every shell involved; `make     sim` / `make real` already do.
 
 ## Sending a goal
 
@@ -87,13 +85,13 @@ Feedback arrives in two phases: `planning` (with cuRobo's `planner_state`
 relayed in `planner_state`) then `executing` (with `fraction_complete` and the
 live measured `actual`).
 
-| `error_code` | meaning |
-| --- | --- |
-| `0` SUCCESSFUL | planned and executed to the end of the trajectory |
-| `-1` INVALID_GOAL | the supervisor refused the planned trajectory |
-| `-4` PATH_TOLERANCE_VIOLATED | the arm diverged from the planned path mid-execution |
-| `-6` PREEMPTED | canceled, during planning or execution |
-| `-7` PLANNING_FAILED | cuRobo found no plan, or returned an empty/malformed one |
+| `error_code`                 | meaning                                                  |
+| ---------------------------- | -------------------------------------------------------- |
+| `0` SUCCESSFUL               | planned and executed to the end of the trajectory        |
+| `-1` INVALID_GOAL            | the supervisor refused the planned trajectory            |
+| `-4` PATH_TOLERANCE_VIOLATED | the arm diverged from the planned path mid-execution     |
+| `-6` PREEMPTED               | canceled, during planning or execution                   |
+| `-7` PLANNING_FAILED         | cuRobo found no plan, or returned an empty/malformed one |
 
 A goal is **rejected outright** (never accepted, so no result code) when the
 node has no command sink, the pose frame is not `base_link`, `target_joints`

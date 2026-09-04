@@ -1,7 +1,7 @@
 # kinova_gen3_ros2 — ROS2 Humble node container (arm64 / Jetson AGX Orin).
 #
 # Build from the REPO ROOT:
-#   docker build -f docker/Dockerfile -t kinova-gen3-ros2:humble .
+#   docker build -t kinova-gen3-ros2:humble .
 # or just `make build`. See the Makefile for the run flags (host net + RT caps).
 #
 # Follows the RAMMP-Software module conventions (ros:humble + Cyclone DDS + an

@@ -1,0 +1,15 @@
+# hadolint configuration.
+#
+# DL3008 (pin apt versions): ignored deliberately. The base is `ros:humble`,
+# which is itself a moving tag; pinning apt versions underneath a moving base
+# gives the appearance of reproducibility without the substance. The pins that
+# actually matter here are in docker/requirements.txt, which locks the whole
+# cmeel/pinocchio stack to what the Jetson runs -- see that file for why
+# pinning `pin` alone is not enough.
+#
+# SC3046 (`source` is undefined in POSIX sh): a false positive. The Dockerfile
+# sets SHELL ["/bin/bash", "-c"], so `source` is correct; hadolint's shellcheck
+# pass assumes sh regardless.
+ignored:
+  - DL3008
+  - SC3046

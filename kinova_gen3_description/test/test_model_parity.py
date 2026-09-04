@@ -18,14 +18,15 @@ Two differences are KNOWN and deliberate; everything else must match exactly.
 
 Everything about the arm proper -- link masses, kinematics -- must be identical, and is.
 """
+
 import os
 
 import numpy as np
 import pinocchio as pin
 import pytest
 
-NEW = os.environ["KINOVA_NEW_URDF"]        # articulated gripper, 13 DOF, for RViz/TF
-SEVEN = os.environ["KINOVA_7DOF_URDF"]     # gripper frozen, 7 DOF, for the driver
+NEW = os.environ["KINOVA_NEW_URDF"]  # articulated gripper, 13 DOF, for RViz/TF
+SEVEN = os.environ["KINOVA_7DOF_URDF"]  # gripper frozen, 7 DOF, for the driver
 OLD = os.environ["KINOVA_OLD_URDF"]
 OLD_EE, NEW_EE = "gen3_end_effector_link", "end_effector_link"
 ARM = [f"joint_{i}" for i in range(1, 8)]
@@ -61,7 +62,7 @@ def _set_arm(model, q, angles, prefix=""):
     for name, a in zip(ARM, angles):
         jid = model.getJointId(prefix + name)
         idx = model.joints[jid].idx_q
-        if model.joints[jid].nq == 2:      # continuous joint, packed (cos, sin)
+        if model.joints[jid].nq == 2:  # continuous joint, packed (cos, sin)
             q[idx], q[idx + 1] = np.cos(a), np.sin(a)
         else:
             q[idx] = a
@@ -76,7 +77,7 @@ def _arm_configs(n, seed=0):
 def test_arm_link_masses_are_identical(models):
     """The invariant that matters: the arm proper is the same robot."""
     (old_m, _), (new_m, _) = models
-    for name in ARM[:-1]:                 # joint_7 carries the wrist delta; see below
+    for name in ARM[:-1]:  # joint_7 carries the wrist delta; see below
         o = old_m.inertias[old_m.getJointId("gen3_" + name)].mass
         n = new_m.inertias[new_m.getJointId(name)].mass
         assert abs(o - n) < TOL, f"{name} body mass {o:.6f} != {n:.6f} kg"
@@ -95,8 +96,14 @@ def test_forward_kinematics_matches(models):
         pin.updateFramePlacement(old_m, old_d, old_id)
         pin.forwardKinematics(new_m, new_d, q_new)
         pin.updateFramePlacement(new_m, new_d, new_id)
-        worst = max(worst, float(np.linalg.norm(
-            old_d.oMf[old_id].translation - new_d.oMf[new_id].translation)))
+        worst = max(
+            worst,
+            float(
+                np.linalg.norm(
+                    old_d.oMf[old_id].translation - new_d.oMf[new_id].translation
+                )
+            ),
+        )
     assert worst < TOL, f"EE position differs by up to {worst:.6e} m"
 
 
@@ -111,7 +118,8 @@ def test_known_wrist_mass_delta(models):
     assert abs(delta - KNOWN_WRIST_MASS_DELTA_KG) < 1e-3, (
         f"total-mass delta is {delta:.6f} kg, expected {KNOWN_WRIST_MASS_DELTA_KG:.6f} "
         "(the omitted wrist camera + mount). If you added the camera back, set "
-        "KNOWN_WRIST_MASS_DELTA_KG to 0.0; if something else moved, find out what.")
+        "KNOWN_WRIST_MASS_DELTA_KG to 0.0; if something else moved, find out what."
+    )
 
 
 def test_driver_model_is_seven_dof(models):
@@ -120,8 +128,9 @@ def test_driver_model_is_seven_dof(models):
     JointVec is a fixed-size 7-vector, so this is not negotiable."""
     (old_m, _), (seven_m, _) = models
     assert old_m.nv == 7, f"old model unexpectedly has {old_m.nv} DOF"
-    assert seven_m.nv == 7, (
-        f"the driver's model has {seven_m.nv} DOF; core's Dynamics will refuse it")
+    assert (
+        seven_m.nv == 7
+    ), f"the driver's model has {seven_m.nv} DOF; core's Dynamics will refuse it"
 
 
 def test_rviz_model_is_articulated():
@@ -129,8 +138,9 @@ def test_rviz_model_is_articulated():
     reason two models are generated from one xacro."""
     art = pin.buildModelFromUrdf(NEW)
     assert art.nv > 7, "gripper is frozen in the articulated model; RViz cannot move it"
-    assert art.existJointName("robotiq_85_left_knuckle_joint"), (
-        "the actuated gripper joint is missing")
+    assert art.existJointName(
+        "robotiq_85_left_knuckle_joint"
+    ), "the actuated gripper joint is missing"
 
 
 def test_freezing_the_gripper_preserves_its_mass():

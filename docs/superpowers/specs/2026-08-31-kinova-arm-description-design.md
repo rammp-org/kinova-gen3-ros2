@@ -37,12 +37,12 @@ file or say how it was made.
 1. **Generate the model from upstream xacros** — `kortex_description` +
    `robotiq_description` — rather than vendoring the hand-edited URDF. Provenance becomes
    a build step; the arm configuration becomes a set of xacro args.
-2. **Drop the `gen3_` prefix.** Joints become `joint_1 … joint_7`, matching what the
+1. **Drop the `gen3_` prefix.** Joints become `joint_1 … joint_7`, matching what the
    driver already publishes and what every other Kinova stack uses.
-3. **Two launch files**: a description launch (reusable by anyone who wants only TF) and
+1. **Two launch files**: a description launch (reusable by anyone who wants only TF) and
    a bringup launch that includes it and starts the driver.
-4. **Gripper joint state:** publish the single actuated joint; let `<mimic>` do the rest.
-5. **Gripper velocity and effort are NaN for now**, and become real once core reads them.
+1. **Gripper joint state:** publish the single actuated joint; let `<mimic>` do the rest.
+1. **Gripper velocity and effort are NaN for now**, and become real once core reads them.
 
 ## Package layout
 
@@ -111,14 +111,14 @@ This is the single most dangerous edit in the plan and gets its own verification
 
 The upstream 2F-85 macro models the gripper as **one actuated joint and five mimics**:
 
-| joint | mimic of `robotiq_85_left_knuckle_joint` |
-|---|---|
-| `robotiq_85_left_knuckle_joint` | — *revolute, limits `[0.0, 0.8]` rad, the only real DOF* |
-| `robotiq_85_right_knuckle_joint` | ×−1 |
-| `robotiq_85_left_inner_knuckle_joint` | ×1 |
-| `robotiq_85_right_inner_knuckle_joint` | ×−1 |
-| `robotiq_85_left_finger_tip_joint` | ×−1 |
-| `robotiq_85_right_finger_tip_joint` | ×1 |
+| joint                                  | mimic of `robotiq_85_left_knuckle_joint`                 |
+| -------------------------------------- | -------------------------------------------------------- |
+| `robotiq_85_left_knuckle_joint`        | — *revolute, limits `[0.0, 0.8]` rad, the only real DOF* |
+| `robotiq_85_right_knuckle_joint`       | ×−1                                                      |
+| `robotiq_85_left_inner_knuckle_joint`  | ×1                                                       |
+| `robotiq_85_right_inner_knuckle_joint` | ×−1                                                      |
+| `robotiq_85_left_finger_tip_joint`     | ×−1                                                      |
+| `robotiq_85_right_finger_tip_joint`    | ×1                                                       |
 
 **Publish only the actuated joint.** `robot_state_publisher` reads the `<mimic>` tags and
 derives the other five itself (its binary carries `urdf::JointMimic`, so this is real, not
@@ -160,6 +160,7 @@ measurement", not zero — zero would be indistinguishable from "not moving".
 >
 >   If a gripper velocity is genuinely wanted in `/joint_states`, differentiate `position`
 >   and say in the README that it is a derived rate, not a reported one.
+>
 > - **effort stays NaN permanently.** `sensor_msgs/JointState.effort` is documented as
 >   N·m or N, and core's gripper effort is a normalized 0..1 fraction derived from motor
 >   current. Putting it there would mislabel it — the same mistake this package refuses
@@ -198,7 +199,7 @@ of that.
 **A numerical parity check between the old and new models, as a test:**
 
 1. Load both URDFs in Pinocchio.
-2. Over ~1000 pseudo-random configurations in joint limits, compare:
+1. Over ~1000 pseudo-random configurations in joint limits, compare:
    - **FK at the EE frame** — `gen3_end_effector_link` in the old model against
      `end_effector_link` in the new one, since the rename is part of this change.
      Position and orientation, tolerance `1e-9`: these should be bit-comparable if the
@@ -207,7 +208,7 @@ of that.
    - **Gravity torques** `gravity(q)` — tolerance `1e-9`. This is the inertial parameters
      made observable.
    - **The Jacobian** at the EE frame.
-3. Compare joint limits and link masses element-wise.
+1. Compare joint limits and link masses element-wise.
 
 **A non-zero difference is a finding, not a failure to tolerate.** If the generated model
 differs, we need to know exactly where and decide deliberately — the upstream description
@@ -231,7 +232,7 @@ an eyeball.
 > **Corrected 2026-09-03.** Three bullets here were stale or wrong and have been removed.
 > Recorded rather than silently deleted, because two of them would have caused real work:
 >
-> - *"the `GripperSink` port this repo would talk to has not [landed]"* — it has. Core
+> - *"the `GripperSink` port this repo would talk to has not \[landed\]"* — it has. Core
 >   `main` carries `GripperSink` (`on_gripper_setpoint` / `on_query_gripper`),
 >   `GripperSetpoint`, `GripperState` and `GripperController` since #35.
 > - *"Filling in gripper velocity ... blocked on core surfacing `GripperFeedback` through
@@ -240,7 +241,7 @@ an eyeball.
 >   at all: core **removed** the field, having measured it to be the commanded speed
 >   echoed back rather than a measurement. Gripper velocity is NaN permanently, for the
 >   same reason effort is.
-> - *"[`robot_state_publisher`] does not derive mimics, so the driver must expand the one
+> - *"\[`robot_state_publisher`\] does not derive mimics, so the driver must expand the one
 >   actuated angle through the ±1 multipliers itself"* — **false, and it contradicted the
 >   "Gripper joint state" section above.** Verified empirically on 2026-09-03 with a
 >   two-joint URDF (one revolute driver, one `<mimic multiplier="-1">`): publishing only
@@ -253,6 +254,7 @@ an eyeball.
 >   robot: with two independent revolute joints where only one was published,
 >   `base->link_a` TF resolved and moved while only `base->link_b` was absent. A missing
 >   joint costs only its own child link's TF, never the rest of the tree.
+
 - **Real2sim URDF tuning.** Mass, friction and tool-frame calibration against the real
   arm. This package makes it *possible* by giving the model a reproducible source, and the
   parity harness above is the natural place to hang it, but the calibration itself is

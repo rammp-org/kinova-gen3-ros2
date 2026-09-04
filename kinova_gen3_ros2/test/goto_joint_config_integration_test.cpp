@@ -17,38 +17,47 @@ using namespace kinova::interface;
 using GoToJointConfig = kinova_gen3_interfaces::action::GoToJointConfig;
 
 namespace {
-const std::array<double, 7> kTarget = {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571};
+const std::array<double, 7> kTarget = {0.0, 0.262, 3.142, -2.269,
+                                       0.0, 0.96,  1.571};
 
 // Send a goal and block for its result code; kGoalRejected if not accepted.
-int send_and_get_code(rclcpp::Node::SharedPtr node, const std::array<double, 7>& joints) {
-  auto client = rclcpp_action::create_client<GoToJointConfig>(node, "go_to_joint_config");
-  if (!client->wait_for_action_server(5s)) return kServerMissing;
+int send_and_get_code(rclcpp::Node::SharedPtr node,
+                      const std::array<double, 7> &joints) {
+  auto client =
+      rclcpp_action::create_client<GoToJointConfig>(node, "go_to_joint_config");
+  if (!client->wait_for_action_server(5s))
+    return kServerMissing;
   GoToJointConfig::Goal goal;
   goal.target_joints = joints;
   std::promise<int> code;
   auto fut = code.get_future();
   rclcpp_action::Client<GoToJointConfig>::SendGoalOptions opts;
   opts.result_callback =
-      [&](const rclcpp_action::ClientGoalHandle<GoToJointConfig>::WrappedResult& wr) {
+      [&](const rclcpp_action::ClientGoalHandle<GoToJointConfig>::WrappedResult
+              &wr) {
         code.set_value(wr.result ? wr.result->error_code : kNoResult);
       };
   auto gh_future = client->async_send_goal(goal, opts);
-  if (gh_future.wait_for(5s) != std::future_status::ready) return kTimedOut;
-  if (gh_future.get() == nullptr) return kGoalRejected;   // never accepted
-  if (fut.wait_for(8s) != std::future_status::ready) return kTimedOut;
+  if (gh_future.wait_for(5s) != std::future_status::ready)
+    return kTimedOut;
+  if (gh_future.get() == nullptr)
+    return kGoalRejected; // never accepted
+  if (fut.wait_for(8s) != std::future_status::ready)
+    return kTimedOut;
   return fut.get();
 }
-}  // namespace
+} // namespace
 
 class GotoJointConfigTest : public ::testing::Test {
- protected:
+protected:
   void SetUp() override { rclcpp::init(0, nullptr); }
   void TearDown() override { rclcpp::shutdown(); }
 };
 
 TEST_F(GotoJointConfigTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   auto node = std::make_shared<rclcpp::Node>("goto_jc_it1");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
@@ -90,7 +99,8 @@ TEST_F(GotoJointConfigTest, PlanFailureSettlesPlanningFailed) {
 // only reachable malformed goal. It must be rejected outright, not planned.
 TEST_F(GotoJointConfigTest, NonFiniteTargetIsRejected) {
   auto node = std::make_shared<rclcpp::Node>("goto_jc_it3");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;

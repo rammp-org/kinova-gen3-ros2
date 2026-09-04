@@ -1,0 +1,40 @@
+# Both containers of this module, in one file.
+#
+# This module is TWO containers: the arm driver, and the cuRobo planner whose
+# PlanToPose/PlanToJoints actions the go_to_* servers are clients of. Without
+# the planner, three of the four action servers accept goals and never succeed.
+#
+# sheppy runs one container per node and ignores depends_on ("sheppy owns
+# lifecycle"), so this cannot be one fragment. Two alternatives reference this
+# file by service name -- see rammp-alternative*.yaml.
+#
+# The compose-file path is also the ONLY one with ${VAR} interpolation:
+# load_service() calls _interpolate, while an inline `container:` block is
+# returned verbatim by DockerLauncher._service(). That is what gives the arm's
+# IP somewhere to live other than hardcoded in the contract.
+services:
+  kinova_gen3_driver:
+    image: kinova-gen3-ros2:kortex
+    network_mode: host
+    ipc: host                      # DDS shared-memory transport
+    cap_add: [SYS_NICE]            # permits sched_setscheduler...
+    ulimits:                       # ...and these are what let it SUCCEED.
+      rtprio: 99                   # measured: --privileged does NOT raise
+      memlock: -1                  # RLIMIT_RTPRIO. Capabilities != rlimits.
+    command:
+      - /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
+      - --ip
+      - ${KINOVA_ARM_IP:-192.168.1.10}
+      - --urdf
+      - /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+      - --cpu
+      - ${KINOVA_RT_CORE:-11}
+
+  # Owned by rammp-org/RAMMP-CuRobo. Declared here only because sheppy cannot
+  # express "and also start that one", and the driver alone leaves three action
+  # servers permanently unsatisfied.
+  curobo_planner:
+    image: rammp-curobo:jp6
+    runtime: nvidia                # JetPack exposes the GPU this way, NOT --gpus
+    network_mode: host
+    ipc: host

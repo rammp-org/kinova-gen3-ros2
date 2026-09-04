@@ -63,6 +63,7 @@ python3 /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_traj
 
 The client prints the measured start (`measured start: joint6=<x> -> target <x+0.10>`)
 and, each feedback tick, the MEASURED joint angle (`measured_j6=…`). Watch:
+
 - the printed measured start matches the arm's real pose,
 - `measured_j6` advances from start toward start+0.10 as the arm moves,
 - the result settles `error_code=0` / `STATUS_SUCCEEDED`.
@@ -78,16 +79,20 @@ result code, and any `faults`/`dropped`/`majflt` reported by the node's telemetr
 drain. Stop on anything unexpected — e-stop, then investigate.
 
 ### Runs
+
 - (append results here)
+
 - **2026-08-12 (attended, e-stop):** First run surfaced a core bug — a well-tracking
   j6 +0.10 move false-aborted (`PATH_TOLERANCE_VIOLATED`) at ~71% because the
   supervisor sampler injected q=0 into the divergence guard on a rare failed
   feedback-snapshot read. Fixed in the core (reuse last-good q; commit `dd3e57e`).
   After the fix, re-verified on the arm:
+
   - j6 +0.40 rad over 2.0s → SUCCEEDED, rest on target (1.6423→2.0423).
   - coordinated two-joint (j5 +0.40, j6 −0.40) over 2.5s → SUCCEEDED, both on target
     (j5 0.960→1.360, j6 2.042→1.642). Multi-joint client: `--joint 5,6 --delta 0.4,-0.4`
     (note: put a positive delta first — argparse treats a leading `-` value as a flag).
+
 - **2026-09-01 (attended, e-stop):** First **containerized** real-arm run, and the first time
   the conformance suite pointed at hardware rather than sim. Image built with
   `make build-real CORE_REF=integration/velocity-and-stream-status` (core `6c741d0`) — the
@@ -96,11 +101,12 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   ROS surface can build against. Node run with `arbitration_mode:=enforced`.
   **28/28 passed, 0 failed, 0 skipped.** No faults, dropped samples, or major page faults in the
   telemetry drain. `/ee_state` read p=(0.457, 0.001, 0.434), |p|=0.630 m at home.
+
   - First attempt aborted before any conformance check completed and the node exited. **The
     cause was not captured** — that container ran with `--rm`, so its logs died with it. Run
     the node WITHOUT `--rm` on hardware; a lost log costs a whole attended session.
     Confirmed: the arm was parked folded up with **joint 4 at -2.660018 rad, 1.8e-5 rad outside
-    its [-2.66, 2.66] URDF limit**, and the operator independently observed the arm against a
+    its \[-2.66, 2.66\] URDF limit**, and the operator independently observed the arm against a
     joint limit. Suspected, not proven: that pose breaks a premise the streaming section rests
     on — it streams the arm's own *measured* configuration back at it, assuming that commanding
     the arm where it already is must be admissible, which stops being true when the measured
@@ -108,6 +114,7 @@ drain. Stop on anything unexpected — e-stop, then investigate.
     margin) passed clean. To settle it, reproduce at the limit with logs kept. Worth hardening
     either way: the runner could clamp the echoed setpoint into limits, or the driver could
     admit an epsilon-outside-limit setpoint that equals the measured pose.
+
 - **2026-09-01 (attended, e-stop) — velocity-mode teleop, two findings.** Hand-flying the EE
   streaming controllers with an Xbox pad (`test/teleop_xbox.py`, throwaway) surfaced a real
   hardware behaviour and a real driver crash. Same image as the conformance run above
@@ -118,10 +125,10 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   the shoulder +1.475 rad before it was stopped. Isolated afterwards with
   `test/zero_setpoint_probe.py`, which streams a hard zero on each controller in turn:
 
-  | controller | DLS solve | posture term | per-joint drift, 6 s |
-  |---|---|---|---|
-  | `joint_velocity` | no (passthrough) | no | `+0.000 +0.227 +0.000 -0.000 +0.000 -0.000 +0.000` |
-  | `ee_twist` | yes | yes | `+0.000 +0.234 +0.000 +0.000 +0.000 +0.000 -0.000` |
+  | controller       | DLS solve        | posture term | per-joint drift, 6 s                               |
+  | ---------------- | ---------------- | ------------ | -------------------------------------------------- |
+  | `joint_velocity` | no (passthrough) | no           | `+0.000 +0.227 +0.000 -0.000 +0.000 -0.000 +0.000` |
+  | `ee_twist`       | yes              | yes          | `+0.000 +0.234 +0.000 +0.000 +0.000 +0.000 -0.000` |
 
   Only joint 2 moves, ~0.038 rad/s, in the gravity direction; the other six hold at exactly
   0.000. `joint_velocity` is the documented passthrough — no solve, no null-space posture
@@ -142,9 +149,11 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   web app while the driver was connected took it out of low-level servoing; the driver's
   next write threw and nothing caught it:
 
-      terminate called after throwing an instance of 'Kinova::Api::KDetailedException'
-        what():  Device error, Error sub type=WRONG_SERVOING_MODE
-        description: Wrong servoing mode, must be low level servoing mode
+  ```
+  terminate called after throwing an instance of 'Kinova::Api::KDetailedException'
+    what():  Device error, Error sub type=WRONG_SERVOING_MODE
+    description: Wrong servoing mode, must be low level servoing mode
+  ```
 
   Container exited 133 (`std::terminate`). Crash was 6m41s AFTER the arm had already
   stopped, so it is independent of finding 1 — confirmed from `docker inspect` timestamps

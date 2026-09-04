@@ -4,18 +4,17 @@ The e-stop checks run FIRST in the runner's ordering, deliberately: nothing that
 commands motion should be exercised on an arm whose stop path has not been proven in
 this session.
 """
-import time
 
 from builtin_interfaces.msg import Time as TimeMsg
 
-from harness import FAIL, PASS, REGISTRY, ZERO_TOKEN, Result, tok
+from harness import FAIL, PASS, REGISTRY, ZERO_TOKEN, Result
 
 SEC = "arbitration"
 
 
 @REGISTRY.add(SEC, "engaging /estop latches, and clears ownership with it")
 def check_estop_engage(ctx):
-    ctx.acquire("estop-probe")            # so we can see ownership being destroyed
+    ctx.acquire("estop-probe")  # so we can see ownership being destroyed
     ctx.estop(True, reason="conformance: verifying the stop path")
     cs = ctx.control_status()
     if cs is None:
@@ -35,7 +34,9 @@ def check_estop_clear(ctx):
     if cs.estopped:
         return Result("", FAIL, "still latched after a fresh clear")
     if cs.owned:
-        return Result("", FAIL, "clear returned to an OWNED state; core exits to no-owner")
+        return Result(
+            "", FAIL, "clear returned to an OWNED state; core exits to no-owner"
+        )
     return Result("", PASS, "estopped=false, unowned as designed")
 
 
@@ -43,12 +44,16 @@ def check_estop_clear(ctx):
 def check_estop_stale_clear(ctx):
     ctx.estop(True, reason="conformance")
     old = ctx.n.get_clock().now().to_msg()
-    old.sec -= 30                                   # far outside estop_clear_max_age_s
+    old.sec -= 30  # far outside estop_clear_max_age_s
     ctx.estop(False, reason="conformance: replayed", stamp=old)
     cs = ctx.control_status()
     if not cs.estopped:
-        return Result("", FAIL, "a 30 s old clear was honoured; a bag replay could "
-                                "re-enable a stopped arm")
+        return Result(
+            "",
+            FAIL,
+            "a 30 s old clear was honoured; a bag replay could "
+            "re-enable a stopped arm",
+        )
     ctx.estop(False, reason="conformance cleanup")  # leave it cleared
     return Result("", PASS, "stale clear refused, latch held")
 
@@ -62,8 +67,12 @@ def check_estop_stale_engage(ctx):
     cs = ctx.control_status()
     ctx.estop(False, reason="conformance cleanup")
     if not cs.estopped:
-        return Result("", FAIL, "a stale STOP was refused. Both branches must fail "
-                                "toward the arm staying stopped.")
+        return Result(
+            "",
+            FAIL,
+            "a stale STOP was refused. Both branches must fail "
+            "toward the arm staying stopped.",
+        )
     return Result("", PASS, "stale engage honoured")
 
 
@@ -73,8 +82,11 @@ def check_estop_unstamped(ctx):
     ctx.estop(False, reason="conformance", stamp=TimeMsg(sec=0, nanosec=0))
     cs = ctx.control_status()
     if cs.estopped:
-        return Result("", FAIL, "unstamped clear refused; `ros2 topic pub` cannot clear "
-                                "the e-stop")
+        return Result(
+            "",
+            FAIL,
+            "unstamped clear refused; `ros2 topic pub` cannot clear " "the e-stop",
+        )
     return Result("", PASS, "unstamped clear accepted")
 
 
@@ -98,15 +110,23 @@ def check_seizure(ctx):
     if not second.accepted:
         return Result("", FAIL, "second acquire was refused; grant() is meant to seize")
     if second.generation <= first.generation:
-        return Result("", FAIL, f"generation did not advance "
-                                f"({first.generation} -> {second.generation})")
+        return Result(
+            "",
+            FAIL,
+            f"generation did not advance "
+            f"({first.generation} -> {second.generation})",
+        )
     if list(first.token) == list(second.token):
         return Result("", FAIL, "the same token was reissued to a new owner")
     cs = ctx.control_status()
     if cs.owner_id != "conformance-usurper":
         return Result("", FAIL, f"owner is '{cs.owner_id}' after the seizure")
-    return Result("", PASS, f"generation {first.generation} -> {second.generation}, "
-                            "incumbent dispossessed")
+    return Result(
+        "",
+        PASS,
+        f"generation {first.generation} -> {second.generation}, "
+        "incumbent dispossessed",
+    )
 
 
 @REGISTRY.add(SEC, "release with the WRONG token is refused")

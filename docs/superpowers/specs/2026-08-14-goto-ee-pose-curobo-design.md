@@ -33,8 +33,7 @@ cuRobo exposes a ROS **action** — planning only, it never moves the arm:
 - **Goal:** `geometry_msgs/Pose target` (bare `Pose`, **base_link** frame, quaternion
   xyzw) + `float64[] start_joints` (empty ⇒ cuRobo reads `/joint_states` itself,
   2.0 s staleness cutoff; else plan from the given `joint_1..7` config)
-- **Result:** `bool success`, `string message`, `trajectory_msgs/JointTrajectory
-  trajectory` (time-parameterized, `joint_1..7`, dense `interpolation_dt = 0.02 s`
+- **Result:** `bool success`, `string message`, `trajectory_msgs/JointTrajectory trajectory` (time-parameterized, `joint_1..7`, dense `interpolation_dt = 0.02 s`
   waypoints, **planned at full speed**; point *k* stamped at `(k+1)·dt`),
   `float64 planning_time`
 - **Feedback:** `string state`
@@ -61,10 +60,10 @@ package (no GPU stack) — for the `PlanToPose` type.
    consequence (recorded, not mitigated in code):* the first real-arm `GoToEEPose`
    runs at cuRobo full speed, so the attended bring-up (Milestone C) picks a small /
    near target, e-stop in hand, per `docs/on-robot-runbook.md`.
-2. **Position control only (v1).** The collision-free plan is tracked in
+1. **Position control only (v1).** The collision-free plan is tracked in
    `JointPositionMode`. The `GoToEEPose` message carries no control-mode / gains
    fields; impedance is a clean fast-follow if a contact task needs it.
-3. **`GoToEEPose` goal is a `geometry_msgs/PoseStamped`, required frame `base_link`.**
+1. **`GoToEEPose` goal is a `geometry_msgs/PoseStamped`, required frame `base_link`.**
    Fail loud (reject the goal) on any other `frame_id`; no TF this round. Frame-aware
    and forward-compatible with adding a TF transform later. We strip to the bare
    `Pose` cuRobo wants before forwarding.
@@ -90,8 +89,7 @@ trajectory_msgs/JointTrajectoryPoint actual   # live measured q during execution
 ```
 
 `error_code` reuses the numeric values of the core `result_code` enum and adds
-**`PLANNING_FAILED = -7`**. The existing codes mirror `control_msgs/
-FollowJointTrajectory` (`-1`/`-4`/`-5`), whose `-2`/`-3` mean `INVALID_JOINTS`/
+**`PLANNING_FAILED = -7`**. The existing codes mirror `control_msgs/ FollowJointTrajectory` (`-1`/`-4`/`-5`), whose `-2`/`-3` mean `INVALID_JOINTS`/
 `OLD_HEADER_TIMESTAMP` — so `PLANNING_FAILED` takes the next free *custom* slot after
 this codebase's own `PREEMPTED=-6`, rather than overloading an FJT-reserved value.
 `final_error` is joint-space only — a Cartesian pose error would need FK on the ROS
@@ -127,8 +125,7 @@ The only unit that knows cuRobo exists. Wraps a `rclcpp_action::Client<PlanToPos
 
 - API (roughly): `plan(const geometry_msgs::Pose& target, PlanCallbacks cbs)`
   returning a cancellable handle; `cbs` = `{on_feedback(state), on_done(PlanOutcome)}`.
-- `PlanOutcome` is a small plain struct: `{bool ok; std::string message;
-  trajectory_msgs::JointTrajectory trajectory;}` — cuRobo's `success`/`message`/
+- `PlanOutcome` is a small plain struct: `{bool ok; std::string message; trajectory_msgs::JointTrajectory trajectory;}` — cuRobo's `success`/`message`/
   `trajectory`, plus a synthesized failure for the *aborted*, *rejected*, and
   *server-unavailable* cases (all surface as `ok=false` with a message).
 - Sends `start_joints` **filled** from `CommandSink::on_query_state()`, so the
@@ -143,8 +140,7 @@ The only unit that knows cuRobo exists. Wraps a `rclcpp_action::Client<PlanToPos
 Hosts the `GoToEEPose` server and owns the per-goal state machine. Holds a
 `CommandSink*` (injected, like `Ros2Backend`) and a `GoalRouter&` (below).
 
-- `handle_goal`: reject if no sink; **reject unless `target.header.frame_id ==
-  "base_link"`** (fail loud); else accept.
+- `handle_goal`: reject if no sink; **reject unless `target.header.frame_id == "base_link"`** (fail loud); else accept.
 - `handle_accepted(gh)`: store the handle under its UUID; publish `phase="planning"`
   feedback; call `CuroboPlanClient::plan(strip_to_pose(target), …)`.
 - On plan **failure** (`ok=false`): settle the `GoToEEPose` goal
@@ -154,15 +150,13 @@ Hosts the `GoToEEPose` server and owns the per-goal state machine. Holds a
   `control_mode = kPosition`; `preemption = kLatestWins`; a generous default
   `path_tolerance`, see below; `sender_id` copied). Register ownership of this UUID
   with the `GoalRouter`, then drive the **same seam** `Ros2Backend` uses:
-  `sink_->on_trajectory_goal(goal)` → if `kAccept`, `sink_->on_trajectory_accepted(
-  uuid, goal)`; if `kReject`, settle `INVALID_GOAL`.
+  `sink_->on_trajectory_goal(goal)` → if `kAccept`, `sink_->on_trajectory_accepted( uuid, goal)`; if `kReject`, settle `INVALID_GOAL`.
 - Implements `ActionServerPort` **for its own goals**: `publish_feedback(uuid, fb)`
   → `GoToEEPose` feedback (`phase="executing"`, `fraction_complete`, `actual`);
   `settle(uuid, result)` → map `result_code` → `error_code`, then
   `succeed()`/`abort()`/`canceled()` on the handle (mirrors `Ros2Backend::settle`).
 - `handle_cancel(gh)`: if **still planning**, cancel the cuRobo goal via the plan
-  handle (→ settle `PREEMPTED`); if **executing**, `sink_->on_trajectory_cancel(
-  uuid)` (Supervisor settles `kPreempted` → `PREEMPTED`/`canceled()`).
+  handle (→ settle `PREEMPTED`); if **executing**, `sink_->on_trajectory_cancel( uuid)` (Supervisor settles `kPreempted` → `PREEMPTED`/`canceled()`).
 
 The `GoToEEPose` UUID is reused as the Supervisor `GoalId` — unique per goal, no
 collision with `ExecuteJointTrajectory` UUIDs.

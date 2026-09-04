@@ -34,20 +34,22 @@ driver replies with the *channels* (topics) to publish on.
   rename, `rm -rf build/kinova_gen3_ros2 install/kinova_gen3_ros2` on abra first, or stale
   test binaries will report passes that are not real.
 
----
+______________________________________________________________________
 
 ### Task 1: Interface definitions
 
 **Files:**
+
 - Create: `kinova_gen3_interfaces/msg/{JointSetpoint,PoseSetpoint,TwistSetpoint,WrenchSetpoint}.msg`
 - Create: `kinova_gen3_interfaces/msg/{StreamStatus,ControllerCapability}.msg`
 - Create: `kinova_gen3_interfaces/srv/{OpenStream,CloseStream,ListControllers}.srv`
 - Modify: `kinova_gen3_interfaces/CMakeLists.txt`
 
 **Interfaces:**
+
 - Consumes: nothing.
-- Produces: `kinova_gen3_interfaces::msg::{JointSetpoint, PoseSetpoint, TwistSetpoint,
-  WrenchSetpoint, StreamStatus, ControllerCapability}` and
+
+- Produces: `kinova_gen3_interfaces::msg::{JointSetpoint, PoseSetpoint, TwistSetpoint, WrenchSetpoint, StreamStatus, ControllerCapability}` and
   `srv::{OpenStream, CloseStream, ListControllers}`. Headers follow the snake_case rule
   confirmed in the arbitration tier (`EStop` → `e_stop.hpp`), so expect
   `joint_setpoint.hpp`, `open_stream.hpp`, etc.
@@ -55,6 +57,7 @@ driver replies with the *channels* (topics) to publish on.
 - [ ] **Step 1: Write the four setpoint messages**
 
 `msg/JointSetpoint.msg`:
+
 ```
 # One shape, three meanings -- the TOPIC says which: rad on /setpoint/joint_position,
 # rad/s on /setpoint/joint_velocity, N*m on /setpoint/joint_torque. Mirrors core's
@@ -67,6 +70,7 @@ uint8[16]  token     # from /acquire_control; validates the sender, every messag
 ```
 
 `msg/PoseSetpoint.msg`:
+
 ```
 # Target tool pose in the base frame.
 geometry_msgs/Pose pose
@@ -74,6 +78,7 @@ uint8[16]          token
 ```
 
 `msg/TwistSetpoint.msg`:
+
 ```
 # Target tool twist, base frame. Core carries this as [linear; angular].
 geometry_msgs/Twist twist
@@ -81,6 +86,7 @@ uint8[16]           token
 ```
 
 `msg/WrenchSetpoint.msg`:
+
 ```
 # Target tool wrench, base frame. NOTE: no controller can consume this yet -- core has
 # no SetpointKind::kEeWrench. The topic exists so the surface is complete and clients
@@ -92,6 +98,7 @@ uint8[16]            token
 - [ ] **Step 2: Write the status and capability messages**
 
 `msg/StreamStatus.msg`:
+
 ```
 # What the streaming tier is actually doing. `open`, `timeout_s` and `rejected_count`
 # come from core via StreamSink::on_query_stream(), so they are exact rather than this
@@ -108,6 +115,7 @@ uint64   rejected_count
 ```
 
 `msg/ControllerCapability.msg`:
+
 ```
 string   name         # e.g. "joint_impedance"
 string[] channels     # topics under /setpoint/ this controller reads
@@ -117,6 +125,7 @@ bool     available    # computed live from core's pair_supported(), never declar
 - [ ] **Step 3: Write the three services**
 
 `srv/OpenStream.srv`:
+
 ```
 # Open a streaming session on a controller. The (kind, control mode) pair is fixed for
 # the session's lifetime -- changing what you stream means close-then-reopen, which
@@ -135,6 +144,7 @@ string   message
 ```
 
 `srv/CloseStream.srv`:
+
 ```
 uint8[16] token
 ---
@@ -143,6 +153,7 @@ string message
 ```
 
 `srv/ListControllers.srv`:
+
 ```
 ---
 ControllerCapability[] controllers
@@ -151,6 +162,7 @@ ControllerCapability[] controllers
 - [ ] **Step 4: Register them in `kinova_gen3_interfaces/CMakeLists.txt`**
 
 Add to `rosidl_generate_interfaces`, after `"srv/RevokeControl.srv"`:
+
 ```cmake
   "msg/JointSetpoint.msg"
   "msg/PoseSetpoint.msg"
@@ -162,6 +174,7 @@ Add to `rosidl_generate_interfaces`, after `"srv/RevokeControl.srv"`:
   "srv/CloseStream.srv"
   "srv/ListControllers.srv"
 ```
+
 `geometry_msgs` is already in `DEPENDENCIES`; no change needed there.
 
 - [ ] **Step 5: Build and verify**
@@ -174,6 +187,7 @@ ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2
   ros2 interface show kinova_gen3_interfaces/srv/OpenStream && \
   ros2 interface show kinova_gen3_interfaces/msg/JointSetpoint'"
 ```
+
 Expected: both print.
 
 - [ ] **Step 6: Commit**
@@ -183,11 +197,12 @@ git add kinova_gen3_interfaces/
 git commit -m "feat(interfaces): setpoint messages, stream session services, controller capabilities"
 ```
 
----
+______________________________________________________________________
 
 ### Task 2: `StreamServer` — controller registry and `/list_controllers`
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/stream_server.h`
 - Create: `kinova_gen3_ros2/src/stream_server.cpp`
 - Create: `kinova_gen3_ros2/test/fake_stream_sink.h`
@@ -195,7 +210,9 @@ git commit -m "feat(interfaces): setpoint messages, stream session services, con
 - Modify: `kinova_gen3_ros2/CMakeLists.txt`
 
 **Interfaces:**
+
 - Consumes: Task 1's messages and services.
+
 - Produces: `kinova_gen3_ros2::StreamServer`, constructed as
   `StreamServer(rclcpp::Node::SharedPtr, kinova::interface::StreamSink&)`, with one public
   method `void publish_status_if_changed()`. Task 6 constructs it. Also produces
@@ -204,6 +221,7 @@ git commit -m "feat(interfaces): setpoint messages, stream session services, con
 - [ ] **Step 1: Write the fake sink**
 
 `kinova_gen3_ros2/test/fake_stream_sink.h`:
+
 ```cpp
 #pragma once
 #include <mutex>
@@ -267,6 +285,7 @@ struct FakeStreamSink : public kinova::interface::StreamSink {
 - [ ] **Step 2: Write the failing test**
 
 `kinova_gen3_ros2/test/stream_server_test.cpp`:
+
 ```cpp
 #include <gtest/gtest.h>
 #include <chrono>
@@ -366,6 +385,7 @@ Expected: FAIL — `kinova_gen3_ros2/stream_server.h: No such file or directory`
 - [ ] **Step 4: Write the header**
 
 `kinova_gen3_ros2/include/kinova_gen3_ros2/stream_server.h`:
+
 ```cpp
 // kinova_gen3_ros2/include/kinova_gen3_ros2/stream_server.h
 #pragma once
@@ -592,6 +612,7 @@ void StreamServer::publish_status_if_changed() {}
 
 In `kinova_gen3_ros2/CMakeLists.txt`, after the `control_plane`/`arbitration_server`
 library block:
+
 ```cmake
 # The ROS face of core's StreamSink: session services, setpoint topics, /stream_status.
 add_library(stream_server src/stream_server.cpp)
@@ -600,8 +621,10 @@ target_include_directories(stream_server PUBLIC
 ament_target_dependencies(stream_server rclcpp kinova_gen3_interfaces geometry_msgs std_msgs)
 target_link_libraries(stream_server kinova_lowlevel::kinova_lowlevel)
 ```
+
 Add `stream_server` to `kinova_gen3_node`'s `target_link_libraries`, and inside
 `if(BUILD_TESTING)`:
+
 ```cmake
   ament_add_gtest(stream_server_test test/stream_server_test.cpp)
   target_include_directories(stream_server_test PRIVATE test)
@@ -625,16 +648,19 @@ git add kinova_gen3_ros2/include/kinova_gen3_ros2/stream_server.h \
 git commit -m "feat(ros2): StreamServer controller registry and /list_controllers"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: Session open and close
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/stream_server.cpp` (`on_open`, `on_close`)
 - Modify: `kinova_gen3_ros2/test/stream_server_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `StreamServer` and `FakeStreamSink` from Task 2.
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
@@ -719,6 +745,7 @@ Expected: FAIL — `accepted` is false / `channels` empty, because `on_open` is 
 - [ ] **Step 3: Implement `on_open` and `on_close`**
 
 Replace the two stubs in `stream_server.cpp`:
+
 ```cpp
 void StreamServer::on_open(const std::shared_ptr<OpenStream::Request> req,
                            std::shared_ptr<OpenStream::Response> resp) {
@@ -787,21 +814,25 @@ git add kinova_gen3_ros2/src/stream_server.cpp kinova_gen3_ros2/test/stream_serv
 git commit -m "feat(ros2): open and close a streaming session by controller name"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Setpoint routing
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/stream_server.cpp` (six subscription handlers)
 - Modify: `kinova_gen3_ros2/test/stream_server_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `StreamServer`, `FakeStreamSink`.
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
 
 Add a publish helper to the fixture:
+
 ```cpp
   template <class MsgT>
   void publish_setpoint(const std::string& topic, const MsgT& m) {
@@ -814,7 +845,9 @@ Add a publish helper to the fixture:
     std::this_thread::sleep_for(300ms);
   }
 ```
+
 and the tests:
+
 ```cpp
 TEST_F(StreamServerTest, JointTopicsRouteToTheirOwnSinkMethod) {
   kinova_gen3_interfaces::msg::JointSetpoint m;
@@ -872,6 +905,7 @@ it is a guard against someone later wiring wrench to the wrong method.)
 Replace the six stubs. Add these conversion helpers to the anonymous namespace at the top
 of `stream_server.cpp` — they live here rather than in `message_mapping` because only the
 streaming tier converts setpoint payloads:
+
 ```cpp
 namespace {
 kinova::JointVec to_joint_vec(const std::array<double, 7>& a) {
@@ -893,7 +927,9 @@ kinova::Vector6 to_vector6(const geometry_msgs::msg::Twist& t) {
 }
 }  // namespace
 ```
+
 and the handlers:
+
 ```cpp
 void StreamServer::on_joint_position(const JointSetpointMsg::SharedPtr m) {
   JointSetpoint s; s.values = to_joint_vec(m->values); s.token = m->token;
@@ -923,6 +959,7 @@ void StreamServer::on_wrench(const WrenchSetpointMsg::SharedPtr) {
                        "wrench setpoints; dropping");
 }
 ```
+
 Add `#include "geometry_msgs/msg/pose.hpp"` and `"geometry_msgs/msg/twist.hpp"` to
 `stream_server.cpp`.
 
@@ -937,21 +974,25 @@ git add kinova_gen3_ros2/src/stream_server.cpp kinova_gen3_ros2/test/stream_serv
 git commit -m "feat(ros2): route the six setpoint topics onto StreamSink"
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: `/stream_status`
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/stream_server.cpp` (`publish_status_if_changed`)
 - Modify: `kinova_gen3_ros2/test/stream_server_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `StreamServer`, `FakeStreamSink`, core's `StreamSink::on_query_stream()`.
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Write the failing tests**
 
 Add a collector to the fixture:
+
 ```cpp
   std::vector<kinova_gen3_interfaces::msg::StreamStatus> collect_status(
       std::chrono::milliseconds dwell) {
@@ -967,7 +1008,9 @@ Add a collector to the fixture:
     return got;
   }
 ```
+
 and the tests:
+
 ```cpp
 // open/timeout/rejected_count come from core, NOT from what this node remembers, so a
 // session core tore down on its own still surfaces.
@@ -1017,6 +1060,7 @@ Expected: FAIL — nothing is published, because `publish_status_if_changed` is 
 - [ ] **Step 3: Implement it**
 
 Add a payload comparator to the anonymous namespace:
+
 ```cpp
 bool same(const kinova_gen3_interfaces::msg::StreamStatus& a,
           const kinova_gen3_interfaces::msg::StreamStatus& b) {
@@ -1024,7 +1068,9 @@ bool same(const kinova_gen3_interfaces::msg::StreamStatus& a,
          a.timeout_s == b.timeout_s && a.rejected_count == b.rejected_count;
 }
 ```
+
 and replace the stub:
+
 ```cpp
 void StreamServer::publish_status_if_changed() {
   // open/timeout/rejected_count come from CORE, not from what we remember opening.
@@ -1060,20 +1106,24 @@ git add kinova_gen3_ros2/src/stream_server.cpp kinova_gen3_ros2/test/stream_serv
 git commit -m "feat(ros2): /stream_status reports core's session, not our record of it"
 ```
 
----
+______________________________________________________________________
 
 ### Task 6: Wire `StreamServer` into `bringup_node`
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/bringup_node.cpp`
 
 **Interfaces:**
+
 - Consumes: `StreamServer` (Task 2), the existing `interface::Arbiter arb`.
+
 - Produces: the running node exposes the streaming surface.
 
 - [ ] **Step 1: Add the include**
 
 After `#include "kinova_gen3_ros2/arbitration_server.h"`:
+
 ```cpp
 #include "kinova_gen3_ros2/stream_server.h"
 ```
@@ -1081,6 +1131,7 @@ After `#include "kinova_gen3_ros2/arbitration_server.h"`:
 - [ ] **Step 2: Construct it beside `ArbitrationServer`**
 
 After the `ArbitrationServer arbitration_server(...)` line:
+
 ```cpp
   // Wired to the Arbiter, not the Supervisor: that is how setpoint tokens get checked
   // at all. Declared here so it is destroyed before arb stops delegating.
@@ -1090,6 +1141,7 @@ After the `ArbitrationServer arbitration_server(...)` line:
 - [ ] **Step 3: Extend the start-up log**
 
 Replace the `RCLCPP_INFO` "kinova_gen3_node up" call:
+
 ```cpp
   RCLCPP_INFO(node->get_logger(),
               "kinova_gen3_node up (%s); arbitration=%s; actions: /execute_joint_trajectory, "
@@ -1116,6 +1168,7 @@ ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2
   ros2 topic list | grep setpoint && \
   pkill -TERM -f kinova_gen3_node'"
 ```
+
 Expected: seven controllers with `available` true for the first four, and six
 `/setpoint/*` topics listed.
 
@@ -1126,24 +1179,30 @@ git add kinova_gen3_ros2/src/bringup_node.cpp
 git commit -m "feat(ros2): wire StreamServer into the node"
 ```
 
----
+______________________________________________________________________
 
 ### Task 7: End-to-end streaming test against a real Arbiter
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/test/arbitration_integration_test.cpp`
 
 **Interfaces:**
+
 - Consumes: core's `Arbiter`, the existing `RecordingSink`.
+
 - Produces: nothing new.
 
 - [ ] **Step 1: Extend `RecordingSink` to record setpoint tokens**
 
 Add to the struct, beside the existing members:
+
 ```cpp
   Token last_setpoint_token{};
 ```
+
 and replace `on_setpoint_joint_position`:
+
 ```cpp
   void on_setpoint_joint_position(const JointSetpoint& s) override {
     note("setpoint"); std::lock_guard<std::mutex> l(m); last_setpoint_token = s.token;
@@ -1213,11 +1272,14 @@ TEST(ArbitrationIntegration, EstopHaltReachesTheArmDuringAStreamOpen) {
   EXPECT_TRUE(arb.status().estopped);
 }
 ```
+
 This needs two more members on `RecordingSink` and a blocking `on_stream_open`:
+
 ```cpp
   std::atomic<bool> block_open{false};
   std::atomic<bool> release_open{false};
 ```
+
 ```cpp
   StreamOpenResult on_stream_open(const StreamOpenRequest&) override {
     note("stream_open");
@@ -1244,15 +1306,18 @@ git add kinova_gen3_ros2/test/arbitration_integration_test.cpp
 git commit -m "test(ros2): setpoint tokens are gated, and e-stop beats the mode settle"
 ```
 
----
+______________________________________________________________________
 
 ### Task 8: Documentation
 
 **Files:**
+
 - Modify: `README.md`
 
 **Interfaces:**
+
 - Consumes: everything above.
+
 - Produces: nothing.
 
 - [ ] **Step 1: Document the streaming surface**
@@ -1287,7 +1352,7 @@ git add README.md
 git commit -m "docs(ros2): the streaming tier — controllers, channels, session lifecycle"
 ```
 
----
+______________________________________________________________________
 
 ## Deliberate test-scope calls
 

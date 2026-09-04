@@ -22,17 +22,17 @@ Four facts from core drive every decision below.
    `Transport`, not a `ControlMode` — it stamps a gripper field into the outgoing frame.
    You can grip during a trajectory, an impedance hold or a velocity stream, and nothing
    about it touches mode switching. So this tier needs no mode negotiation.
-2. **It needs no session.** `Arbiter::on_gripper_setpoint` gates on `admit(s.token)` and
+1. **It needs no session.** `Arbiter::on_gripper_setpoint` gates on `admit(s.token)` and
    nothing else — there is no `open_stream` equivalent to build. Holding the arm's token
    is the entire prerequisite. The gripper rides the ARM's token by core's spec decision:
    one physical machine, one holder.
-3. **There is no force servo, and no "let go".** `GripperCommand::force` is a *current
+1. **There is no force servo, and no "let go".** `GripperCommand::force` is a *current
    ceiling*: the gripper closes at `speed` toward `position` and stalls when it reaches
    the limit. `GripperMode` has no force mode at all. And `GripperController::release()`
    does not open or slacken the gripper — the last submessage stays latched in KORTEX's
    persistent cyclic command and is retransmitted; the 2F-85 is effectively self-locking.
    To open, command `position = 0`.
-4. **`speed` and `force` are not sticky.** `set_target` takes all three fields every call
+1. **`speed` and `force` are not sticky.** `set_target` takes all three fields every call
    and clamps each to `[0,1]`. A message carrying only `position` silently commands
    whatever `speed`/`force` its defaults hold.
 
@@ -40,11 +40,11 @@ Four facts from core drive every decision below.
 
 1. **A setpoint topic, not an action.** `/setpoint/gripper`, joining its six siblings.
    Maps 1:1 onto `on_gripper_setpoint` with no invented semantics.
-2. **No `active` field.** See "The `active` trap" below.
-3. **The knuckle joint goes in the arm's existing `/joint_states` message**, one stamp.
-4. **Normalized data gets its own topic**, `/gripper_state`, where its units can be stated.
-5. **Ship both URDFs for now.** Reducing to one needs a core change; deferred to #14.
-6. **`articulated` becomes the launch default**, now that something publishes the joint.
+1. **No `active` field.** See "The `active` trap" below.
+1. **The knuckle joint goes in the arm's existing `/joint_states` message**, one stamp.
+1. **Normalized data gets its own topic**, `/gripper_state`, where its units can be stated.
+1. **Ship both URDFs for now.** Reducing to one needs a core change; deferred to #14.
+1. **`articulated` becomes the launch default**, now that something publishes the joint.
 
 ## Command path
 

@@ -65,13 +65,13 @@ non-zero if the terminal `error_code` isn't `0`.
 
 ## Result codes
 
-| Code | Name | Meaning |
-|---|---|---|
-| `0` | `SUCCESSFUL` | Plan executed to completion. |
-| `-1` | `INVALID_GOAL` | Goal rejected before planning — e.g. `target.header.frame_id` is not `base_link`. |
-| `-4` | `PATH_TOLERANCE_VIOLATED` | Execution diverged from the planned trajectory beyond the guard. |
-| `-6` | `PREEMPTED` | Goal was canceled (during planning or execution — see Cancelling below). |
-| `-7` | `PLANNING_FAILED` | cuRobo returned no plan — unreachable/colliding target, the cuRobo action server is unavailable, or it's busy planning another goal (one plan at a time). `error_string` carries cuRobo's message. |
+| Code | Name                      | Meaning                                                                                                                                                                                            |
+| ---- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | `SUCCESSFUL`              | Plan executed to completion.                                                                                                                                                                       |
+| `-1` | `INVALID_GOAL`            | Goal rejected before planning — e.g. `target.header.frame_id` is not `base_link`.                                                                                                                  |
+| `-4` | `PATH_TOLERANCE_VIOLATED` | Execution diverged from the planned trajectory beyond the guard.                                                                                                                                   |
+| `-6` | `PREEMPTED`               | Goal was canceled (during planning or execution — see Cancelling below).                                                                                                                           |
+| `-7` | `PLANNING_FAILED`         | cuRobo returned no plan — unreachable/colliding target, the cuRobo action server is unavailable, or it's busy planning another goal (one plan at a time). `error_string` carries cuRobo's message. |
 
 `error_code = -5` (`GOAL_TOLERANCE_VIOLATED`) does not apply to this action.
 

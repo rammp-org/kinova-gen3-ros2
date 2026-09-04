@@ -1,4 +1,5 @@
 """Output surfaces: does the node actually publish what it claims, on the right QoS."""
+
 import math
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
@@ -16,9 +17,13 @@ def check_joint_states(ctx):
         return Result("", FAIL, "nothing on /joint_states (QoS is best-effort)")
     expected = [f"joint_{i}" for i in range(1, 8)]
     if list(js.name[:7]) != expected:
-        return Result("", FAIL, f"names are {list(js.name[:7])}, expected {expected}. "
-                                "robot_state_publisher matches by NAME; a mismatch here "
-                                "freezes TF silently.")
+        return Result(
+            "",
+            FAIL,
+            f"names are {list(js.name[:7])}, expected {expected}. "
+            "robot_state_publisher matches by NAME; a mismatch here "
+            "freezes TF silently.",
+        )
     if not (len(js.position) >= 7 and len(js.velocity) >= 7 and len(js.effort) >= 7):
         return Result("", FAIL, "position/velocity/effort are not all populated")
     return Result("", PASS, f"7 joints, q[0]={js.position[0]:+.4f}")
@@ -34,7 +39,9 @@ def check_ee_state(ctx):
     r = ee.pose.orientation
     norm = math.sqrt(r.x**2 + r.y**2 + r.z**2 + r.w**2)
     if abs(norm - 1.0) > 1e-6:
-        return Result("", FAIL, f"orientation is not a unit quaternion (|q|={norm:.6f})")
+        return Result(
+            "", FAIL, f"orientation is not a unit quaternion (|q|={norm:.6f})"
+        )
     reach = math.sqrt(p.x**2 + p.y**2 + p.z**2)
     # The Gen3's tool cannot be at the origin and cannot be 2 m away. A zero here means
     # ee_pose was never populated -- the exact bug /ee_state was added to fix.
@@ -50,8 +57,10 @@ def check_state_consistency(ctx):
     ee = ctx.latest("ee_state", timeout=6.0, fresh=True)
     if js is None or ee is None:
         return Result("", FAIL, "missing one of the two topics")
-    dt = abs((js.header.stamp.sec - ee.header.stamp.sec)
-             + (js.header.stamp.nanosec - ee.header.stamp.nanosec) * 1e-9)
+    dt = abs(
+        (js.header.stamp.sec - ee.header.stamp.sec)
+        + (js.header.stamp.nanosec - ee.header.stamp.nanosec) * 1e-9
+    )
     # Both are stamped from the same publish_state call, so consecutive samples should
     # be within a pump period (~10 ms). Anything larger means they are not paired.
     if dt > 0.05:
@@ -68,8 +77,12 @@ def check_control_status(ctx):
         return Result("", FAIL, "owned=true but owner_id is empty")
     if not cs.owned and cs.owner_id:
         return Result("", FAIL, f"owned=false but owner_id='{cs.owner_id}'")
-    return Result("", PASS, f"mode={'enforced' if cs.arbitration_enabled else 'disabled'} "
-                            f"owned={cs.owned} estopped={cs.estopped} gen={cs.generation}")
+    return Result(
+        "",
+        PASS,
+        f"mode={'enforced' if cs.arbitration_enabled else 'disabled'} "
+        f"owned={cs.owned} estopped={cs.estopped} gen={cs.generation}",
+    )
 
 
 @REGISTRY.add(SEC, "/stream_status is latched and reports core's view")
@@ -79,29 +92,41 @@ def check_stream_status(ctx):
         return Result("", FAIL, "nothing on /stream_status")
     if not ss.open and ss.controller:
         return Result("", FAIL, f"closed but still labelled '{ss.controller}'")
-    return Result("", PASS, f"open={ss.open} controller='{ss.controller}' "
-                            f"rejected={ss.rejected_count}")
+    return Result(
+        "",
+        PASS,
+        f"open={ss.open} controller='{ss.controller}' " f"rejected={ss.rejected_count}",
+    )
 
 
 def _level(s):
     """DiagnosticStatus.level is a byte in rclpy; normalise to int."""
-    return int.from_bytes(s.level, "big") if isinstance(s.level, bytes) else int(s.level)
+    return (
+        int.from_bytes(s.level, "big") if isinstance(s.level, bytes) else int(s.level)
+    )
 
 
 @REGISTRY.add(SEC, "/diagnostics carries all three REP 107 tasks")
 def check_diagnostics(ctx):
     from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+
     seen = {}
-    qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
-                     history=HistoryPolicy.KEEP_LAST, depth=10)
+    qos = QoSProfile(
+        reliability=ReliabilityPolicy.RELIABLE,
+        history=HistoryPolicy.KEEP_LAST,
+        depth=10,
+    )
     # ArbitrationServer, Ros2Backend and GripperServer each own a diagnostic_updater,
     # so they publish SEPARATE DiagnosticArrays, one task apiece. Reading a single
     # message finds one task and wrongly concludes the others are missing -- collect
     # over a window instead.
     sub = ctx.n.create_subscription(
-        DiagnosticArray, "/diagnostics",
-        lambda m: [seen.__setitem__(s.name, s) for s in m.status], qos)
-    ctx.spin(4.0)                       # all three updaters tick at 1 Hz
+        DiagnosticArray,
+        "/diagnostics",
+        lambda m: [seen.__setitem__(s.name, s) for s in m.status],
+        qos,
+    )
+    ctx.spin(4.0)  # all three updaters tick at 1 Hz
     ctx.n.destroy_subscription(sub)
 
     if not seen:

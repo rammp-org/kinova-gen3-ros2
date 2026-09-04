@@ -24,6 +24,7 @@ Two things this test learned the hard way, both worth keeping:
 Run against a live `ros2 launch kinova_gen3_description description.launch.py`:
     python3 test_tf_updates.py
 """
+
 import math
 import sys
 import time
@@ -64,7 +65,8 @@ class Prober(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
             try:
                 t = self.buf.lookup_transform(
-                    BASE, TOOL, rclpy.time.Time()).transform.translation
+                    BASE, TOOL, rclpy.time.Time()
+                ).transform.translation
                 last = (t.x, t.y, t.z)
             except Exception:
                 pass
@@ -77,8 +79,10 @@ def main() -> int:
     try:
         first = node.settle_at(0.0)
         if first is None:
-            print(f"FAIL: no transform {BASE} -> {TOOL}. Is robot_state_publisher "
-                  "running, and is it serving the 7-DOF model?")
+            print(
+                f"FAIL: no transform {BASE} -> {TOOL}. Is robot_state_publisher "
+                "running, and is it serving the 7-DOF model?"
+            )
             return 1
 
         second = node.settle_at(math.pi / 4)
@@ -91,8 +95,10 @@ def main() -> int:
         print(f"  joint_2 = pi/4  -> {tuple(round(v, 4) for v in second)}")
         print(f"  max delta       =  {moved:.4f} m")
         if moved <= 0.01:
-            print("FAIL: TF did not move. This is the frozen-TF defect: the joint names "
-                  "in /joint_states do not match the URDF.")
+            print(
+                "FAIL: TF did not move. This is the frozen-TF defect: the joint names "
+                "in /joint_states do not match the URDF."
+            )
             return 1
         print("PASS: TF follows /joint_states")
         return 0

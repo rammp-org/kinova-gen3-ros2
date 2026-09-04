@@ -11,6 +11,7 @@ dies the stream's timeout_s expires and the driver safe-stops on its own.
 
     python3 teleop_xbox.py --dry-run     # print setpoints, open no stream, touch nothing
 """
+
 import argparse
 import math
 import os
@@ -21,22 +22,28 @@ import time
 import rclpy
 from geometry_msgs.msg import Pose, Twist
 from kinova_gen3_interfaces.msg import EeState, PoseSetpoint, TwistSetpoint
-from kinova_gen3_interfaces.srv import (AcquireControl, CloseStream, OpenStream,
-                                       ReleaseControl)
+from kinova_gen3_interfaces.srv import (
+    AcquireControl,
+    CloseStream,
+    OpenStream,
+    ReleaseControl,
+)
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-SETPOINT_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
-                          history=HistoryPolicy.KEEP_LAST, depth=1)
-SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
-                        history=HistoryPolicy.KEEP_LAST, depth=10)
+SETPOINT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1
+)
+SENSOR_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10
+)
 
 # xpad axis/button numbers. LX LY LT RX RY RT / A B.
 AX_LX, AX_LY, AX_RX, AX_RY = 0, 1, 3, 4
 BTN_A, BTN_B = 0, 1
 DEADZONE = 0.15
 RATE_HZ = 100.0
-LEASH_M = 0.10          # the integrated POSE target may never outrun measured by more
+LEASH_M = 0.10  # the integrated POSE target may never outrun measured by more
 
 
 def tok(t):
@@ -62,7 +69,7 @@ class Pad:
             if not buf or len(buf) < 8:
                 return pressed
             _, value, etype, number = struct.unpack("IhBB", buf)
-            etype &= ~0x80                       # strip the synthetic init flag
+            etype &= ~0x80  # strip the synthetic init flag
             if etype == 0x02:
                 self.axes[number] = value / 32767.0
             elif etype == 0x01:
@@ -79,10 +86,12 @@ class Pad:
 def quat_mul(a, b):
     ax, ay, az, aw = a
     bx, by, bz, bw = b
-    return (aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-            aw * bw - ax * bx - ay * by - az * bz)
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
 
 
 class Teleop(Node):
@@ -90,13 +99,18 @@ class Teleop(Node):
         super().__init__("teleop_xbox")
         self.args = args
         self.ee = None
-        self.create_subscription(EeState, "/ee_state",
-                                 lambda m: setattr(self, "ee", m), SENSOR_QOS)
-        self.pub_pose = self.create_publisher(PoseSetpoint, "/setpoint/pose", SETPOINT_QOS)
-        self.pub_twist = self.create_publisher(TwistSetpoint, "/setpoint/twist", SETPOINT_QOS)
+        self.create_subscription(
+            EeState, "/ee_state", lambda m: setattr(self, "ee", m), SENSOR_QOS
+        )
+        self.pub_pose = self.create_publisher(
+            PoseSetpoint, "/setpoint/pose", SETPOINT_QOS
+        )
+        self.pub_twist = self.create_publisher(
+            TwistSetpoint, "/setpoint/twist", SETPOINT_QOS
+        )
         self.token = [0] * 16
         self.mode = "twist"
-        self.target = None      # POSE mode integrator: (x, y, z, qx, qy, qz, qw)
+        self.target = None  # POSE mode integrator: (x, y, z, qx, qy, qz, qw)
 
     def spin(self, seconds):
         end = time.time() + seconds
@@ -125,22 +139,28 @@ class Teleop(Node):
             return
         # Publishers already exist and DDS has settled -- OpenStream.srv is explicit
         # that opening first sends the early setpoints nowhere.
-        r = self.call(OpenStream, "open_stream", OpenStream.Request(
-            controller=self.controller(), timeout_s=0.5, token=tok(self.token)))
+        r = self.call(
+            OpenStream,
+            "open_stream",
+            OpenStream.Request(
+                controller=self.controller(), timeout_s=0.5, token=tok(self.token)
+            ),
+        )
         if not r.accepted:
             sys.exit(f"open_stream refused: {r.message}")
         print(f"streaming {self.controller()} on {list(r.channels)}")
 
     def close(self):
         if not self.args.dry_run:
-            self.call(CloseStream, "close_stream",
-                      CloseStream.Request(token=tok(self.token)))
+            self.call(
+                CloseStream, "close_stream", CloseStream.Request(token=tok(self.token))
+            )
 
     def toggle(self):
         self.close()
         self.mode = "pose" if self.mode == "twist" else "twist"
         self.target = None
-        self.spin(0.3)                    # the 250 ms mode settle, plus a little
+        self.spin(0.3)  # the 250 ms mode settle, plus a little
         self.open()
 
     # ---- the loop -----------------------------------------------------------
@@ -149,7 +169,7 @@ class Teleop(Node):
         self.target = [p.x, p.y, p.z, o.x, o.y, o.z, o.w]
 
     def step(self, pad, dt):
-        vx = -pad.axis(AX_LY) * self.args.max_lin      # stick up = +X away from base
+        vx = -pad.axis(AX_LY) * self.args.max_lin  # stick up = +X away from base
         vy = -pad.axis(AX_LX) * self.args.max_lin
         vz = -pad.axis(AX_RY) * self.args.max_lin
         wz = -pad.axis(AX_RX) * self.args.max_ang
@@ -159,7 +179,9 @@ class Teleop(Node):
             m.twist.linear.x, m.twist.linear.y, m.twist.linear.z = vx, vy, vz
             m.twist.angular.z = wz
             if self.args.dry_run:
-                print(f"\rtwist  v=({vx:+.3f},{vy:+.3f},{vz:+.3f}) wz={wz:+.3f}", end="")
+                print(
+                    f"\rtwist  v=({vx:+.3f},{vy:+.3f},{vz:+.3f}) wz={wz:+.3f}", end=""
+                )
             else:
                 self.pub_twist.publish(m)
             return
@@ -173,8 +195,9 @@ class Teleop(Node):
         self.target[2] += vz * dt
         if wz:
             half = wz * dt / 2.0
-            self.target[3:] = quat_mul((0.0, 0.0, math.sin(half), math.cos(half)),
-                                       tuple(self.target[3:]))
+            self.target[3:] = quat_mul(
+                (0.0, 0.0, math.sin(half), math.cos(half)), tuple(self.target[3:])
+            )
         # The leash. An integrator with no bound can walk the target away from the arm
         # whenever IK cannot keep up; this makes that impossible by construction.
         meas = self.ee.pose.position
@@ -186,12 +209,21 @@ class Teleop(Node):
                 self.target[i] = c + d[i] * k
 
         m = PoseSetpoint(pose=Pose(), token=tok(self.token))
-        (m.pose.position.x, m.pose.position.y, m.pose.position.z,
-         m.pose.orientation.x, m.pose.orientation.y,
-         m.pose.orientation.z, m.pose.orientation.w) = self.target
+        (
+            m.pose.position.x,
+            m.pose.position.y,
+            m.pose.position.z,
+            m.pose.orientation.x,
+            m.pose.orientation.y,
+            m.pose.orientation.z,
+            m.pose.orientation.w,
+        ) = self.target
         if self.args.dry_run:
-            print(f"\rpose   p=({self.target[0]:+.3f},{self.target[1]:+.3f},"
-                  f"{self.target[2]:+.3f}) leash={dist:.3f}m", end="")
+            print(
+                f"\rpose   p=({self.target[0]:+.3f},{self.target[1]:+.3f},"
+                f"{self.target[2]:+.3f}) leash={dist:.3f}m",
+                end="",
+            )
         else:
             self.pub_pose.publish(m)
 
@@ -202,8 +234,11 @@ def main():
     ap.add_argument("--max-lin", type=float, default=0.05, help="m/s")
     ap.add_argument("--max-ang", type=float, default=0.3, help="rad/s")
     ap.add_argument("--mode", choices=("twist", "pose"), default="twist")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print setpoints; open no stream, command nothing")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print setpoints; open no stream, command nothing",
+    )
     args = ap.parse_args()
 
     rclpy.init()
@@ -212,16 +247,21 @@ def main():
     pad = Pad(args.js)
 
     if not args.dry_run:
-        r = n.call(AcquireControl, "acquire_control",
-                   AcquireControl.Request(owner_id="teleop_xbox"))
+        r = n.call(
+            AcquireControl,
+            "acquire_control",
+            AcquireControl.Request(owner_id="teleop_xbox"),
+        )
         if not r.accepted:
             sys.exit(f"acquire_control refused: {r.message}")
         n.token = tok(r.token)
         print(f"owned, generation={r.generation}")
 
-    n.spin(0.5)                            # let DDS discovery settle before opening
+    n.spin(0.5)  # let DDS discovery settle before opening
     n.open()
-    print(f"mode={n.mode}  A=toggle  B=quit   lin={args.max_lin} m/s ang={args.max_ang} rad/s")
+    print(
+        f"mode={n.mode}  A=toggle  B=quit   lin={args.max_lin} m/s ang={args.max_ang} rad/s"
+    )
 
     dt = 1.0 / RATE_HZ
     try:
@@ -243,8 +283,11 @@ def main():
         try:
             n.close()
             if not args.dry_run:
-                n.call(ReleaseControl, "release_control",
-                       ReleaseControl.Request(token=tok(n.token)))
+                n.call(
+                    ReleaseControl,
+                    "release_control",
+                    ReleaseControl.Request(token=tok(n.token)),
+                )
         finally:
             if rclpy.ok():
                 rclpy.shutdown()

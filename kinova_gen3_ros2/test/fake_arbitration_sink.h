@@ -4,9 +4,10 @@
 #include <vector>
 #include "kinova_lowlevel/interface/ports.h"
 
-// Stand-in for the Arbiter. Records the calls ArbitrationServer makes and maintains just
-// enough state for status() to be meaningful. No Supervisor, no modes, no robot --
-// which is the whole reason ArbitrationServer holds only an ArbitrationSink&.
+// Stand-in for the Arbiter. Records the calls ArbitrationServer makes and
+// maintains just enough state for status() to be meaningful. No Supervisor, no
+// modes, no robot -- which is the whole reason ArbitrationServer holds only an
+// ArbitrationSink&.
 struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
   mutable std::mutex m;
   std::vector<std::string> calls;
@@ -14,10 +15,16 @@ struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
   kinova::interface::Token next_token{};
   bool grant_accepted = true;
 
-  void note(const std::string& s) { std::lock_guard<std::mutex> l(m); calls.push_back(s); }
-  std::vector<std::string> log() const { std::lock_guard<std::mutex> l(m); return calls; }
+  void note(const std::string &s) {
+    std::lock_guard<std::mutex> l(m);
+    calls.push_back(s);
+  }
+  std::vector<std::string> log() const {
+    std::lock_guard<std::mutex> l(m);
+    return calls;
+  }
 
-  kinova::interface::GrantResult grant(const std::string& owner_id) override {
+  kinova::interface::GrantResult grant(const std::string &owner_id) override {
     note("grant:" + owner_id);
     std::lock_guard<std::mutex> l(m);
     if (!grant_accepted)

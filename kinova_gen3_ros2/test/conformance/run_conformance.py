@@ -16,18 +16,18 @@ session -- and if the e-stop checks fail, the run aborts before any motion.
     --no-motion        skip everything that commands the arm
     --list             print the checks and exit
 """
+
 import argparse
 import sys
-import time
 
 import rclpy
 from rclpy.node import Node
 
 import checks_arbitration  # noqa: F401  (registers checks on import)
-import checks_gripper      # noqa: F401
-import checks_motion       # noqa: F401
-import checks_state        # noqa: F401
-import checks_streaming    # noqa: F401
+import checks_gripper  # noqa: F401
+import checks_motion  # noqa: F401
+import checks_state  # noqa: F401
+import checks_streaming  # noqa: F401
 from harness import FAIL, PASS, REGISTRY, SKIP, Ctx, Result
 
 SECTION_ORDER = ["state", "arbitration", "streaming", "motion", "gripper"]
@@ -35,8 +35,18 @@ SECTION_ORDER = ["state", "arbitration", "streaming", "motion", "gripper"]
 # their section, and a failure aborts the run.
 ESTOP_CRITICAL = ("engaging /estop latches", "a fresh clear releases")
 
-GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
-MARK = {PASS: f"{GREEN}PASS{RESET}", FAIL: f"{RED}FAIL{RESET}", SKIP: f"{YELLOW}SKIP{RESET}"}
+GREEN, RED, YELLOW, DIM, RESET = (
+    "\033[32m",
+    "\033[31m",
+    "\033[33m",
+    "\033[2m",
+    "\033[0m",
+)
+MARK = {
+    PASS: f"{GREEN}PASS{RESET}",
+    FAIL: f"{RED}FAIL{RESET}",
+    SKIP: f"{YELLOW}SKIP{RESET}",
+}
 
 
 def detect_mode(ctx) -> str:
@@ -93,31 +103,43 @@ def main() -> int:
                 if needs_motion and args.no_motion:
                     r = Result(name, SKIP, "--no-motion")
                 elif needs_mode and needs_mode != mode:
-                    r = Result(name, SKIP, f"needs arbitration_mode={needs_mode}, "
-                                           f"node is {mode}")
+                    r = Result(
+                        name,
+                        SKIP,
+                        f"needs arbitration_mode={needs_mode}, " f"node is {mode}",
+                    )
                 else:
                     try:
                         r = fn(ctx)
                         r.name = name
-                    except Exception as e:                     # a raising check is a
-                        r = Result(name, FAIL, f"{type(e).__name__}: {e}")  # failing one
+                    except Exception as e:  # a raising check is a
+                        r = Result(
+                            name, FAIL, f"{type(e).__name__}: {e}"
+                        )  # failing one
                 results.append((sec, r))
                 print(f"  {MARK[r.status]}  {name}")
                 if r.detail:
                     print(f"        {DIM}{r.detail}{RESET}")
 
-                if (r.status == FAIL and sec == "arbitration"
-                        and any(k in name for k in ESTOP_CRITICAL)):
-                    print(f"\n{RED}ABORTING: the e-stop path failed. Nothing that "
-                          f"commands the arm will be run.{RESET}")
+                if (
+                    r.status == FAIL
+                    and sec == "arbitration"
+                    and any(k in name for k in ESTOP_CRITICAL)
+                ):
+                    print(
+                        f"\n{RED}ABORTING: the e-stop path failed. Nothing that "
+                        f"commands the arm will be run.{RESET}"
+                    )
                     aborted = True
                     break
             print()
             if aborted:
                 break
     finally:
-        print(f"{DIM}restoring: closing any session, releasing ownership, clearing "
-              f"e-stop ...{RESET}")
+        print(
+            f"{DIM}restoring: closing any session, releasing ownership, clearing "
+            f"e-stop ...{RESET}"
+        )
         ctx.cleanup()
         node.destroy_node()
         rclpy.shutdown()

@@ -33,40 +33,47 @@
 The core working tree is rsynced live, so **local core edits are picked up without a core commit/push** (the commit in Task 2 is for provenance only).
 
 **Build (sim, with tests), scoped so the cuRobo repo's GPU packages are never built:**
+
 ```sh
 bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON
 ```
 
 **Run one gtest binary on abra** (source both ROS and the workspace overlay so message typesupport resolves):
+
 ```sh
 ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; /tmp/kinova-ros2-ws/build/kinova_gen3_ros2/<TESTBIN> --gtest_color=yes"'
 ```
 
 **Build just the core** (Task 2 verification):
+
 ```sh
 bash scripts/abra_colcon.sh --packages-select kinova_lowlevel
 ```
 
 **Interfaces introspection** (Task 1 verification):
+
 ```sh
 ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show kinova_gen3_interfaces/action/GoToEEPose"'
 ```
 
----
+______________________________________________________________________
 
 ### Task 1: `GoToEEPose.action` interface + `geometry_msgs` dependency
 
 **Files:**
+
 - Create: `kinova_gen3_interfaces/action/GoToEEPose.action`
 - Modify: `kinova_gen3_interfaces/CMakeLists.txt`
 - Modify: `kinova_gen3_interfaces/package.xml`
 
 **Interfaces:**
+
 - Produces: `kinova_gen3_interfaces/action/GoToEEPose` with `Goal{ geometry_msgs/PoseStamped target, string sender_id }`, `Result{ int32 error_code, string error_string, trajectory_msgs/JointTrajectoryPoint final_error }`, `Feedback{ string phase, string planner_state, float32 fraction_complete, trajectory_msgs/JointTrajectoryPoint actual }`.
 
 - [ ] **Step 1: Create the action file**
 
 `kinova_gen3_interfaces/action/GoToEEPose.action`:
+
 ```
 # Goal — move the tool (tool_frame) to a base_link pose; cuRobo plans collision-free.
 geometry_msgs/PoseStamped target   # frame_id MUST be base_link (rejected otherwise)
@@ -88,6 +95,7 @@ trajectory_msgs/JointTrajectoryPoint actual   # live measured q during execution
 - [ ] **Step 2: Register the action + add `geometry_msgs` in CMakeLists**
 
 In `kinova_gen3_interfaces/CMakeLists.txt`, add `find_package(geometry_msgs REQUIRED)` after the other `find_package` lines, and update the generate call:
+
 ```cmake
 find_package(geometry_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -100,6 +108,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 - [ ] **Step 3: Add the `geometry_msgs` depend in package.xml**
 
 In `kinova_gen3_interfaces/package.xml`, add alongside the other `<depend>` lines:
+
 ```xml
   <depend>geometry_msgs</depend>
 ```
@@ -111,24 +120,28 @@ Then the interfaces-introspection command.
 Expected: build green; `ros2 interface show kinova_gen3_interfaces/action/GoToEEPose` prints the three sections with the fields above.
 
 - [ ] **Step 5: Commit** (branch `feat/goto-ee-pose-curobo`)
+
 ```sh
 git add kinova_gen3_interfaces/action/GoToEEPose.action kinova_gen3_interfaces/CMakeLists.txt kinova_gen3_interfaces/package.xml
 git commit   # feat(interfaces): add GoToEEPose.action (+ geometry_msgs dep)
 ```
 
----
+______________________________________________________________________
 
 ### Task 2: Core `result_code::kPlanningFailed = -7`
 
 **Files:**
+
 - Modify: `../kinova-gen3-driver/include/kinova_lowlevel/interface/value_types.h:37-40` (core repo)
 
 **Interfaces:**
+
 - Produces: `kinova::interface::result_code::kPlanningFailed == -7`.
 
 Note: this is the **core repo** (`/home/swapnil/atdev/kinova-gen3-driver`), branch `feat/planning-failed-result-code`. `-7` is the next free *custom* slot after this codebase's own `kPreempted = -6`; `-2`/`-3` are avoided because the other codes mirror `control_msgs/FollowJointTrajectory`, whose `-2`/`-3` mean `INVALID_JOINTS`/`OLD_HEADER_TIMESTAMP`.
 
 - [ ] **Step 1: Create the core branch**
+
 ```sh
 cd /home/swapnil/atdev/kinova-gen3-driver && git checkout -b feat/planning-failed-result-code
 ```
@@ -136,6 +149,7 @@ cd /home/swapnil/atdev/kinova-gen3-driver && git checkout -b feat/planning-faile
 - [ ] **Step 2: Add the constant**
 
 Replace the `result_code` namespace body in `include/kinova_lowlevel/interface/value_types.h`:
+
 ```cpp
 namespace result_code {
   constexpr int kSuccessful = 0, kInvalidGoal = -1, kPathToleranceViolated = -4,
@@ -149,29 +163,34 @@ Run: `bash scripts/abra_colcon.sh --packages-select kinova_lowlevel` (from the R
 Expected: `kinova_lowlevel` builds green. (Header-only constant; no runtime test needed — it is exercised by Task 4's mapping test.)
 
 - [ ] **Step 4: Commit** (core repo, branch `feat/planning-failed-result-code`)
+
 ```sh
 cd /home/swapnil/atdev/kinova-gen3-driver
 git add include/kinova_lowlevel/interface/value_types.h
 git commit   # feat(interface): add result_code::kPlanningFailed = -7 for the cuRobo tier
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: `GoalRouter` (ActionServerPort demux)
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/goal_router.h`
 - Create: `kinova_gen3_ros2/src/goal_router.cpp`
 - Create: `kinova_gen3_ros2/test/goal_router_test.cpp`
 - Modify: `kinova_gen3_ros2/CMakeLists.txt`
 
 **Interfaces:**
+
 - Consumes: `kinova::interface::ActionServerPort`, `GoalId`, `TrajectoryFeedback`, `TrajectoryResult` (core `ports.h`/`value_types.h`).
+
 - Produces: `kinova_gen3_ros2::GoalRouter` — `GoalRouter(ActionServerPort& default_port)`, `void register_owner(const GoalId&, ActionServerPort&)`, and the two `ActionServerPort` overrides. Unregistered ids route to `default_port`; `settle` clears the override.
 
 - [ ] **Step 1: Write the failing test**
 
 `kinova_gen3_ros2/test/goal_router_test.cpp`:
+
 ```cpp
 #include <gtest/gtest.h>
 #include "kinova_gen3_ros2/goal_router.h"
@@ -222,6 +241,7 @@ TEST(GoalRouter, SettleClearsOwnerSoNextRoutesToDefault) {
 - [ ] **Step 2: Add the header (so the test compiles)**
 
 `kinova_gen3_ros2/include/kinova_gen3_ros2/goal_router.h`:
+
 ```cpp
 #pragma once
 #include <map>
@@ -254,21 +274,25 @@ class GoalRouter : public kinova::interface::ActionServerPort {
 - [ ] **Step 3: Wire the test target in CMakeLists, build, verify it FAILS to link**
 
 In `kinova_gen3_ros2/CMakeLists.txt`, add the library (after the `message_mapping` block) and the test (inside the existing `if(BUILD_TESTING)` block):
+
 ```cmake
 add_library(goal_router src/goal_router.cpp)
 target_include_directories(goal_router PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(goal_router kinova_lowlevel::kinova_lowlevel)
 ```
+
 ```cmake
   ament_add_gtest(goal_router_test test/goal_router_test.cpp)
   target_link_libraries(goal_router_test goal_router)
 ```
+
 Run the build. Expected: **link error** (undefined `GoalRouter::…`) because `src/goal_router.cpp` does not exist yet — confirms the test is wired and needs the implementation.
 
 - [ ] **Step 4: Implement `goal_router.cpp`**
 
 `kinova_gen3_ros2/src/goal_router.cpp`:
+
 ```cpp
 #include "kinova_gen3_ros2/goal_router.h"
 namespace kinova_gen3_ros2 {
@@ -306,24 +330,29 @@ Build, then run test binary `goal_router_test` (see "Build & test loop").
 Expected: 3/3 PASS.
 
 - [ ] **Step 6: Commit**
+
 ```sh
 git add kinova_gen3_ros2/include/kinova_gen3_ros2/goal_router.h kinova_gen3_ros2/src/goal_router.cpp kinova_gen3_ros2/test/goal_router_test.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit   # feat(ros2): GoalRouter — ActionServerPort demux by GoalId
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: message-mapping additions (JointTrajectory→TrajectoryGoal + GoToEEPose msgs)
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`
 - Modify: `kinova_gen3_ros2/src/message_mapping.cpp`
 - Modify: `kinova_gen3_ros2/test/message_mapping_test.cpp`
 - Modify: `kinova_gen3_ros2/CMakeLists.txt` (add `trajectory_msgs` dep on `message_mapping`)
 
 **Interfaces:**
+
 - Consumes: Task 1 (`GoToEEPose`), Task 2 (`kPlanningFailed`), core `TrajectoryGoal`/`TrajectoryFeedback`/`TrajectoryResult`.
+
 - Produces:
+
   - `kinova::interface::TrajectoryGoal to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory& traj)` — position-mode, `kLatestWins`, waypoints from `positions` + `time_from_start`; **caller sets `path_tolerance`/`sender_id`**.
   - `GoToEEPose::Feedback to_goto_feedback_msg(const kinova::interface::TrajectoryFeedback& fb)` — `phase="executing"`, `fraction_complete`, `actual`.
   - `GoToEEPose::Result to_goto_result_msg(const kinova::interface::TrajectoryResult& r)`.
@@ -331,6 +360,7 @@ git commit   # feat(ros2): GoalRouter — ActionServerPort demux by GoalId
 - [ ] **Step 1: Write the failing tests**
 
 Append to `kinova_gen3_ros2/test/message_mapping_test.cpp` (the `pt(v,t)` helper already exists in this file):
+
 ```cpp
 TEST(MessageMapping, JointTrajectoryToPositionGoal) {
   trajectory_msgs::msg::JointTrajectory traj;
@@ -370,10 +400,12 @@ TEST(MessageMapping, GotoExecutingFeedback) {
 - [ ] **Step 2: Declare the new functions in the header**
 
 In `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`, add includes + declarations:
+
 ```cpp
 #include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 ```
+
 ```cpp
 using GoToEEPose = kinova_gen3_interfaces::action::GoToEEPose;
 
@@ -386,14 +418,17 @@ GoToEEPose::Result   to_goto_result_msg(const kinova::interface::TrajectoryResul
 - [ ] **Step 3: Run the tests, verify they FAIL (undefined reference)**
 
 Add `trajectory_msgs` to the `message_mapping` deps in `CMakeLists.txt`:
+
 ```cmake
 ament_target_dependencies(message_mapping rclcpp kinova_gen3_interfaces trajectory_msgs)
 ```
+
 Build + run `message_mapping_test`. Expected: link/compile failure on the three new symbols.
 
 - [ ] **Step 4: Implement the mappers**
 
 Append to `kinova_gen3_ros2/src/message_mapping.cpp` (the file-static `vec_to_point` is already defined above these):
+
 ```cpp
 TrajectoryGoal to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory& traj) {
   TrajectoryGoal tg;
@@ -433,16 +468,18 @@ GoToEEPose::Result to_goto_result_msg(const TrajectoryResult& r) {
 Expected: all tests (the 5 pre-existing + 3 new) PASS.
 
 - [ ] **Step 6: Commit**
+
 ```sh
 git add kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h kinova_gen3_ros2/src/message_mapping.cpp kinova_gen3_ros2/test/message_mapping_test.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit   # feat(ros2): map cuRobo JointTrajectory + GoToEEPose feedback/result
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: `CuroboPlanClient` (async plan_to_pose client) + cuRobo interfaces in the build
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/curobo_plan_client.h`
 - Create: `kinova_gen3_ros2/src/curobo_plan_client.cpp`
 - Create: `kinova_gen3_ros2/test/fake_curobo_server.h` (shared test fake; reused in Task 6)
@@ -450,8 +487,11 @@ git commit   # feat(ros2): map cuRobo JointTrajectory + GoToEEPose feedback/resu
 - Modify: `kinova_gen3_ros2/CMakeLists.txt`, `kinova_gen3_ros2/package.xml`, `kinova_gen3.repos`, `scripts/abra_colcon.sh`
 
 **Interfaces:**
+
 - Consumes: `rammp_curobo_interfaces/action/PlanToPose`.
+
 - Produces: `kinova_gen3_ros2::CuroboPlanClient` with `struct Outcome{ bool ok; std::string message; trajectory_msgs::msg::JointTrajectory trajectory; }`, `CuroboPlanClient(rclcpp::Node::SharedPtr, rclcpp::CallbackGroup::SharedPtr, std::string action_name="/rammp_curobo/plan_to_pose")`, `void plan(const geometry_msgs::msg::Pose&, FeedbackCb, DoneCb)` (calls `DoneCb` exactly once), `void cancel()`. `FeedbackCb = std::function<void(const std::string&)>`, `DoneCb = std::function<void(Outcome)>`.
+
 - Produces (test): `kinova_gen3_ros2::test::FakeCuroboServer(node, bool succeed, int n_points=3)`.
 
 - [ ] **Step 1: Make `rammp_curobo_interfaces` available to the build**
@@ -459,15 +499,20 @@ git commit   # feat(ros2): map cuRobo JointTrajectory + GoToEEPose feedback/resu
 The abra dev loop rsyncs local trees (it does not vcs-import `.repos`). Add the interfaces package to the workspace by rsyncing just that sub-package (its GPU siblings are never copied, so colcon never sees them).
 
 Clone the cuRobo repo locally once (stable path, so the rsync source persists):
+
 ```sh
 git clone --depth 1 https://github.com/ChrissCox/RAMMP-CuRobo /home/swapnil/atdev/RAMMP-CuRobo
 ```
+
 In `scripts/abra_colcon.sh`, add a third rsync (after the existing two), copying **only** the interfaces package:
+
 ```sh
 rsync -az --mkpath --delete --exclude '.git/' --exclude 'build/' --exclude 'install/' --exclude 'log/' \
   "/home/swapnil/atdev/RAMMP-CuRobo/rammp_curobo_interfaces/" "abra:$WS/src/rammp_curobo_interfaces/"
 ```
+
 Document the source in `kinova_gen3.repos` (for the container build) by appending:
+
 ```yaml
   RAMMP-CuRobo:
     type: git
@@ -481,6 +526,7 @@ Document the source in `kinova_gen3.repos` (for the container build) by appendin
 - [ ] **Step 2: Write the shared fake cuRobo server**
 
 `kinova_gen3_ros2/test/fake_curobo_server.h`:
+
 ```cpp
 #pragma once
 #include <memory>
@@ -541,6 +587,7 @@ class FakeCuroboServer {
 - [ ] **Step 3: Write the failing client test**
 
 `kinova_gen3_ros2/test/curobo_plan_client_test.cpp`:
+
 ```cpp
 #include <gtest/gtest.h>
 #include <chrono>
@@ -609,6 +656,7 @@ TEST_F(CuroboClientTest, PlanAbortReturnsFailure) {
 - [ ] **Step 4: Add the client header**
 
 `kinova_gen3_ros2/include/kinova_gen3_ros2/curobo_plan_client.h`:
+
 ```cpp
 #pragma once
 #include <functional>
@@ -656,11 +704,14 @@ class CuroboPlanClient {
 - [ ] **Step 5: Wire libs/deps in CMakeLists + package.xml; build; verify test FAILS to link**
 
 `kinova_gen3_ros2/CMakeLists.txt` — add `find_package`s near the top:
+
 ```cmake
 find_package(geometry_msgs REQUIRED)
 find_package(rammp_curobo_interfaces REQUIRED)
 ```
+
 Add the library (after `goal_router`):
+
 ```cmake
 add_library(curobo_plan_client src/curobo_plan_client.cpp)
 target_include_directories(curobo_plan_client PUBLIC
@@ -668,7 +719,9 @@ target_include_directories(curobo_plan_client PUBLIC
 ament_target_dependencies(curobo_plan_client
   rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs trajectory_msgs)
 ```
+
 Add the test (inside `if(BUILD_TESTING)`):
+
 ```cmake
   ament_add_gtest(curobo_plan_client_test test/curobo_plan_client_test.cpp)
   target_include_directories(curobo_plan_client_test PRIVATE test)
@@ -676,16 +729,20 @@ Add the test (inside `if(BUILD_TESTING)`):
   ament_target_dependencies(curobo_plan_client_test
     rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs)
 ```
+
 `kinova_gen3_ros2/package.xml` — add:
+
 ```xml
   <depend>geometry_msgs</depend>
   <depend>rammp_curobo_interfaces</depend>
 ```
+
 Build. Expected: `curobo_plan_client_test` fails to link (`CuroboPlanClient::…` undefined) — confirms wiring.
 
 - [ ] **Step 6: Implement `curobo_plan_client.cpp`**
 
 `kinova_gen3_ros2/src/curobo_plan_client.cpp`:
+
 ```cpp
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include <chrono>
@@ -756,28 +813,33 @@ void CuroboPlanClient::cancel() {
 Expected: 2/2 PASS.
 
 - [ ] **Step 8: Commit**
+
 ```sh
 git add kinova_gen3_ros2/include/kinova_gen3_ros2/curobo_plan_client.h kinova_gen3_ros2/src/curobo_plan_client.cpp kinova_gen3_ros2/test/fake_curobo_server.h kinova_gen3_ros2/test/curobo_plan_client_test.cpp kinova_gen3_ros2/CMakeLists.txt kinova_gen3_ros2/package.xml kinova_gen3.repos scripts/abra_colcon.sh
 git commit   # feat(ros2): CuroboPlanClient — async /rammp_curobo/plan_to_pose client
 ```
 
----
+______________________________________________________________________
 
 ### Task 6: `GoToEEPoseServer` + end-to-end integration test
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/goto_ee_pose_server.h`
 - Create: `kinova_gen3_ros2/src/goto_ee_pose_server.cpp`
 - Create: `kinova_gen3_ros2/test/goto_ee_pose_integration_test.cpp`
 - Modify: `kinova_gen3_ros2/CMakeLists.txt`
 
 **Interfaces:**
+
 - Consumes: `GoalRouter` (T3), `to_trajectory_goal(JointTrajectory)`/`to_goto_*` (T4), `CuroboPlanClient` (T5), core `CommandSink`/`ActionServerPort`/`result_code`.
+
 - Produces: `kinova_gen3_ros2::GoToEEPoseServer(rclcpp::Node::SharedPtr, GoalRouter&, CuroboPlanClient&, rclcpp::CallbackGroup::SharedPtr)`, `void set_command_sink(kinova::interface::CommandSink*)`, and the two `ActionServerPort` overrides (execution-phase feedback/settle, driven via the router).
 
 - [ ] **Step 1: Write the failing integration test**
 
 `kinova_gen3_ros2/test/goto_ee_pose_integration_test.cpp`:
+
 ```cpp
 #include <gtest/gtest.h>
 #include <chrono>
@@ -902,6 +964,7 @@ TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
 - [ ] **Step 2: Add the server header**
 
 `kinova_gen3_ros2/include/kinova_gen3_ros2/goto_ee_pose_server.h`:
+
 ```cpp
 #pragma once
 #include <map>
@@ -961,6 +1024,7 @@ class GoToEEPoseServer : public kinova::interface::ActionServerPort {
 - [ ] **Step 3: Wire libs in CMakeLists; build; verify integration test FAILS to link**
 
 `kinova_gen3_ros2/CMakeLists.txt` — add the library (after `curobo_plan_client`):
+
 ```cmake
 add_library(goto_ee_pose_server src/goto_ee_pose_server.cpp)
 target_include_directories(goto_ee_pose_server PUBLIC
@@ -970,7 +1034,9 @@ ament_target_dependencies(goto_ee_pose_server
 target_link_libraries(goto_ee_pose_server
   goal_router curobo_plan_client message_mapping kinova_lowlevel::kinova_lowlevel)
 ```
+
 Add the test (inside `if(BUILD_TESTING)`):
+
 ```cmake
   ament_add_gtest(goto_ee_pose_integration_test test/goto_ee_pose_integration_test.cpp)
   target_include_directories(goto_ee_pose_integration_test PRIVATE test)
@@ -979,11 +1045,13 @@ Add the test (inside `if(BUILD_TESTING)`):
   ament_target_dependencies(goto_ee_pose_integration_test
     rclcpp rclcpp_action kinova_gen3_interfaces rammp_curobo_interfaces geometry_msgs)
 ```
+
 Build. Expected: `goto_ee_pose_integration_test` fails to link (`GoToEEPoseServer::…` undefined).
 
 - [ ] **Step 4: Implement `goto_ee_pose_server.cpp`**
 
 `kinova_gen3_ros2/src/goto_ee_pose_server.cpp`:
+
 ```cpp
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
 #include <functional>
@@ -1131,32 +1199,38 @@ void GoToEEPoseServer::settle(const GoalId& id, const TrajectoryResult& r) {
 Expected: 2/2 PASS — success path settles `SUCCESSFUL` with a 3-point position goal submitted; failure path settles `PLANNING_FAILED` with no submission.
 
 - [ ] **Step 6: Commit**
+
 ```sh
 git add kinova_gen3_ros2/include/kinova_gen3_ros2/goto_ee_pose_server.h kinova_gen3_ros2/src/goto_ee_pose_server.cpp kinova_gen3_ros2/test/goto_ee_pose_integration_test.cpp kinova_gen3_ros2/CMakeLists.txt
 git commit   # feat(ros2): GoToEEPoseServer — plan via cuRobo, execute via Supervisor
 ```
 
----
+______________________________________________________________________
 
 ### Task 7: Bring-up wiring (MultiThreadedExecutor + the new server) + test client
 
 **Files:**
+
 - Modify: `kinova_gen3_ros2/src/bringup_node.cpp`
 - Modify: `kinova_gen3_ros2/CMakeLists.txt` (link new libs + `geometry_msgs` into the node)
 - Create: `kinova_gen3_ros2/test/send_goto_pose.py`
 
 **Interfaces:**
+
 - Consumes: `GoalRouter`, `CuroboPlanClient`, `GoToEEPoseServer`, the core `Supervisor` (whose `ActionServerPort` argument becomes the router).
 
 - [ ] **Step 1: Rewire `bringup_node.cpp`**
 
 Add includes near the existing backend include:
+
 ```cpp
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
 ```
+
 Replace the node/backend/supervisor construction block (currently lines ~52-55) with:
+
 ```cpp
   auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
   auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node);
@@ -1174,12 +1248,16 @@ Replace the node/backend/supervisor construction block (currently lines ~52-55) 
   backend->set_command_sink(&sup);
   goto_server.set_command_sink(&sup);
 ```
+
 Change the ROS spin thread from single- to multi-threaded (currently line ~66):
+
 ```cpp
   std::thread ros_spin([&]{ rclcpp::executors::MultiThreadedExecutor ex; ex.add_node(node);
     while (!g_stop.load() && rclcpp::ok()) ex.spin_some(std::chrono::milliseconds(10)); });
 ```
+
 Update the startup log line (~70):
+
 ```cpp
   RCLCPP_INFO(node->get_logger(),
               "kinova_gen3_node up (%s); actions: /execute_joint_trajectory, /go_to_ee_pose",
@@ -1189,6 +1267,7 @@ Update the startup log line (~70):
 - [ ] **Step 2: Link the new libs into the node**
 
 In `kinova_gen3_ros2/CMakeLists.txt`, update the node's deps/links:
+
 ```cmake
 ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action kinova_gen3_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
@@ -1202,14 +1281,17 @@ Run: `bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args
 Expected: `kinova_gen3_node` builds and installs green.
 
 - [ ] **Step 4: Launch the node (sim) and verify both actions are advertised**
+
 ```sh
 ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver; (ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf &) ; sleep 4; ros2 action list; pkill -TERM -f /tmp/kinova-ros2-ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node; sleep 1"'
 ```
+
 Expected: `ros2 action list` shows **both** `/execute_joint_trajectory` and `/go_to_ee_pose`. Confirm the node process is gone (shared abra — never leak a servoing node).
 
 - [ ] **Step 5: Add the test client `send_goto_pose.py`**
 
 `kinova_gen3_ros2/test/send_goto_pose.py`:
+
 ```python
 #!/usr/bin/env python3
 """Send a GoToEEPose goal (base_link target) and print feedback + result.
@@ -1271,16 +1353,18 @@ if __name__ == "__main__":
 ```
 
 - [ ] **Step 6: Commit**
+
 ```sh
 git add kinova_gen3_ros2/src/bringup_node.cpp kinova_gen3_ros2/CMakeLists.txt kinova_gen3_ros2/test/send_goto_pose.py
 git commit   # feat(ros2): host GoToEEPose in kinova_gen3_node (MultiThreadedExecutor) + client
 ```
 
----
+______________________________________________________________________
 
 ### Task 8: Documentation
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/docs/guide-goto-ee-pose.md`
 - Modify: `kinova_gen3_ros2/README.md`
 
@@ -1289,24 +1373,31 @@ git commit   # feat(ros2): host GoToEEPose in kinova_gen3_node (MultiThreadedExe
 - [ ] **Step 1: Write the guide page**
 
 `kinova_gen3_ros2/docs/guide-goto-ee-pose.md` — cover, in prose + code:
-  - **What it is:** `GoToEEPose` moves the tool to a `base_link` pose; cuRobo plans collision-free, our node executes the plan through the same `Supervisor` used by `ExecuteJointTrajectory`. Two nodes total: ours + the external `rammp_curobo` node.
-  - **Bring-up:** launch the cuRobo planner (`ros2 launch rammp_curobo_ros planner.launch.py config:=gen3_real.yaml` — planning-only, no `execute:=true` needed since we execute, not cuRobo) alongside `kinova_gen3_node`. cuRobo reads the `/joint_states` our node publishes for the plan start state.
-  - **Call it:** `python3 test/send_goto_pose.py --pos X Y Z --quat X Y Z W` (base_link, xyzw). Pick a pose near the current tool pose for a safe local move.
-  - **Result codes:** `0` SUCCESSFUL, `-1` INVALID_GOAL (e.g. frame_id ≠ base_link), `-4` PATH_TOLERANCE_VIOLATED, `-6` PREEMPTED, `-7` PLANNING_FAILED (cuRobo returned no plan / unavailable / busy). Feedback has two phases: `planning` (relays cuRobo `state`) then `executing` (`fraction_complete` + live `actual`).
-  - **Safety:** the trajectory executes at cuRobo's **full planned speed** (no speed_scale in v1). First real-arm goals: small/near target, attended, e-stop in hand — see `docs/on-robot-runbook.md`.
-  - **Design record:** link `docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md`.
+
+- **What it is:** `GoToEEPose` moves the tool to a `base_link` pose; cuRobo plans collision-free, our node executes the plan through the same `Supervisor` used by `ExecuteJointTrajectory`. Two nodes total: ours + the external `rammp_curobo` node.
+
+- **Bring-up:** launch the cuRobo planner (`ros2 launch rammp_curobo_ros planner.launch.py config:=gen3_real.yaml` — planning-only, no `execute:=true` needed since we execute, not cuRobo) alongside `kinova_gen3_node`. cuRobo reads the `/joint_states` our node publishes for the plan start state.
+
+- **Call it:** `python3 test/send_goto_pose.py --pos X Y Z --quat X Y Z W` (base_link, xyzw). Pick a pose near the current tool pose for a safe local move.
+
+- **Result codes:** `0` SUCCESSFUL, `-1` INVALID_GOAL (e.g. frame_id ≠ base_link), `-4` PATH_TOLERANCE_VIOLATED, `-6` PREEMPTED, `-7` PLANNING_FAILED (cuRobo returned no plan / unavailable / busy). Feedback has two phases: `planning` (relays cuRobo `state`) then `executing` (`fraction_complete` + live `actual`).
+
+- **Safety:** the trajectory executes at cuRobo's **full planned speed** (no speed_scale in v1). First real-arm goals: small/near target, attended, e-stop in hand — see `docs/on-robot-runbook.md`.
+
+- **Design record:** link `docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md`.
 
 - [ ] **Step 2: Add a `GoToEEPose` line to the README**
 
 In `kinova_gen3_ros2/README.md`, add `/go_to_ee_pose` to the list of actions the node hosts, with a one-line pointer to `docs/guide-goto-ee-pose.md`.
 
 - [ ] **Step 3: Commit**
+
 ```sh
 git add kinova_gen3_ros2/docs/guide-goto-ee-pose.md kinova_gen3_ros2/README.md
 git commit   # docs(ros2): GoToEEPose usage guide + README pointer
 ```
 
----
+______________________________________________________________________
 
 ## Validation milestones (operational — run after Task 8, not code tasks)
 

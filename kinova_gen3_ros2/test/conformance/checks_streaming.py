@@ -5,6 +5,7 @@ back at it. That is not timidity: it proves the setpoint path, the admission che
 the deadline refresh while commanding the arm exactly where it already is, so the
 plumbing is under test and the arm is not.
 """
+
 import time
 
 from kinova_gen3_interfaces.msg import JointSetpoint, PoseSetpoint
@@ -16,8 +17,9 @@ SEC = "streaming"
 
 # Best-effort, depth 1 -- core's setpoints are absolute and latest-wins, so this is the
 # QoS the node advertises. A reliable publisher would not match it.
-SETPOINT_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
-                          history=HistoryPolicy.KEEP_LAST, depth=1)
+SETPOINT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1
+)
 
 
 def _hold(ctx, session_token, seconds, topic="/setpoint/joint_position"):
@@ -48,18 +50,33 @@ def check_list_controllers(ctx):
     if not rows:
         return Result("", FAIL, "no controllers listed")
     by = {r.name: r for r in rows}
-    for want in ("joint_position", "joint_impedance", "ee_pose_impedance",
-                 "ee_pose_position", "joint_torque", "joint_velocity", "ee_twist",
-                 "cartesian_impedance"):
+    for want in (
+        "joint_position",
+        "joint_impedance",
+        "ee_pose_impedance",
+        "ee_pose_position",
+        "joint_torque",
+        "joint_velocity",
+        "ee_twist",
+        "cartesian_impedance",
+    ):
         if want not in by:
             return Result("", FAIL, f"controller '{want}' is missing from the registry")
     if by["cartesian_impedance"].available:
-        return Result("", FAIL, "cartesian_impedance reports available, but core has no "
-                                "kEeWrench and it needs multi-channel sessions")
+        return Result(
+            "",
+            FAIL,
+            "cartesian_impedance reports available, but core has no "
+            "kEeWrench and it needs multi-channel sessions",
+        )
     for r in rows:
         if r.available and len(r.channels) != 1:
-            return Result("", FAIL, f"'{r.name}' is available with {len(r.channels)} "
-                                    "channels; core admits one SetpointKind per session")
+            return Result(
+                "",
+                FAIL,
+                f"'{r.name}' is available with {len(r.channels)} "
+                "channels; core admits one SetpointKind per session",
+            )
     avail = sorted(n for n, r in by.items() if r.available)
     return Result("", PASS, f"{len(avail)}/{len(rows)} available: {avail}")
 
@@ -71,7 +88,9 @@ def check_open_unavailable(ctx):
         ctx.close_stream()
         return Result("", FAIL, "cartesian_impedance opened; core cannot back it")
     if r.error_code != -10:
-        return Result("", FAIL, f"error_code {r.error_code}, expected -10 STREAM_REJECTED")
+        return Result(
+            "", FAIL, f"error_code {r.error_code}, expected -10 STREAM_REJECTED"
+        )
     return Result("", PASS, f"refused: {r.message}")
 
 
@@ -100,10 +119,14 @@ def check_open_close(ctx):
     if not r.accepted:
         return Result("", FAIL, f"open refused: {r.message}")
     if list(r.channels) != ["joint_position"]:
-        return Result("", FAIL, f"channels={list(r.channels)}, expected ['joint_position']")
+        return Result(
+            "", FAIL, f"channels={list(r.channels)}, expected ['joint_position']"
+        )
     ss = ctx.stream_status()
     if not ss.open or ss.controller != "joint_impedance":
-        return Result("", FAIL, f"status says open={ss.open} controller='{ss.controller}'")
+        return Result(
+            "", FAIL, f"status says open={ss.open} controller='{ss.controller}'"
+        )
     ctx.close_stream(session_token)
     ss = ctx.stream_status()
     if ss.open:
@@ -119,13 +142,17 @@ def check_deadline_refresh(ctx):
     r = ctx.open_stream("joint_position", timeout_s=0.5, token=session_token)
     if not r.accepted:
         return Result("", FAIL, f"open refused: {r.message}")
-    sent = _hold(ctx, session_token, seconds=3.0)          # 6x the deadline
+    sent = _hold(ctx, session_token, seconds=3.0)  # 6x the deadline
     if sent is None:
         return Result("", FAIL, "no /joint_states, cannot build a hold setpoint")
     ss = ctx.stream_status()
     if not ss.open:
-        return Result("", FAIL, f"session closed while streaming {sent} setpoints at "
-                                "~50 Hz into a 0.5 s deadline -- they are not landing")
+        return Result(
+            "",
+            FAIL,
+            f"session closed while streaming {sent} setpoints at "
+            "~50 Hz into a 0.5 s deadline -- they are not landing",
+        )
     ctx.close_stream(session_token)
     return Result("", PASS, f"{sent} setpoints held the session open past 6x timeout_s")
 
@@ -137,12 +164,16 @@ def check_deadline_expiry(ctx):
     if not r.accepted:
         return Result("", FAIL, f"open refused: {r.message}")
     _hold(ctx, session_token, seconds=1.0)
-    ctx.spin(2.5)                                          # 5x the deadline, silent
+    ctx.spin(2.5)  # 5x the deadline, silent
     ss = ctx.stream_status()
     if ss.open:
         ctx.close_stream(session_token)
-        return Result("", FAIL, "session still open 2.5 s after the last setpoint; the "
-                                "safe-stop deadline is not firing")
+        return Result(
+            "",
+            FAIL,
+            "session still open 2.5 s after the last setpoint; the "
+            "safe-stop deadline is not firing",
+        )
     return Result("", PASS, "session expired and /stream_status reported it")
 
 
@@ -164,9 +195,17 @@ def check_wrong_channel(ctx):
     after, still_open = ss.rejected_count, ss.open
     ctx.close_stream(session_token)
     if after <= before:
-        return Result("", FAIL, f"rejected_count did not move ({before} -> {after}); "
-                                "wrong-kind setpoints are meant to be counted")
+        return Result(
+            "",
+            FAIL,
+            f"rejected_count did not move ({before} -> {after}); "
+            "wrong-kind setpoints are meant to be counted",
+        )
     if not still_open:
-        return Result("", FAIL, "the session died from wrong-channel traffic; a rejected "
-                                "setpoint must not refresh the deadline OR kill it")
+        return Result(
+            "",
+            FAIL,
+            "the session died from wrong-channel traffic; a rejected "
+            "setpoint must not refresh the deadline OR kill it",
+        )
     return Result("", PASS, f"rejected_count {before} -> {after}, session survived")

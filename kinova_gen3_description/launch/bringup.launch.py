@@ -4,6 +4,7 @@
 driver use the SAME model by default -- which is the point of the package. Point it
 elsewhere and you own keeping them consistent.
 """
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
@@ -22,48 +23,82 @@ def generate_launch_description():
 
     description = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            PathJoinSubstitution([share, "launch", "description.launch.py"])),
+            PathJoinSubstitution([share, "launch", "description.launch.py"])
+        ),
         launch_arguments={
             "articulated": LaunchConfiguration("articulated"),
         }.items(),
     )
 
-    params = [{
-        "arbitration_mode": LaunchConfiguration("arbitration_mode"),
-        "estop_clear_max_age_s": LaunchConfiguration("estop_clear_max_age_s"),
-    }]
+    params = [
+        {
+            "arbitration_mode": LaunchConfiguration("arbitration_mode"),
+            "estop_clear_max_age_s": LaunchConfiguration("estop_clear_max_age_s"),
+        }
+    ]
 
-    return LaunchDescription([
-        # The model's gripper/camera/prefix are BUILD-time xacro args, expanded by
-        # CMakeLists; only the articulated/frozen choice is a launch-time one.
-        DeclareLaunchArgument(
-            "articulated", default_value="true",
-            description="13-DOF model with a moving gripper; needs the driver to publish "
-                        "robotiq_85_left_knuckle_joint (the gripper tier does)"),
-        DeclareLaunchArgument("sim", default_value="true",
-                              description="run against SimTransport instead of the arm"),
-        DeclareLaunchArgument("ip", default_value="192.168.1.10",
-                              description="arm IP; used only when sim:=false"),
-        DeclareLaunchArgument("urdf", default_value=default_urdf),
-        # Must match the model above: Dynamics resolves this by name and throws if it is
-        # absent. The generated model drops the gen3_ prefix core still defaults to.
-        DeclareLaunchArgument("ee_frame", default_value="end_effector_link"),
-        DeclareLaunchArgument("arbitration_mode", default_value="disabled",
-                              description="enforced | disabled; read-only at runtime"),
-        DeclareLaunchArgument("estop_clear_max_age_s", default_value="1.0"),
-        description,
-        # Two Nodes rather than one with a conditional argument list: the driver takes
-        # --sim OR --ip, never both, and launch substitutions cannot build a variable
-        # length argv.
-        Node(package="kinova_gen3_ros2", executable="kinova_gen3_node", output="screen",
-             condition=IfCondition(sim),
-             arguments=["--sim", "--urdf", LaunchConfiguration("urdf"),
-                        "--ee-frame", LaunchConfiguration("ee_frame")],
-             parameters=params),
-        Node(package="kinova_gen3_ros2", executable="kinova_gen3_node", output="screen",
-             condition=UnlessCondition(sim),
-             arguments=["--ip", LaunchConfiguration("ip"),
-                        "--urdf", LaunchConfiguration("urdf"),
-                        "--ee-frame", LaunchConfiguration("ee_frame")],
-             parameters=params),
-    ])
+    return LaunchDescription(
+        [
+            # The model's gripper/camera/prefix are BUILD-time xacro args, expanded by
+            # CMakeLists; only the articulated/frozen choice is a launch-time one.
+            DeclareLaunchArgument(
+                "articulated",
+                default_value="true",
+                description="13-DOF model with a moving gripper; needs the driver to publish "
+                "robotiq_85_left_knuckle_joint (the gripper tier does)",
+            ),
+            DeclareLaunchArgument(
+                "sim",
+                default_value="true",
+                description="run against SimTransport instead of the arm",
+            ),
+            DeclareLaunchArgument(
+                "ip",
+                default_value="192.168.1.10",
+                description="arm IP; used only when sim:=false",
+            ),
+            DeclareLaunchArgument("urdf", default_value=default_urdf),
+            # Must match the model above: Dynamics resolves this by name and throws if it is
+            # absent. The generated model drops the gen3_ prefix core still defaults to.
+            DeclareLaunchArgument("ee_frame", default_value="end_effector_link"),
+            DeclareLaunchArgument(
+                "arbitration_mode",
+                default_value="disabled",
+                description="enforced | disabled; read-only at runtime",
+            ),
+            DeclareLaunchArgument("estop_clear_max_age_s", default_value="1.0"),
+            description,
+            # Two Nodes rather than one with a conditional argument list: the driver takes
+            # --sim OR --ip, never both, and launch substitutions cannot build a variable
+            # length argv.
+            Node(
+                package="kinova_gen3_ros2",
+                executable="kinova_gen3_node",
+                output="screen",
+                condition=IfCondition(sim),
+                arguments=[
+                    "--sim",
+                    "--urdf",
+                    LaunchConfiguration("urdf"),
+                    "--ee-frame",
+                    LaunchConfiguration("ee_frame"),
+                ],
+                parameters=params,
+            ),
+            Node(
+                package="kinova_gen3_ros2",
+                executable="kinova_gen3_node",
+                output="screen",
+                condition=UnlessCondition(sim),
+                arguments=[
+                    "--ip",
+                    LaunchConfiguration("ip"),
+                    "--urdf",
+                    LaunchConfiguration("urdf"),
+                    "--ee-frame",
+                    LaunchConfiguration("ee_frame"),
+                ],
+                parameters=params,
+            ),
+        ]
+    )

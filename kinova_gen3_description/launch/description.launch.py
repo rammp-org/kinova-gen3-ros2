@@ -12,6 +12,7 @@ The driver publishes that knuckle joint as of the gripper tier, so `articulated`
 defaults to true. It is safe on a gripper-less build: the joint is not in the model and
 RSP ignores joint states for joints it does not know.
 """
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
@@ -32,20 +33,28 @@ def _rsp(model_file, condition):
         # value_type=str is required: without it launch_ros guesses the type of the
         # Command substitution and robot_state_publisher receives a mangled or empty
         # description, failing as silently as the bug this package exists to fix.
-        parameters=[{
-            "robot_description": ParameterValue(Command(["cat ", path]), value_type=str)
-        }],
+        parameters=[
+            {
+                "robot_description": ParameterValue(
+                    Command(["cat ", path]), value_type=str
+                )
+            }
+        ],
     )
 
 
 def generate_launch_description():
     articulated = LaunchConfiguration("articulated")
-    return LaunchDescription([
-        DeclareLaunchArgument(
-            "articulated", default_value="true",
-            description="use the 13-DOF model with a moving gripper. Requires the driver to "
-                        "publish robotiq_85_left_knuckle_joint (the gripper tier does); "
-                        "robot_state_publisher derives the five mimic joints itself."),
-        _rsp("kinova_gen3_7dof.urdf", UnlessCondition(articulated)),
-        _rsp("kinova_gen3.urdf", IfCondition(articulated)),
-    ])
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "articulated",
+                default_value="true",
+                description="use the 13-DOF model with a moving gripper. Requires the driver to "
+                "publish robotiq_85_left_knuckle_joint (the gripper tier does); "
+                "robot_state_publisher derives the five mimic joints itself.",
+            ),
+            _rsp("kinova_gen3_7dof.urdf", UnlessCondition(articulated)),
+            _rsp("kinova_gen3.urdf", IfCondition(articulated)),
+        ]
+    )

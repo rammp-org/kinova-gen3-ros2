@@ -4,11 +4,17 @@ using namespace kinova::interface;
 namespace {
 struct FakePort : ActionServerPort {
   int fb = 0, settled = 0;
-  void publish_feedback(const GoalId&, const TrajectoryFeedback&) override { ++fb; }
-  void settle(const GoalId&, const TrajectoryResult&) override { ++settled; }
+  void publish_feedback(const GoalId &, const TrajectoryFeedback &) override {
+    ++fb;
+  }
+  void settle(const GoalId &, const TrajectoryResult &) override { ++settled; }
 };
-GoalId mkid(uint8_t x) { GoalId id{}; id[0] = x; return id; }
-}  // namespace
+GoalId mkid(uint8_t x) {
+  GoalId id{};
+  id[0] = x;
+  return id;
+}
+} // namespace
 
 TEST(GoalRouter, UnregisteredFallsThroughToDefault) {
   FakePort def, overlay;
@@ -37,8 +43,8 @@ TEST(GoalRouter, SettleClearsOwnerSoNextRoutesToDefault) {
   FakePort def, overlay;
   kinova_gen3_ros2::GoalRouter r(def);
   r.register_owner(mkid(3), overlay);
-  r.settle(mkid(3), {});             // clears the override
-  r.publish_feedback(mkid(3), {});   // now falls through to default
+  r.settle(mkid(3), {});           // clears the override
+  r.publish_feedback(mkid(3), {}); // now falls through to default
   EXPECT_EQ(overlay.settled, 1);
   EXPECT_EQ(def.fb, 1);
 }

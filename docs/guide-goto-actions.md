@@ -3,11 +3,11 @@
 Three actions move the arm to a goal you describe, planning the collision-free
 path for you rather than expecting one:
 
-| action | goal | plans via |
-| --- | --- | --- |
-| `go_to_ee_pose` | tool pose in `base_link` | cuRobo `plan_to_pose` |
-| `go_to_joint_config` | explicit 7 joint angles (rad) | cuRobo `plan_to_joints` |
-| `go_to_preset` | a **name** for a joint configuration | cuRobo `plan_to_joints` |
+| action               | goal                                 | plans via               |
+| -------------------- | ------------------------------------ | ----------------------- |
+| `go_to_ee_pose`      | tool pose in `base_link`             | cuRobo `plan_to_pose`   |
+| `go_to_joint_config` | explicit 7 joint angles (rad)        | cuRobo `plan_to_joints` |
+| `go_to_preset`       | a **name** for a joint configuration | cuRobo `plan_to_joints` |
 
 They contrast with `execute_joint_trajectory`, which takes an already-planned
 trajectory. All three share one lifecycle — `PlannedMoveServer<ActionT>` — so
@@ -19,9 +19,9 @@ resolved to 7 joint angles and planned exactly the same way. **None of these is
 a planner bypass** — nothing drives the arm straight at a target.
 
 For the design rationale see
-[`superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md`](superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md)
+[`superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md)
 and the `GoToEEPose` guide's
-[design spec](superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
+[design spec](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
 
 ## Bring-up
 
@@ -35,14 +35,12 @@ Then start `kinova_gen3_node` (sim or real — see the top-level `README.md`). N
 extra flags: it is already a client of both cuRobo planning actions.
 
 !!! warning "Both nodes must use the same RMW"
-    The planner container runs with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`
-    (see `ROS_FLAGS` in the `Makefile`). If `kinova_gen3_node` or your client
-    runs under the default FastRTPS, discovery partly succeeds — `ros2 action
-    list` shows the planner's actions — but goals are never answered, and the
-    action **hangs in `phase=planning` forever** rather than failing. A
-    `RTPS_READER_HISTORY ... payload size` error in the log is the tell. Export
-    `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in every shell involved; `make
-    sim` / `make real` already do.
+The planner container runs with `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`
+(see `ROS_FLAGS` in the `Makefile`). If `kinova_gen3_node` or your client
+runs under the default FastRTPS, discovery partly succeeds — `ros2 action     list` shows the planner's actions — but goals are never answered, and the
+action **hangs in `phase=planning` forever** rather than failing. A
+`RTPS_READER_HISTORY ... payload size` error in the log is the tell. Export
+`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in every shell involved; `make     sim` / `make real` already do.
 
 ## Sending a goal
 
@@ -87,13 +85,13 @@ Feedback arrives in two phases: `planning` (with cuRobo's `planner_state`
 relayed in `planner_state`) then `executing` (with `fraction_complete` and the
 live measured `actual`).
 
-| `error_code` | meaning |
-| --- | --- |
-| `0` SUCCESSFUL | planned and executed to the end of the trajectory |
-| `-1` INVALID_GOAL | the supervisor refused the planned trajectory |
-| `-4` PATH_TOLERANCE_VIOLATED | the arm diverged from the planned path mid-execution |
-| `-6` PREEMPTED | canceled, during planning or execution |
-| `-7` PLANNING_FAILED | cuRobo found no plan, or returned an empty/malformed one |
+| `error_code`                 | meaning                                                  |
+| ---------------------------- | -------------------------------------------------------- |
+| `0` SUCCESSFUL               | planned and executed to the end of the trajectory        |
+| `-1` INVALID_GOAL            | the supervisor refused the planned trajectory            |
+| `-4` PATH_TOLERANCE_VIOLATED | the arm diverged from the planned path mid-execution     |
+| `-6` PREEMPTED               | canceled, during planning or execution                   |
+| `-7` PLANNING_FAILED         | cuRobo found no plan, or returned an empty/malformed one |
 
 A goal is **rejected outright** (never accepted, so no result code) when the
 node has no command sink, the pose frame is not `base_link`, `target_joints`
@@ -116,6 +114,6 @@ small delta) to exercise the success path.
 
 The planned trajectory runs at **full planner speed**, and cuRobo plans to the
 arm's real velocity limits. Read
-[`on-robot-runbook.md`](on-robot-runbook.md) and keep the e-stop in hand before
+[`on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and keep the e-stop in hand before
 the first real-arm run of any of these actions. Real-arm runs must pin the RT
 loop to the isolated core (`--cpu 11`); `make sim` / `make real` do this.

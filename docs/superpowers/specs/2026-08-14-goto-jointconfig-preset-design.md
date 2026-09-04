@@ -50,6 +50,7 @@ empty/width guard → `kPlanningFailed`, `on_trajectory_goal` submit, `register_
 discipline (no downstream call under the lock) and settle-once are preserved exactly.
 
 Two hooks the concrete servers provide:
+
 - `std::optional<std::string> validate(const ActionT::Goal&)` — return a rejection
   reason (fail-loud) or `nullopt`. Called in `handle_goal`.
 - `void start_plan(const ActionT::Goal&, CuroboPlanClient::FeedbackCb, CuroboPlanClient::DoneCb)`
@@ -65,25 +66,20 @@ shared header). `sender_id` is read uniformly as `gh->get_goal()->sender_id`
 
 ### Concrete servers (thin — ~validate + start_plan)
 
-- `GoToEEPoseServer : PlannedMoveServer<GoToEEPose>` — `validate`: `frame_id ==
-  base_link`; `start_plan`: `planner.plan(goal.target.pose, …)`. **Refactored onto
+- `GoToEEPoseServer : PlannedMoveServer<GoToEEPose>` — `validate`: `frame_id == base_link`; `start_plan`: `planner.plan(goal.target.pose, …)`. **Refactored onto
   the base; behavior identical** — the existing `goto_ee_pose_integration_test` is
   the regression gate and must still pass unchanged.
 - `GoToJointConfigServer : PlannedMoveServer<GoToJointConfig>` — `validate`:
   `target_joints.size() == 7` and all finite; `start_plan`:
   `planner.plan_to_joints(goal.target_joints, …)`.
-- `GoToPresetServer : PlannedMoveServer<GoToPreset>` — holds a `const
-  std::map<std::string, std::vector<double>>` registry (from ROS params);
+- `GoToPresetServer : PlannedMoveServer<GoToPreset>` — holds a `const std::map<std::string, std::vector<double>>` registry (from ROS params);
   `validate`: `preset_name` present in the registry; `start_plan`:
   `planner.plan_to_joints(registry.at(goal.preset_name), …)`.
 
 ### `CuroboPlanClient` — add `plan_to_joints` (additive, internals DRY'd)
 
 Gains a second action client for **`/rammp_curobo/plan_to_joints`**
-(`rammp_curobo_interfaces/action/PlanToJoints`: Goal `float64[] target_joints,
-float64[] start_joints`; Result `bool success, string message,
-trajectory_msgs/JointTrajectory trajectory, float64 planning_time, float64
-goal_mismatch_rad`; Feedback `string state`). New method:
+(`rammp_curobo_interfaces/action/PlanToJoints`: Goal `float64[] target_joints, float64[] start_joints`; Result `bool success, string message, trajectory_msgs/JointTrajectory trajectory, float64 planning_time, float64 goal_mismatch_rad`; Feedback `string state`). New method:
 `void plan_to_joints(const std::vector<double>& target_joints, FeedbackCb, DoneCb)`
 returning the same `Outcome{ok,message,trajectory}` (start_joints filled from the
 arm node's measured state; the empty form would make cuRobo
@@ -100,9 +96,8 @@ whichever plan (pose or joints) is in flight. One-plan-at-a-time holds as before
 
 ### Preset registry (ROS params)
 
-Node declares `preset_names` (string[], default `["home"]`) and, per name, a
-`presets.<name>` double[7] param. Default: `presets.home =
-[0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571]` (cuRobo's retract/home from
+Node declares `preset_names` (string\[\], default `["home"]`) and, per name, a
+`presets.<name>` double\[7\] param. Default: `presets.home = [0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571]` (cuRobo's retract/home from
 `robot_gen3_2f85.yaml`). `GoToPresetServer` reads these at construction into its
 `const` registry; an unknown `preset_name` is rejected fail-loud in `validate`.
 
@@ -110,6 +105,7 @@ Node declares `preset_names` (string[], default `["home"]`) and, per name, a
 
 `GoToJointConfig.action` and `GoToPreset.action`. **Result and Feedback blocks are
 byte-identical to `GoToEEPose.action`** (so the templated base sets them uniformly):
+
 ```
 # Result
 int32   error_code    # SUCCESSFUL=0, INVALID_GOAL=-1, PATH_TOLERANCE_VIOLATED=-4,
@@ -122,10 +118,12 @@ string  planner_state
 float32 fraction_complete
 trajectory_msgs/JointTrajectoryPoint actual
 ```
+
 Goals:
+
 - `GoToJointConfig.action` Goal: `float64[7] target_joints`, `string sender_id`.
 - `GoToPreset.action` Goal: `string preset_name`, `string sender_id`.
-No `geometry_msgs` needed for these two; reuse the existing deps.
+  No `geometry_msgs` needed for these two; reuse the existing deps.
 
 ### Bring-up
 
@@ -146,6 +144,7 @@ client ─ GoToJointConfig(target_joints) / GoToPreset(name) ─▶ concrete ser
    base: is_canceling? width guard? ─▶ CommandSink.on_trajectory_goal/accepted ─▶ Supervisor
    Supervisor ─▶ GoalRouter.publish_feedback/settle ─▶ base ─▶ action feedback/result
 ```
+
 Planning failure / unknown preset / bad joints short-circuit to `settle_local`
 (`kPlanningFailed`/`kInvalidGoal`), no Supervisor submit — same as `GoToEEPose`.
 
@@ -163,8 +162,7 @@ Planning failure / unknown preset / bad joints short-circuit to `settle_local`
   rejected. Registry-from-params covered by the bring-up path.
 - **Regression:** the existing `ExecuteJointTrajectory` e2e-sim + `GoToEEPose`
   integration tests must stay green after the refactor.
-- All on abra (`scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args
-  -DBUILD_TESTING=ON`); real-arm runs pin **`--cpu 11`** (per RT fix `79d1050`;
+- All on abra (`scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`); real-arm runs pin **`--cpu 11`** (per RT fix `79d1050`;
   `make sim/real` do this automatically).
 
 ## Out of scope (future specs — NOT this PR)

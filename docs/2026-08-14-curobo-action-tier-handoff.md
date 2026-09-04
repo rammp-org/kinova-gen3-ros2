@@ -6,7 +6,7 @@
 frontend. Read this first, then confirm the open items, then brainstorm → spec →
 plan → build (subagent-driven).
 
----
+______________________________________________________________________
 
 ## 1. Where things stand (all DONE + MERGED + real-arm validated)
 
@@ -20,8 +20,7 @@ Kinova Gen3 arm today (single-joint and coordinated two-joint
     preempt/cancel/gapless-queue result accounting), b1 install/export
     (`find_package(kinova_lowlevel CONFIG)`), 1 kHz RT execution core.
   - Key seam: **`kinova::interface::CommandSink`** (`include/kinova_lowlevel/interface/ports.h`)
-    — `on_trajectory_goal / on_trajectory_accepted / on_trajectory_cancel /
-    on_set_gains / on_query_state`. The `Supervisor` implements it. Everything
+    — `on_trajectory_goal / on_trajectory_accepted / on_trajectory_cancel / on_set_gains / on_query_state`. The `Supervisor` implements it. Everything
     that commands motion funnels through here.
 - **ROS2 frontend** — `rammp-org/kinova_gen3_ros2` @ `main` (Plan 3, PR #1).
   - `kinova_gen3_interfaces` (ament): `ExecuteJointTrajectory.action` +
@@ -37,7 +36,7 @@ Design records: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-desi
 `docs/superpowers/specs/2026-08-10-arm-driver-interface-design.md` +
 `2026-08-12-ros2-build-integration-strategy.md`.
 
----
+______________________________________________________________________
 
 ## 2. The decision for this round (LOCKED in discussion)
 
@@ -47,13 +46,13 @@ Build a **high-level, goal-oriented action tier**: `GoToEEPose`,
 1. **EE pose (and any collision-aware goal) goes through cuRobo.** The driver does
    NOT get a Cartesian/IK command mode for this. Pre-planned joint trajectories
    still execute directly via `ExecuteJointTrajectory` (full planner bypass).
-2. **cuRobo is a separate, already-existing ROS node.** It takes a target pose and
+1. **cuRobo is a separate, already-existing ROS node.** It takes a target pose and
    generates a trajectory. We do NOT build cuRobo — we call it over ROS.
-3. **ONE node of ours hosts everything.** All action servers
+1. **ONE node of ours hosts everything.** All action servers
    (`ExecuteJointTrajectory` **and** the high-level ones) live in the single
    existing `kinova_gen3_node`, which is ALSO a **client** of the cuRobo node.
    We do NOT add a separate orchestration node.
-4. **High-level actions feed the planned trajectory into the same `Supervisor`
+1. **High-level actions feed the planned trajectory into the same `Supervisor`
    seam internally — no self-call of the `ExecuteJointTrajectory` action over ROS.**
    A `GoToEEPose` handler: call cuRobo (ROS) → get `JointTrajectory` → build a
    `kinova::interface::TrajectoryGoal` → hand it to the `Supervisor`'s
@@ -74,7 +73,7 @@ Pre-planned `ExecuteJointTrajectory` skips cuRobo. A `GoToEEPose` goal:
 client → our server → cuRobo (plan) → trajectory → our `Supervisor` → execute →
 result to client.
 
----
+______________________________________________________________________
 
 ## 3. Refinements / hazards to honor in the design
 
@@ -96,7 +95,7 @@ result to client.
 - **Planning failure is distinct from execution failure:** e.g. a `PLANNING_FAILED`
   result code separate from `PATH_TOLERANCE_VIOLATED`/execution errors.
 
----
+______________________________________________________________________
 
 ## 4. OPEN — resolve FIRST in the next session (blocks the action contracts)
 
@@ -106,17 +105,17 @@ result to client.
    itself or expect the start config in the request?); does it return a
    `trajectory_msgs/JointTrajectory`; does it own/collision-check a world? These
    shape the goal/feedback/result of `GoToEEPose` and how our node calls it.
-2. **High-level action message shapes** — new `.action` defs in
+1. **High-level action message shapes** — new `.action` defs in
    `kinova_gen3_interfaces` (`GoToEEPose.action`, `GoToJointConfig.action`,
    `GoToPreset.action`), including the `PLANNING_FAILED` result code + feedback
    (relay cuRobo planning progress, then execution progress?).
-3. **`GoToPreset`:** does the driver need a named-preset registry (config/param),
+1. **`GoToPreset`:** does the driver need a named-preset registry (config/param),
    or does the client supply the config? (A joint-config preset is a degenerate
    `ExecuteJointTrajectory` today — the value-add is the named registry.)
-4. **Threading concretely:** callback-group layout so cuRobo planning + trajectory
+1. **Threading concretely:** callback-group layout so cuRobo planning + trajectory
    execution + feedback all stay responsive.
 
----
+______________________________________________________________________
 
 ## 5. Deferred (NOT this round — future specs)
 
@@ -132,7 +131,7 @@ result to client.
 - **`set_gains` / `query_state` services** (stubbed in the Supervisor) and a
   **`JointState` diagnostic topic** (loop-timing) — ROS2 fast-follow.
 
----
+______________________________________________________________________
 
 ## 6. Hard-won operational facts (don't relearn these)
 
@@ -144,16 +143,14 @@ result to client.
   - Core unit tests: the core repo's scratch `abra_test.sh '<gtest filter>'`
     (rsync muk→`abra:/tmp/kinova-build`, sim build + ctest) — recreate the scratch
     script next session (path is session-specific).
-- **Running the node on abra over ssh MUST use `ssh abra 'bash -lc "source
-  /opt/ros/humble/setup.bash; ..."'`** — abra's default shell is zsh and chokes on
+- **Running the node on abra over ssh MUST use `ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; ..."'`** — abra's default shell is zsh and chokes on
   ROS's bash `setup.bash` (`ros2: command not found`).
 - **`/joint_states` is best-effort (`SensorDataQoS`)** — subscribers/echo must use
   best-effort QoS or they receive nothing.
 - **`ros2 run` forks the node under a python wrapper**, so `kill %1`/`$!` misses the
   real process → use **`pkill -TERM -f kinova_gen3_node`** and always verify it
   stopped (abra is shared; a leaked node keeps servoing the arm).
-- **Combined KORTEX+ROS2 build:** `bash scripts/abra_colcon.sh --cmake-args
-  -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64`.
+- **Combined KORTEX+ROS2 build:** `bash scripts/abra_colcon.sh --cmake-args -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64`.
   The core's static-lib PRIVATE KORTEX link auto-propagates into the export → node
   links KORTEX with NO core change. **The CMake cache PERSISTS the flag across
   rebuilds — always pass `-DKINOVA_ENABLE_KORTEX=ON/OFF` explicitly.**
@@ -174,7 +171,7 @@ result to client.
   any lock-free-read consumer must reuse-last-good, never inject a default on read
   failure.**
 
----
+______________________________________________________________________
 
 ## 7. Process for the round
 

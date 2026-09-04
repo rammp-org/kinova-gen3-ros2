@@ -25,6 +25,7 @@ TWO transforms, for two different reasons:
 So we ship both: the articulated model for robot_state_publisher (RViz needs the fingers
 to move) and the frozen one for the driver.
 """
+
 import argparse
 import subprocess
 import sys
@@ -46,15 +47,19 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
     ap.add_argument("dst")
-    ap.add_argument("--freeze-gripper", action="store_true",
-                    help="convert the Robotiq joints to fixed, giving a 7-DOF model")
+    ap.add_argument(
+        "--freeze-gripper",
+        action="store_true",
+        help="convert the Robotiq joints to fixed, giving a 7-DOF model",
+    )
     ap.add_argument("xacro_args", nargs="*")
     args = ap.parse_args()
 
     # Do NOT swallow stderr on failure: xacro's diagnostics are the only thing that says
     # WHICH macro rejected WHICH parameter, and a traceback without them is unactionable.
-    proc = subprocess.run(["xacro", args.src, *args.xacro_args],
-                          capture_output=True, text=True)
+    proc = subprocess.run(
+        ["xacro", args.src, *args.xacro_args], capture_output=True, text=True
+    )
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr)
         return proc.returncode
@@ -79,13 +84,18 @@ def main() -> int:
                         joint.remove(child)
                 frozen += 1
         if frozen != len(GRIPPER_JOINTS):
-            print(f"error: froze {frozen} gripper joints, expected {len(GRIPPER_JOINTS)}"
-                  " -- upstream joint names changed?", file=sys.stderr)
+            print(
+                f"error: froze {frozen} gripper joints, expected {len(GRIPPER_JOINTS)}"
+                " -- upstream joint names changed?",
+                file=sys.stderr,
+            )
             return 1
 
     ET.ElementTree(root).write(args.dst, encoding="utf-8", xml_declaration=True)
-    print(f"{args.dst}: stripped {stripped} ros2_control block(s), "
-          f"froze {frozen} gripper joint(s)")
+    print(
+        f"{args.dst}: stripped {stripped} ros2_control block(s), "
+        f"froze {frozen} gripper joint(s)"
+    )
     return 0
 
 

@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 using kinova_gen3_ros2::CuroboPlanClient;
 
 class CuroboClientTest : public ::testing::Test {
- protected:
+protected:
   void SetUp() override { rclcpp::init(0, nullptr); }
   void TearDown() override { rclcpp::shutdown(); }
 };
@@ -25,21 +25,27 @@ namespace {
 const std::vector<double> kStartJoints{0.0, 0.26, 3.14, -2.27, 0.0, 0.96, 1.57};
 
 class SpinThread {
- public:
-  explicit SpinThread(rclcpp::Executor& ex) : ex_(ex), t_([&ex] { ex.spin(); }) {}
-  ~SpinThread() { ex_.cancel(); if (t_.joinable()) t_.join(); }
-  SpinThread(const SpinThread&) = delete;
-  SpinThread& operator=(const SpinThread&) = delete;
+public:
+  explicit SpinThread(rclcpp::Executor &ex)
+      : ex_(ex), t_([&ex] { ex.spin(); }) {}
+  ~SpinThread() {
+    ex_.cancel();
+    if (t_.joinable())
+      t_.join();
+  }
+  SpinThread(const SpinThread &) = delete;
+  SpinThread &operator=(const SpinThread &) = delete;
 
- private:
-  rclcpp::Executor& ex_;
+private:
+  rclcpp::Executor &ex_;
   std::thread t_;
 };
-}  // namespace
+} // namespace
 
 TEST_F(CuroboClientTest, PlanSuccessReturnsTrajectory) {
   auto node = std::make_shared<rclcpp::Node>("curobo_client_test");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   CuroboPlanClient client(node, grp);
 
@@ -79,7 +85,8 @@ TEST_F(CuroboClientTest, PlanAbortReturnsFailure) {
 
 TEST_F(CuroboClientTest, PlanRejectedReturnsFailure) {
   auto node = std::make_shared<rclcpp::Node>("curobo_client_test3");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3,
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3,
                                                 /*reject=*/true);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   CuroboPlanClient client(node, grp);
@@ -125,12 +132,14 @@ TEST_F(CuroboClientTest, PlanServerUnavailableReturnsFailure) {
 // --- plan_to_joints: mirrors the four plan() cases above. FakeCuroboServer
 // --- hosts both tiers off one configuration, so only the call differs.
 namespace {
-const std::vector<double> kTargetJoints = {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571};
-}  // namespace
+const std::vector<double> kTargetJoints = {0.0, 0.262, 3.142, -2.269,
+                                           0.0, 0.96,  1.571};
+} // namespace
 
 TEST_F(CuroboClientTest, PlanToJointsSuccessReturnsTrajectory) {
   auto node = std::make_shared<rclcpp::Node>("curobo_joints_test1");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   CuroboPlanClient client(node, grp);
 
@@ -140,8 +149,9 @@ TEST_F(CuroboClientTest, PlanToJointsSuccessReturnsTrajectory) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
-                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  client.plan_to_joints(
+      kTargetJoints, kStartJoints, nullptr,
+      [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
   EXPECT_TRUE(o.ok);
@@ -161,8 +171,9 @@ TEST_F(CuroboClientTest, PlanToJointsAbortReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
-                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  client.plan_to_joints(
+      kTargetJoints, kStartJoints, nullptr,
+      [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
   EXPECT_FALSE(o.ok);
@@ -171,7 +182,8 @@ TEST_F(CuroboClientTest, PlanToJointsAbortReturnsFailure) {
 
 TEST_F(CuroboClientTest, PlanToJointsRejectedReturnsFailure) {
   auto node = std::make_shared<rclcpp::Node>("curobo_joints_test3");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true, /*n_points=*/3,
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3,
                                                 /*reject=*/true);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   CuroboPlanClient client(node, grp);
@@ -182,8 +194,9 @@ TEST_F(CuroboClientTest, PlanToJointsRejectedReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
-                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  client.plan_to_joints(
+      kTargetJoints, kStartJoints, nullptr,
+      [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
   EXPECT_FALSE(o.ok);
@@ -204,8 +217,9 @@ TEST_F(CuroboClientTest, PlanToJointsServerUnavailableReturnsFailure) {
 
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.plan_to_joints(kTargetJoints, kStartJoints, nullptr,
-                        [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  client.plan_to_joints(
+      kTargetJoints, kStartJoints, nullptr,
+      [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
   auto o = f.get();
   EXPECT_FALSE(o.ok);

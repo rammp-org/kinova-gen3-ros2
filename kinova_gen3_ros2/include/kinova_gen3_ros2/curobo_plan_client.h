@@ -18,7 +18,7 @@ namespace kinova_gen3_ros2 {
 // from the rclcpp executor (client's reentrant group). on_done is invoked
 // EXACTLY ONCE (success, failure, rejection, or unavailable).
 class CuroboPlanClient {
- public:
+public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
   using PlanToJoints = rammp_curobo_interfaces::action::PlanToJoints;
   struct Outcome {
@@ -26,32 +26,33 @@ class CuroboPlanClient {
     std::string message;
     trajectory_msgs::msg::JointTrajectory trajectory;
     // How far the planned goal landed from the requested joints. cuRobo plans
-    // joint goals natively where it can (~0) but falls back to an FK pose, which
-    // can converge somewhere else. Always 0 for pose plans, which have no
+    // joint goals natively where it can (~0) but falls back to an FK pose,
+    // which can converge somewhere else. Always 0 for pose plans, which have no
     // joint-space request to miss.
     double goal_mismatch_rad = 0.0;
   };
-  using FeedbackCb = std::function<void(const std::string& state)>;
+  using FeedbackCb = std::function<void(const std::string &state)>;
   using DoneCb = std::function<void(Outcome)>;
 
-  CuroboPlanClient(rclcpp::Node::SharedPtr node,
-                   rclcpp::CallbackGroup::SharedPtr cb_group,
-                   std::string action_name = "/rammp_curobo/plan_to_pose",
-                   std::string joints_action_name = "/rammp_curobo/plan_to_joints");
+  CuroboPlanClient(
+      rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr cb_group,
+      std::string action_name = "/rammp_curobo/plan_to_pose",
+      std::string joints_action_name = "/rammp_curobo/plan_to_joints");
   // start_joints is the configuration the plan must START from -- the arm's
   // measured q, supplied by the caller. It is NOT optional: cuRobo treats an
   // empty vector as "subscribe to /joint_states and work it out yourself",
   // which couples the planner to the robot and lets it plan from a state up to
   // 2 s stale while we execute from now.
-  void plan(const geometry_msgs::msg::Pose& target, const std::vector<double>& start_joints,
-            FeedbackCb on_fb, DoneCb on_done);
-  void plan_to_joints(const std::vector<double>& target_joints,
-                      const std::vector<double>& start_joints,
-                      FeedbackCb on_fb, DoneCb on_done);
+  void plan(const geometry_msgs::msg::Pose &target,
+            const std::vector<double> &start_joints, FeedbackCb on_fb,
+            DoneCb on_done);
+  void plan_to_joints(const std::vector<double> &target_joints,
+                      const std::vector<double> &start_joints, FeedbackCb on_fb,
+                      DoneCb on_done);
   // Cancels whichever plan is in flight, pose or joint-space.
   void cancel();
 
- private:
+private:
   rclcpp::Node::SharedPtr node_;
   rclcpp_action::Client<PlanToPose>::SharedPtr client_;
   rclcpp_action::Client<PlanToJoints>::SharedPtr client_joints_;
@@ -60,4 +61,4 @@ class CuroboPlanClient {
   // action types. Null when nothing is in flight.
   std::function<void()> active_cancel_;
 };
-}  // namespace kinova_gen3_ros2
+} // namespace kinova_gen3_ros2

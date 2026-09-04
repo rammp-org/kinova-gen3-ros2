@@ -2,7 +2,7 @@
 
 > `GoToEEPose` is one of three planned-move actions, alongside
 > `GoToJointConfig` and `GoToPreset`, which share its lifecycle and its
-> Result/Feedback exactly. See [`guide-goto-actions.md`](guide-goto-actions.md)
+> Result/Feedback exactly. See [`guide-goto-actions.md`](../guide-goto-actions)
 > for the tier as a whole — including the RMW requirement that otherwise makes
 > a goal hang in `planning` forever.
 
@@ -20,7 +20,7 @@ involved:
   arm; it only plans.
 
 For the full design rationale see
-[`docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md`](superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
+[`docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
 
 ## Bring-up
 
@@ -65,13 +65,13 @@ non-zero if the terminal `error_code` isn't `0`.
 
 ## Result codes
 
-| Code | Name | Meaning |
-|---|---|---|
-| `0` | `SUCCESSFUL` | Plan executed to completion. |
-| `-1` | `INVALID_GOAL` | Goal rejected before planning — e.g. `target.header.frame_id` is not `base_link`. |
-| `-4` | `PATH_TOLERANCE_VIOLATED` | Execution diverged from the planned trajectory beyond the guard. |
-| `-6` | `PREEMPTED` | Goal was canceled (during planning or execution — see Cancelling below). |
-| `-7` | `PLANNING_FAILED` | cuRobo returned no plan — unreachable/colliding target, the cuRobo action server is unavailable, or it's busy planning another goal (one plan at a time). `error_string` carries cuRobo's message. |
+| Code | Name                      | Meaning                                                                                                                                                                                            |
+| ---- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | `SUCCESSFUL`              | Plan executed to completion.                                                                                                                                                                       |
+| `-1` | `INVALID_GOAL`            | Goal rejected before planning — e.g. `target.header.frame_id` is not `base_link`.                                                                                                                  |
+| `-4` | `PATH_TOLERANCE_VIOLATED` | Execution diverged from the planned trajectory beyond the guard.                                                                                                                                   |
+| `-6` | `PREEMPTED`               | Goal was canceled (during planning or execution — see Cancelling below).                                                                                                                           |
+| `-7` | `PLANNING_FAILED`         | cuRobo returned no plan — unreachable/colliding target, the cuRobo action server is unavailable, or it's busy planning another goal (one plan at a time). `error_string` carries cuRobo's message. |
 
 `error_code = -5` (`GOAL_TOLERANCE_VIOLATED`) does not apply to this action.
 
@@ -111,5 +111,5 @@ Before running against the real arm:
   tool pose as your first real-arm goal.
 - Stay **attended**, with the **e-stop in hand**.
 - Follow the attended real-arm procedure in
-  [`docs/on-robot-runbook.md`](on-robot-runbook.md) and log the run in its
+  [`docs/on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and log the run in its
   Runs section.

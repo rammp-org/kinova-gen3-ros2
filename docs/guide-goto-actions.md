@@ -19,9 +19,9 @@ resolved to 7 joint angles and planned exactly the same way. **None of these is
 a planner bypass** — nothing drives the arm straight at a target.
 
 For the design rationale see
-[`superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md`](superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md)
+[`superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md)
 and the `GoToEEPose` guide's
-[design spec](superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
+[design spec](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
 
 ## Bring-up
 
@@ -114,6 +114,6 @@ small delta) to exercise the success path.
 
 The planned trajectory runs at **full planner speed**, and cuRobo plans to the
 arm's real velocity limits. Read
-[`on-robot-runbook.md`](on-robot-runbook.md) and keep the e-stop in hand before
+[`on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and keep the e-stop in hand before
 the first real-arm run of any of these actions. Real-arm runs must pin the RT
 loop to the isolated core (`--cpu 11`); `make sim` / `make real` do this.

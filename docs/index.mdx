@@ -1,0 +1,50 @@
+---
+title: Introduction
+---
+
+# Kinova Gen3 ROS 2
+
+The ROS 2 interface to a Kinova Gen3 7-DOF arm.
+
+This module is the ROS 2 shell around
+[`kinova-gen3-driver`](https://github.com/rammp-org/kinova-gen3-driver), which owns the
+1 kHz real-time control loop. This layer translates ROS messages to and from that
+driver's plain value types, and **no ROS 2 header ever reaches the real-time thread**.
+
+## What it gives you
+
+Four control tiers, in increasing order of how directly you drive the arm:
+
+- **Planned moves** — `go_to_ee_pose`, `go_to_joint_config`, `go_to_preset`. Give it a
+  destination; [rammp-curobo](https://github.com/rammp-org/RAMMP-CuRobo) plans a
+  collision-free trajectory and this module executes it.
+- **Trajectory execution** — `execute_joint_trajectory`. You supply the waypoints;
+  path and goal tolerance guards abort on divergence.
+- **Setpoint streaming** — seven controllers over `/setpoint/*` at rate, for policies
+  and teleoperation.
+- **Arbitration** — who is allowed to command the arm at all, plus a broadcast e-stop
+  any node may publish.
+
+## Start here
+
+- **[Getting started](getting-started)** — bring up a simulated arm and move a
+  joint, in about five minutes. Docker only; no hardware, no GPU, no ROS install.
+- **[Interface](interface)** — every topic, action, service and parameter, with
+  units and the QoS you must match. The reference you will keep open.
+- **[Planned moves](guide-goto-actions)** — the `go_to_*` actions and what they need.
+- **[Going to an EE pose](guide-goto-ee-pose)** — the pose action in detail.
+
+## Two things that surprise people
+
+**This module is two containers.** The `go_to_*` actions are clients of the planner's
+actions. Run the driver alone and three of the four action servers accept goals that
+can never succeed. `deploy/compose.yaml` declares both.
+
+**Velocity mode is not a hold.** Zero velocity means "stop driving", not "stay put" —
+and on this hardware the shoulder creeps under gravity at a zero command
+([#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34)). Use
+`ee_pose_position` to hold a pose.
+
+Something looks broken? **[Troubleshooting](troubleshooting)** collects the
+failures people actually hit — starting with the one where `ros2 topic echo` prints
+nothing and the driver is fine.

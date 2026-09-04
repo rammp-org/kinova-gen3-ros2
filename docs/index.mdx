@@ -27,8 +27,10 @@ Four control tiers, in increasing order of how directly you drive the arm:
 
 ## Start here
 
-- **[Interface](interface)** — every topic, action, service and parameter, with units
-  and the QoS you must match. Start here if you are writing a client.
+- **[Getting started](getting-started)** — bring up a simulated arm and move a
+  joint, in about five minutes. Docker only; no hardware, no GPU, no ROS install.
+- **[Interface](interface)** — every topic, action, service and parameter, with
+  units and the QoS you must match. The reference you will keep open.
 - **[Planned moves](guide-goto-actions)** — the `go_to_*` actions and what they need.
 - **[Going to an EE pose](guide-goto-ee-pose)** — the pose action in detail.
 
@@ -42,3 +44,7 @@ can never succeed. `deploy/compose.yaml` declares both.
 and on this hardware the shoulder creeps under gravity at a zero command
 ([#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34)). Use
 `ee_pose_position` to hold a pose.
+
+Something looks broken? **[Troubleshooting](troubleshooting)** collects the
+failures people actually hit — starting with the one where `ros2 topic echo` prints
+nothing and the driver is fine.

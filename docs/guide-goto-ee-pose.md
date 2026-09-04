@@ -2,7 +2,7 @@
 
 > `GoToEEPose` is one of three planned-move actions, alongside
 > `GoToJointConfig` and `GoToPreset`, which share its lifecycle and its
-> Result/Feedback exactly. See [`guide-goto-actions.md`](guide-goto-actions.md)
+> Result/Feedback exactly. See [`guide-goto-actions.md`](../guide-goto-actions)
 > for the tier as a whole — including the RMW requirement that otherwise makes
 > a goal hang in `planning` forever.
 

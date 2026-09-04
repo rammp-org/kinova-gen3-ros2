@@ -20,7 +20,7 @@ involved:
   arm; it only plans.
 
 For the full design rationale see
-[`docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md`](superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
+[`docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-ee-pose-curobo-design.md).
 
 ## Bring-up
 
@@ -111,5 +111,5 @@ Before running against the real arm:
   tool pose as your first real-arm goal.
 - Stay **attended**, with the **e-stop in hand**.
 - Follow the attended real-arm procedure in
-  [`docs/on-robot-runbook.md`](on-robot-runbook.md) and log the run in its
+  [`docs/on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and log the run in its
   Runs section.

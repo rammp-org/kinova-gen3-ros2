@@ -1,0 +1,24 @@
+name: docs dispatch
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    # DOCS_DISPATCH_TOKEN may not be provisioned; skip cleanly rather than failing
+    # red on every docs push. `secrets` is not a usable context in an `if:` at any
+    # level, so it is routed through `env:` first, which the step's `if:` can read.
+    # (Same shape as sheppy's -- see rammp-org/sheppy .github/workflows.)
+    env:
+      DOCS_DISPATCH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+    steps:
+      - if: ${{ env.DOCS_DISPATCH_TOKEN != '' }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ env.DOCS_DISPATCH_TOKEN }}
+          repository: rammp-org/rammp-org.github.io
+          event-type: docs-updated

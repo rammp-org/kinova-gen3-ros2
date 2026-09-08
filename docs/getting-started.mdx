@@ -179,6 +179,114 @@ Three things here are load-bearing and not stylistic:
 The version of this file the fleet actually runs lives at `deploy/compose.yaml` in
 the repo. It differs on purpose: it builds images locally rather than pulling them.
 
+## Running natively, without Docker
+
+There is no package to install — no apt repo, no bloom release. The container **is**
+the binary distribution. Native means building from source in a colcon workspace,
+which is worth doing if you are changing the driver, or if you want the real-time
+loop without a container between it and the kernel.
+
+You need **ROS 2 Humble** already installed. Everything below was run start to
+finish on a clean `ros:humble`.
+
+```sh
+sudo apt install -y git python3-pip python3-vcstool ros-humble-rmw-cyclonedds-cpp
+rosdep update --rosdistro humble        # first time only
+
+mkdir -p ~/kinova_ws/src && cd ~/kinova_ws
+git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
+vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
+```
+
+`kinova_gen3.repos` brings in the core driver, the interfaces, and cuRobo's message
+definitions. It does **not** contain this repo, which is why you clone that yourself
+first.
+
+### Pinocchio has to come from pip, pinned
+
+```sh
+pip install -r src/kinova_gen3_ros2/docker/requirements.txt
+export CMEEL_PREFIX="$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/cmeel.prefix"
+```
+
+Do **not** install `ros-humble-pinocchio`. It is 4.0.0 on Humble — a major version
+ahead of what the core driver is validated against — and it would shadow the wheels.
+
+Pinning `pin` alone is not enough either, which is why that requirements file pins
+all fifteen packages together. A loose resolve pulls `cmeel-urdfdom` 6.0.0, and the
+result **builds cleanly and then dies at startup** with
+`liburdfdom_sensor.so.4.0: cannot open shared object file`. If you see that, your
+cmeel stack drifted.
+
+### Build
+
+```sh
+rosdep install --ignore-src -y --skip-keys pinocchio --from-paths \
+  src/kinova_gen3_ros2 src/kinova-gen3-driver src/rammp-interfaces-ros2 \
+  src/RAMMP-CuRobo/rammp_curobo_interfaces
+
+export CMAKE_PREFIX_PATH="$CMEEL_PREFIX:${CMAKE_PREFIX_PATH:-}"
+colcon build --packages-up-to kinova_gen3_ros2 --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+Both of those are narrower than the obvious version, on purpose:
+
+- **`--from-paths` lists packages instead of taking `src`.** The repos file vendors
+  all of RAMMP-CuRobo, so a bare `src` would install the GPU planner's dependencies
+  for a node you are not building.
+- **`--packages-up-to kinova_gen3_ros2`** stops at the driver and its dependencies,
+  leaving `rammp_curobo_ros` — the planner — unbuilt. That one needs a GPU and lives
+  in its own container.
+
+Expect four packages and under a minute.
+
+### Run
+
+```sh
+source install/setup.bash
+ros2 run kinova_gen3_ros2 kinova_gen3_node \
+  --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+```
+
+Same banner as the container. Swap `--sim` for `--ip <arm-address>` for real
+hardware — but that needs the KORTEX build below.
+
+If you script this, note that `install/setup.bash` reads `COLCON_TRACE` unguarded,
+so it fails under `set -u`. Source it with `-u` off and turn it back on afterwards.
+
+### Real-time privileges
+
+The container gets these from `cap_add: SYS_NICE` plus the `ulimits`. Natively, grant
+them once on the built binary:
+
+```sh
+sudo setcap cap_sys_nice,cap_ipc_lock+ep \
+  install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
+```
+
+Without it the node still **runs** — it reports `SCHED_FIFO failed: Operation not
+permitted` and continues at normal priority. That is the failure worth knowing about,
+because nothing stops working; you just quietly lose the real-time guarantee and see
+it later as jitter.
+
+### Talking to a real arm
+
+The real-arm build links Kinova's KORTEX SDK statically, so it has to be present at
+build time. It is publicly downloadable:
+
+```sh
+# aarch64: linux_aarch64_gcc_7.4.zip   x86-64: linux_x86-64_gcc_5.4.zip
+curl -fsSL -o /tmp/kortex.zip \
+  https://artifactory.kinovaapps.com/artifactory/generic-public/kortex/API/2.8.0/linux_x86-64_gcc_5.4.zip
+mkdir -p ~/kortex && unzip -q /tmp/kortex.zip -d ~/kortex
+
+colcon build --packages-up-to kinova_gen3_ros2 --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR="$HOME/kortex"
+```
+
+Build without `KINOVA_ENABLE_KORTEX=ON` and `--ip` exits with
+`built without KORTEX; use --sim` rather than failing obscurely.
+
 ## Where to go next
 
 - **[Interface reference](../interface)** — every topic, action, service, with units.

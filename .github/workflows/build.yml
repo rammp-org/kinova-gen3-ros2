@@ -11,6 +11,16 @@ on:
 permissions:
   contents: read
 
+# Every image job builds on a runner of its own architecture: ubuntu-22.04 for
+# amd64, ubuntu-22.04-arm for arm64. GitHub gives public repositories both at no
+# cost, which is why nothing here emulates. A cross build under QEMU works, but
+# it translates every instruction of a full colcon build and costs tens of
+# minutes; native arm64 lands in roughly the same time as native amd64.
+#
+# The consequence for the matrix jobs: `platforms:` must agree with `runner`, or
+# the build fails outright rather than silently falling back -- no QEMU is
+# installed to fall back to. That is the failure we want.
+
 jobs:
   fragment:
     runs-on: ubuntu-22.04
@@ -30,51 +40,68 @@ jobs:
       - name: Validate the fragments
         run: python3 scripts/check_fragments.py rammp-alternative*.yaml
 
+  # The SIM image on both architectures: it builds, it publishes, it exits on
+  # SIGTERM. Hardware-free by design -- no runner has an arm, and the fragment
+  # declaring the real one does not change what CI can run.
+  #
+  # Both arches actually RUN here rather than merely compiling, which is the
+  # payoff of native runners: under emulation, starting the arm64 image to watch
+  # for a banner was slow enough not to be worth it.
   smoke:
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
-      # The SIM image: smoke is the hardware-free path by design, and the
-      # runner has no arm. The fragment declaring the real arm does not change
-      # what CI can run.
       - name: Build the sim image
         run: docker build -t kinova-gen3-ros2:ci .
 
       - name: Publishes, and exits on SIGTERM
         run: SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:ci
 
-  # The image that actually drives a robot. The sim image above cannot, so
-  # without this job a change that broke only the KORTEX path would reach the
-  # arm uncaught.
+  # The image that actually drives a robot. The sim image cannot, so without
+  # this job a change that broke only the KORTEX path would reach the arm
+  # uncaught.
   #
-  # BOTH architectures. Kinova publishes a per-arch SDK and the Dockerfile picks
-  # by TARGETARCH: aarch64_gcc_7.4 for arm64, x86-64_gcc_5.4 for amd64. The
-  # amd64 SDK spans the gcc 5.4 -> 11 C++11 ABI change, which makes linking the
-  # part worth guarding: the binary has to carry the real KortexTransport (31
-  # symbols), not the sim fallback.
+  # Kinova publishes a per-arch SDK and the Dockerfile picks by TARGETARCH:
+  # aarch64_gcc_7.4 for arm64, x86-64_gcc_5.4 for amd64. The amd64 SDK spans the
+  # gcc 5.4 -> 11 C++11 ABI change, which makes linking the part worth guarding:
+  # the binary has to carry the real KortexTransport, not the sim fallback.
   #
   # amd64 matters beyond coverage: the driver reaches the arm over IP, so an
   # x86-64 KORTEX image lets a laptop drive the robot without a Jetson.
   #
-  # arm64 builds under QEMU here, so this job does not also run the smoke test.
-  # Compiling and LINKING is what breaks; startup is covered by the sim smoke.
+  # No smoke test here -- compiling and LINKING is what breaks on this path, and
+  # startup is already covered by the sim smoke on both arches.
   #
-  # This job is also the release. On a v* tag it pushes both arches to ghcr as a
-  # single manifest, so `docker pull ghcr.io/rammp-org/kinova-gen3-ros2:1.0.0`
-  # resolves to the right architecture on a Jetson or a laptop. Branch and PR
-  # builds compile and discard. It needs fragment and smoke green first: a tag
-  # must not publish an image whose validation failed.
+  # On a v* tag each arch pushes BY DIGEST, untagged; kortex-manifest below is
+  # what turns those digests into a pullable tag. Branch and PR builds export
+  # nothing (type=cacheonly), so they compile without touching the registry.
+  # fragment and smoke gate it: a tag must not publish an image whose validation
+  # failed.
   kortex:
     needs: [fragment, smoke]
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -84,16 +111,75 @@ jobs:
         run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to ghcr
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Semver only: an image is a release artifact, so branch and sha tags would
-      # just accumulate. `latest` follows the newest non-prerelease tag, which is
-      # metadata-action's default and what a bare `docker pull` gets.
+      - id: build
+        name: Build the KORTEX image (native, fetches the SDK)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            KINOVA_ENABLE_KORTEX=ON
+          outputs: ${{ github.ref_type == 'tag' && format('type=image,name=ghcr.io/{0},push-by-digest=true,name-canonical=true,push=true', steps.image.outputs.name) || 'type=cacheonly' }}
+
+      # The digest is all the manifest job needs; the filename carries it, so
+      # the file itself is empty.
+      - name: Export the digest
+        if: github.ref_type == 'tag'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload the digest
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Ties the two per-arch digests into one manifest list, so a single tag serves
+  # both. `docker pull ghcr.io/rammp-org/kinova-gen3-ros2:1.0.0` then resolves to
+  # arm64 on a Jetson and amd64 on a laptop, and neither pulls the other's
+  # layers.
+  #
+  # Semver tags only: an image is a release artifact, so branch and sha tags
+  # would just accumulate. `latest` follows the newest non-prerelease tag, which
+  # is metadata-action's default and what a bare `docker pull` gets.
+  kortex-manifest:
+    if: github.ref_type == 'tag'
+    needs: [kortex]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: image
+        name: Compute lowercase image name
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -103,41 +189,14 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
-      - name: Build the KORTEX image (both arches, fetches the SDK)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/arm64,linux/amd64
-          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            KINOVA_ENABLE_KORTEX=ON
+      - name: Create the manifest list and push it
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/${{ steps.image.outputs.name }}@sha256:%s ' *)
 
-  # Both architectures of the sim image, built and discarded.
-  #
-  # Deliberately never pushed: the sim image cannot drive an arm, so shipping it
-  # under a release tag invites someone to pull 1.0.0 and find an artifact that
-  # does not do the job. The KORTEX job above is the one that publishes. This
-  # job exists to prove the sim image still builds on arm64, which the smoke job
-  # cannot show -- it builds natively on an x86-64 runner.
-  multiarch:
-    needs: [fragment, smoke, kortex]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
-
-      - uses: docker/setup-buildx-action@v3
-
-      # amd64 is a supported target, not a side effect: cmeel ships
-      # manylinux_2_28_x86_64 wheels, and conformance passes 32/32 there, the
-      # same as arm64.
-      - name: Build both architectures
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/arm64,linux/amd64
-          push: false
+      - name: Show what was published
+        run: |
+          docker buildx imagetools inspect \
+            "ghcr.io/${{ steps.image.outputs.name }}:${{ steps.meta.outputs.version }}"

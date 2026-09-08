@@ -53,7 +53,7 @@ bash scripts/abra_colcon.sh --packages-select kinova_lowlevel
 **Interfaces introspection** (Task 1 verification):
 
 ```sh
-ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show kinova_gen3_interfaces/action/GoToEEPose"'
+ssh abra 'bash -lc "source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show rammp_arm_interfaces/action/GoToEEPose"'
 ```
 
 ______________________________________________________________________
@@ -62,17 +62,17 @@ ______________________________________________________________________
 
 **Files:**
 
-- Create: `kinova_gen3_interfaces/action/GoToEEPose.action`
-- Modify: `kinova_gen3_interfaces/CMakeLists.txt`
-- Modify: `kinova_gen3_interfaces/package.xml`
+- Create: `rammp_arm_interfaces/action/GoToEEPose.action`
+- Modify: `rammp_arm_interfaces/CMakeLists.txt`
+- Modify: `rammp_arm_interfaces/package.xml`
 
 **Interfaces:**
 
-- Produces: `kinova_gen3_interfaces/action/GoToEEPose` with `Goal{ geometry_msgs/PoseStamped target, string sender_id }`, `Result{ int32 error_code, string error_string, trajectory_msgs/JointTrajectoryPoint final_error }`, `Feedback{ string phase, string planner_state, float32 fraction_complete, trajectory_msgs/JointTrajectoryPoint actual }`.
+- Produces: `rammp_arm_interfaces/action/GoToEEPose` with `Goal{ geometry_msgs/PoseStamped target, string sender_id }`, `Result{ int32 error_code, string error_string, trajectory_msgs/JointTrajectoryPoint final_error }`, `Feedback{ string phase, string planner_state, float32 fraction_complete, trajectory_msgs/JointTrajectoryPoint actual }`.
 
 - [ ] **Step 1: Create the action file**
 
-`kinova_gen3_interfaces/action/GoToEEPose.action`:
+`rammp_arm_interfaces/action/GoToEEPose.action`:
 
 ```
 # Goal — move the tool (tool_frame) to a base_link pose; cuRobo plans collision-free.
@@ -94,7 +94,7 @@ trajectory_msgs/JointTrajectoryPoint actual   # live measured q during execution
 
 - [ ] **Step 2: Register the action + add `geometry_msgs` in CMakeLists**
 
-In `kinova_gen3_interfaces/CMakeLists.txt`, add `find_package(geometry_msgs REQUIRED)` after the other `find_package` lines, and update the generate call:
+In `rammp_arm_interfaces/CMakeLists.txt`, add `find_package(geometry_msgs REQUIRED)` after the other `find_package` lines, and update the generate call:
 
 ```cmake
 find_package(geometry_msgs REQUIRED)
@@ -107,7 +107,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 - [ ] **Step 3: Add the `geometry_msgs` depend in package.xml**
 
-In `kinova_gen3_interfaces/package.xml`, add alongside the other `<depend>` lines:
+In `rammp_arm_interfaces/package.xml`, add alongside the other `<depend>` lines:
 
 ```xml
   <depend>geometry_msgs</depend>
@@ -117,12 +117,12 @@ In `kinova_gen3_interfaces/package.xml`, add alongside the other `<depend>` line
 
 Run (from "Build & test loop"): `bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`
 Then the interfaces-introspection command.
-Expected: build green; `ros2 interface show kinova_gen3_interfaces/action/GoToEEPose` prints the three sections with the fields above.
+Expected: build green; `ros2 interface show rammp_arm_interfaces/action/GoToEEPose` prints the three sections with the fields above.
 
 - [ ] **Step 5: Commit** (branch `feat/goto-ee-pose-curobo`)
 
 ```sh
-git add kinova_gen3_interfaces/action/GoToEEPose.action kinova_gen3_interfaces/CMakeLists.txt kinova_gen3_interfaces/package.xml
+git add rammp_arm_interfaces/action/GoToEEPose.action rammp_arm_interfaces/CMakeLists.txt rammp_arm_interfaces/package.xml
 git commit   # feat(interfaces): add GoToEEPose.action (+ geometry_msgs dep)
 ```
 
@@ -402,12 +402,12 @@ TEST(MessageMapping, GotoExecutingFeedback) {
 In `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`, add includes + declarations:
 
 ```cpp
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 ```
 
 ```cpp
-using GoToEEPose = kinova_gen3_interfaces::action::GoToEEPose;
+using GoToEEPose = rammp_arm_interfaces::action::GoToEEPose;
 
 kinova::interface::TrajectoryGoal to_trajectory_goal(
     const trajectory_msgs::msg::JointTrajectory& traj);
@@ -420,7 +420,7 @@ GoToEEPose::Result   to_goto_result_msg(const kinova::interface::TrajectoryResul
 Add `trajectory_msgs` to the `message_mapping` deps in `CMakeLists.txt`:
 
 ```cmake
-ament_target_dependencies(message_mapping rclcpp kinova_gen3_interfaces trajectory_msgs)
+ament_target_dependencies(message_mapping rclcpp rammp_arm_interfaces trajectory_msgs)
 ```
 
 Build + run `message_mapping_test`. Expected: link/compile failure on the three new symbols.
@@ -847,7 +847,7 @@ ______________________________________________________________________
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
@@ -855,7 +855,7 @@ ______________________________________________________________________
 #include "fake_curobo_server.h"
 using namespace std::chrono_literals;
 using namespace kinova::interface;
-using GoToEEPose = kinova_gen3_interfaces::action::GoToEEPose;
+using GoToEEPose = rammp_arm_interfaces::action::GoToEEPose;
 
 namespace {
 // Stand-in for the Supervisor: records the submitted goal and, on accept,
@@ -973,7 +973,7 @@ TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
 #include <string>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_lowlevel/interface/ports.h"
@@ -985,7 +985,7 @@ namespace kinova_gen3_ros2 {
 // execution feedback/settle back here by GoalId.
 class GoToEEPoseServer : public kinova::interface::ActionServerPort {
  public:
-  using Action = kinova_gen3_interfaces::action::GoToEEPose;
+  using Action = rammp_arm_interfaces::action::GoToEEPose;
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter& router,
@@ -1030,7 +1030,7 @@ add_library(goto_ee_pose_server src/goto_ee_pose_server.cpp)
 target_include_directories(goto_ee_pose_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(goto_ee_pose_server
-  rclcpp rclcpp_action kinova_gen3_interfaces geometry_msgs)
+  rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(goto_ee_pose_server
   goal_router curobo_plan_client message_mapping kinova_lowlevel::kinova_lowlevel)
 ```
@@ -1043,7 +1043,7 @@ Add the test (inside `if(BUILD_TESTING)`):
   target_link_libraries(goto_ee_pose_integration_test
     goto_ee_pose_server goal_router curobo_plan_client message_mapping)
   ament_target_dependencies(goto_ee_pose_integration_test
-    rclcpp rclcpp_action kinova_gen3_interfaces rammp_curobo_interfaces geometry_msgs)
+    rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
 ```
 
 Build. Expected: `goto_ee_pose_integration_test` fails to link (`GoToEEPoseServer::…` undefined).
@@ -1269,7 +1269,7 @@ Update the startup log line (~70):
 In `kinova_gen3_ros2/CMakeLists.txt`, update the node's deps/links:
 
 ```cmake
-ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action kinova_gen3_interfaces geometry_msgs)
+ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
   ros2_backend goto_ee_pose_server goal_router curobo_plan_client message_mapping
   kinova_lowlevel::kinova_lowlevel)
@@ -1303,7 +1303,7 @@ import argparse
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from kinova_gen3_interfaces.action import GoToEEPose
+from rammp_arm_interfaces.action import GoToEEPose
 
 
 def main():

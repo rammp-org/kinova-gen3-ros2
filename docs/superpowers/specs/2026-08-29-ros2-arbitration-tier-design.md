@@ -131,7 +131,7 @@ reach a half-destroyed chain.
 
 ## Interfaces
 
-All new files land in `kinova_gen3_interfaces`.
+All new files land in `rammp_arm_interfaces`.
 
 ### `msg/EStop.msg`
 
@@ -256,7 +256,7 @@ publisher** — and `ros2 topic pub`, `rqt`, and most ad-hoc scripts publish vol
 default. Requesting `transient_local` on `/estop` would mean an operator typing
 
 ```
-ros2 topic pub /estop kinova_gen3_interfaces/msg/EStop '{engaged: true}'
+ros2 topic pub /estop rammp_arm_interfaces/msg/EStop '{engaged: true}'
 ```
 
 silently fails to connect at all. On an emergency-stop path that trap is unacceptable, so

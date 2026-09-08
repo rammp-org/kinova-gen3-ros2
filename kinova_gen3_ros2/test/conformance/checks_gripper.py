@@ -7,7 +7,7 @@ still actuation, so the e-stop must already be proven in this session.
 
 import time
 
-from kinova_gen3_interfaces.msg import GripperSetpoint
+from rammp_arm_interfaces.msg import GripperSetpoint
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from harness import FAIL, PASS, REGISTRY, SKIP, ZERO_TOKEN, Result, tok

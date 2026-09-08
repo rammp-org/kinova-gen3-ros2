@@ -15,8 +15,8 @@ import time
 
 import rclpy
 from geometry_msgs.msg import Twist
-from kinova_gen3_interfaces.msg import JointSetpoint, TwistSetpoint
-from kinova_gen3_interfaces.srv import (
+from rammp_arm_interfaces.msg import JointSetpoint, TwistSetpoint
+from rammp_arm_interfaces.srv import (
     AcquireControl,
     CloseStream,
     OpenStream,

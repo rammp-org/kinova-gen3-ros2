@@ -68,7 +68,7 @@ package (no GPU stack) — for the `PlanToPose` type.
    and forward-compatible with adding a TF transform later. We strip to the bare
    `Pose` cuRobo wants before forwarding.
 
-## New interface — `kinova_gen3_interfaces/action/GoToEEPose.action`
+## New interface — `rammp_arm_interfaces/action/GoToEEPose.action`
 
 ```
 # Goal
@@ -233,7 +233,7 @@ message field) rather than disabling the guard outright. Measured on the attende
 
 ## Dependencies & build
 
-- `kinova_gen3_interfaces` gains `GoToEEPose.action` and a **new `geometry_msgs`
+- `rammp_arm_interfaces` gains `GoToEEPose.action` and a **new `geometry_msgs`
   dependency** (it currently depends on `builtin_interfaces`, `std_msgs`,
   `trajectory_msgs`, `control_msgs`, `action_msgs` — `PoseStamped` needs
   `geometry_msgs` added to `package.xml` + `CMakeLists.txt`).

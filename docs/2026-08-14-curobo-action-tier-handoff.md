@@ -23,7 +23,7 @@ Kinova Gen3 arm today (single-joint and coordinated two-joint
     — `on_trajectory_goal / on_trajectory_accepted / on_trajectory_cancel / on_set_gains / on_query_state`. The `Supervisor` implements it. Everything
     that commands motion funnels through here.
 - **ROS2 frontend** — `rammp-org/kinova_gen3_ros2` @ `main` (Plan 3, PR #1).
-  - `kinova_gen3_interfaces` (ament): `ExecuteJointTrajectory.action` +
+  - `rammp_arm_interfaces` (ament): `ExecuteJointTrajectory.action` +
     `JointImpedanceGains.msg`.
   - `kinova_gen3_ros2` (ament): `Ros2Backend` (the ONLY unit that includes rclcpp —
     action server + driven ports + `/joint_states` publisher), pure
@@ -106,7 +106,7 @@ ______________________________________________________________________
    `trajectory_msgs/JointTrajectory`; does it own/collision-check a world? These
    shape the goal/feedback/result of `GoToEEPose` and how our node calls it.
 1. **High-level action message shapes** — new `.action` defs in
-   `kinova_gen3_interfaces` (`GoToEEPose.action`, `GoToJointConfig.action`,
+   `rammp_arm_interfaces` (`GoToEEPose.action`, `GoToJointConfig.action`,
    `GoToPreset.action`), including the `PLANNING_FAILED` result code + feedback
    (relay cuRobo planning progress, then execution progress?).
 1. **`GoToPreset`:** does the driver need a named-preset registry (config/param),
@@ -178,7 +178,7 @@ ______________________________________________________________________
 Subagent-driven, same loop that just worked: brainstorm (lock the §4 open items)
 → writing-plans → subagent per task with a per-task review + a whole-branch review,
 the controller running the abra build/test loop (subagents CAN ssh to abra). The
-new `.action` defs go in `kinova_gen3_interfaces`; the servers + cuRobo client go in
+new `.action` defs go in `rammp_arm_interfaces`; the servers + cuRobo client go in
 `kinova_gen3_ros2` (the existing node). Keep the core untouched unless a new bug
 demands it.
 

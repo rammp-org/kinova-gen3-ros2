@@ -1,5 +1,0 @@
-# Release control you hold. Refused unless the token matches the current owner.
-uint8[16] token
----
-bool   released
-string message

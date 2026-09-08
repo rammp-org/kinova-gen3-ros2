@@ -56,13 +56,13 @@ RUN mkdir -p src && vcs import src < /tmp/kinova_gen3.repos && \
 # of RAMMP-CuRobo, but this image only ever builds rammp_curobo_interfaces (the
 # dependency-free IDL). A bare `src` would also install rammp_curobo_ros's deps
 # for a package this image never runs — that node lives in the GPU container.
-COPY kinova_gen3_interfaces/package.xml src/kinova_gen3_ros2/kinova_gen3_interfaces/package.xml
 COPY kinova_gen3_ros2/package.xml       src/kinova_gen3_ros2/kinova_gen3_ros2/package.xml
 RUN source /opt/ros/humble/setup.bash && \
     apt-get update && \
     rosdep install --ignore-src -y --skip-keys pinocchio --from-paths \
       src/kinova_gen3_ros2 \
       src/kinova-gen3-driver \
+      src/rammp-interfaces-ros2 \
       src/RAMMP-CuRobo/rammp_curobo_interfaces && \
     rm -rf /var/lib/apt/lists/*
 
@@ -77,7 +77,7 @@ COPY docker/vendor/ /opt/kortex/
 COPY . src/kinova_gen3_ros2/
 
 # --packages-up-to kinova_gen3_ros2 builds exactly the node and its recursive
-# deps (kinova_lowlevel, kinova_gen3_interfaces, rammp_curobo_interfaces) and
+# deps (kinova_lowlevel, rammp_arm_interfaces, rammp_curobo_interfaces) and
 # stops there — rammp_curobo_ros is the GPU planner node and belongs in the
 # rammp-curobo image, not this one.
 ARG KINOVA_ENABLE_KORTEX=OFF

@@ -3,7 +3,7 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include "kinova_gen3_interfaces/action/go_to_joint_config.hpp"
+#include "rammp_arm_interfaces/action/go_to_joint_config.hpp"
 #include "kinova_gen3_ros2/planned_move_server.h"
 namespace kinova_gen3_ros2 {
 
@@ -11,10 +11,9 @@ namespace kinova_gen3_ros2 {
 // collision-free by cuRobo (plan_to_joints) rather than driven straight there.
 // The lifecycle lives in PlannedMoveServer.
 class GoToJointConfigServer
-    : public PlannedMoveServer<
-          kinova_gen3_interfaces::action::GoToJointConfig> {
+    : public PlannedMoveServer<rammp_arm_interfaces::action::GoToJointConfig> {
 public:
-  using Action = kinova_gen3_interfaces::action::GoToJointConfig;
+  using Action = rammp_arm_interfaces::action::GoToJointConfig;
 
   GoToJointConfigServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                         CuroboPlanClient &planner,

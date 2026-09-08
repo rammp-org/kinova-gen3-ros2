@@ -7,7 +7,7 @@
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
@@ -15,7 +15,7 @@
 #include "fake_curobo_server.h"
 using namespace std::chrono_literals;
 using namespace kinova::interface;
-using GoToEEPose = kinova_gen3_interfaces::action::GoToEEPose;
+using GoToEEPose = rammp_arm_interfaces::action::GoToEEPose;
 
 namespace {
 // Stand-in for the Supervisor: records the submitted goal and, on accept,

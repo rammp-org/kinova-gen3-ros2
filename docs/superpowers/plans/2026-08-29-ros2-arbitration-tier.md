@@ -42,22 +42,22 @@ ______________________________________________________________________
 
 **Files:**
 
-- Create: `kinova_gen3_interfaces/msg/EStop.msg`
-- Create: `kinova_gen3_interfaces/msg/ControlStatus.msg`
-- Create: `kinova_gen3_interfaces/srv/AcquireControl.srv`
-- Create: `kinova_gen3_interfaces/srv/ReleaseControl.srv`
-- Create: `kinova_gen3_interfaces/srv/RevokeControl.srv`
-- Modify: `kinova_gen3_interfaces/CMakeLists.txt`
-- Modify: `kinova_gen3_interfaces/action/ExecuteJointTrajectory.action`
-- Modify: `kinova_gen3_interfaces/action/GoToEEPose.action`
-- Modify: `kinova_gen3_interfaces/action/GoToJointConfig.action`
-- Modify: `kinova_gen3_interfaces/action/GoToPreset.action`
+- Create: `rammp_arm_interfaces/msg/EStop.msg`
+- Create: `rammp_arm_interfaces/msg/ControlStatus.msg`
+- Create: `rammp_arm_interfaces/srv/AcquireControl.srv`
+- Create: `rammp_arm_interfaces/srv/ReleaseControl.srv`
+- Create: `rammp_arm_interfaces/srv/RevokeControl.srv`
+- Modify: `rammp_arm_interfaces/CMakeLists.txt`
+- Modify: `rammp_arm_interfaces/action/ExecuteJointTrajectory.action`
+- Modify: `rammp_arm_interfaces/action/GoToEEPose.action`
+- Modify: `rammp_arm_interfaces/action/GoToJointConfig.action`
+- Modify: `rammp_arm_interfaces/action/GoToPreset.action`
 
 **Interfaces:**
 
 - Consumes: nothing.
 
-- Produces: `kinova_gen3_interfaces::msg::EStop` (header `msg/e_stop.hpp`),
+- Produces: `rammp_arm_interfaces::msg::EStop` (header `msg/e_stop.hpp`),
   `msg::ControlStatus` (`msg/control_status.hpp`), `srv::AcquireControl`,
   `srv::ReleaseControl`, `srv::RevokeControl`, and a `uint8[16] token` field on all four
   action goals.
@@ -155,7 +155,7 @@ uint8[16] token                    # arbitration capability from /acquire_contro
 
 and append `, NOT_AUTHORIZED=-8, HALTED=-9` to each `error_code` comment.
 
-- [ ] **Step 5: Register the new files in `kinova_gen3_interfaces/CMakeLists.txt`**
+- [ ] **Step 5: Register the new files in `rammp_arm_interfaces/CMakeLists.txt`**
 
 Extend the `rosidl_generate_interfaces` call:
 
@@ -176,7 +176,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 - [ ] **Step 6: Build and verify the generated types**
 
-Run: `./scripts/abra_colcon.sh --packages-select kinova_gen3_interfaces`
+Run: `./scripts/abra_colcon.sh --packages-select rammp_arm_interfaces`
 Expected: build succeeds.
 
 Then confirm the generated names (this also pins the `EStop` → `e_stop.hpp` mapping the
@@ -184,9 +184,9 @@ later tasks `#include`):
 
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
-  ros2 interface show kinova_gen3_interfaces/msg/EStop && \
-  ros2 interface show kinova_gen3_interfaces/srv/AcquireControl && \
-  ls /tmp/kinova-ros2-ws/install/kinova_gen3_interfaces/include/kinova_gen3_interfaces/kinova_gen3_interfaces/msg/ | grep -i stop'"
+  ros2 interface show rammp_arm_interfaces/msg/EStop && \
+  ros2 interface show rammp_arm_interfaces/srv/AcquireControl && \
+  ls /tmp/kinova-ros2-ws/install/rammp_arm_interfaces/include/rammp_arm_interfaces/rammp_arm_interfaces/msg/ | grep -i stop'"
 ```
 
 Expected: both definitions print, and the header is `e_stop.hpp`. **If the header is named
@@ -195,7 +195,7 @@ differently, use that name in Tasks 2–5.**
 - [ ] **Step 7: Commit**
 
 ```bash
-git add kinova_gen3_interfaces/
+git add rammp_arm_interfaces/
 git commit -m "feat(interfaces): EStop, ControlStatus, ownership services, tokens on goals"
 ```
 
@@ -324,7 +324,7 @@ class ArbitrationServerTest : public ::testing::Test {
 }  // namespace
 
 TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
-  using Srv = kinova_gen3_interfaces::srv::AcquireControl;
+  using Srv = rammp_arm_interfaces::srv::AcquireControl;
   auto req = std::make_shared<Srv::Request>();
   req->owner_id = "orchestrator";
   auto resp = call<Srv>("acquire_control", req);
@@ -336,12 +336,12 @@ TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
 }
 
 TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
 
-  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
+  using Rel = rammp_arm_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0xAB);
   auto resp = call<Rel>("release_control", rreq);
@@ -353,12 +353,12 @@ TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
 // ArbitrationStatus deliberately does not carry the token, so ArbitrationServer checks
 // against the one it minted. A stranger's token must not release someone else's arm.
 TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
 
-  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
+  using Rel = rammp_arm_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0x99);          // not the minted one
   auto resp = call<Rel>("release_control", rreq);
@@ -368,7 +368,7 @@ TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
 }
 
 TEST_F(ArbitrationServerTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
-  using Srv = kinova_gen3_interfaces::srv::RevokeControl;
+  using Srv = rammp_arm_interfaces::srv::RevokeControl;
   auto req = std::make_shared<Srv::Request>();
   req->reason = "client hung";
   auto resp = call<Srv>("revoke_control", req);
@@ -396,11 +396,11 @@ Expected: FAIL — `kinova_gen3_ros2/arbitration_server.h: No such file or direc
 #include <string>
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
-#include "kinova_gen3_interfaces/msg/control_status.hpp"
-#include "kinova_gen3_interfaces/msg/e_stop.hpp"
-#include "kinova_gen3_interfaces/srv/acquire_control.hpp"
-#include "kinova_gen3_interfaces/srv/release_control.hpp"
-#include "kinova_gen3_interfaces/srv/revoke_control.hpp"
+#include "rammp_arm_interfaces/msg/control_status.hpp"
+#include "rammp_arm_interfaces/msg/e_stop.hpp"
+#include "rammp_arm_interfaces/srv/acquire_control.hpp"
+#include "rammp_arm_interfaces/srv/release_control.hpp"
+#include "rammp_arm_interfaces/srv/revoke_control.hpp"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
 
@@ -413,11 +413,11 @@ namespace kinova_gen3_ros2 {
 // rather than part of the Supervisor.
 class ArbitrationServer {
  public:
-  using AcquireControl = kinova_gen3_interfaces::srv::AcquireControl;
-  using ReleaseControl = kinova_gen3_interfaces::srv::ReleaseControl;
-  using RevokeControl  = kinova_gen3_interfaces::srv::RevokeControl;
-  using EStop          = kinova_gen3_interfaces::msg::EStop;
-  using ControlStatus  = kinova_gen3_interfaces::msg::ControlStatus;
+  using AcquireControl = rammp_arm_interfaces::srv::AcquireControl;
+  using ReleaseControl = rammp_arm_interfaces::srv::ReleaseControl;
+  using RevokeControl  = rammp_arm_interfaces::srv::RevokeControl;
+  using EStop          = rammp_arm_interfaces::msg::EStop;
+  using ControlStatus  = rammp_arm_interfaces::msg::ControlStatus;
 
   ArbitrationServer(rclcpp::Node::SharedPtr node, kinova::interface::ArbitrationSink& arb,
                const std::string& hardware_id, double estop_clear_max_age_s);
@@ -476,8 +476,8 @@ using std::placeholders::_1; using std::placeholders::_2;
 namespace {
 // Compare the PAYLOAD only. The header stamp changes every poll, so including it
 // would make "on change" mean "at 10 Hz forever".
-bool same(const kinova_gen3_interfaces::msg::ControlStatus& a,
-          const kinova_gen3_interfaces::msg::ControlStatus& b) {
+bool same(const rammp_arm_interfaces::msg::ControlStatus& a,
+          const rammp_arm_interfaces::msg::ControlStatus& b) {
   return a.arbitration_enabled == b.arbitration_enabled && a.estopped == b.estopped &&
          a.owned == b.owned && a.owner_id == b.owner_id &&
          a.generation == b.generation && a.rejected_count == b.rejected_count;
@@ -691,7 +691,7 @@ add_library(arbitration_server src/arbitration_server.cpp)
 target_include_directories(arbitration_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(arbitration_server
-  rclcpp kinova_gen3_interfaces diagnostic_updater diagnostic_msgs std_msgs)
+  rclcpp rammp_arm_interfaces diagnostic_updater diagnostic_msgs std_msgs)
 target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 ```
 
@@ -702,7 +702,7 @@ and inside the `if(BUILD_TESTING)` block:
   target_include_directories(arbitration_server_test PRIVATE test)
   target_link_libraries(arbitration_server_test arbitration_server)
   ament_target_dependencies(arbitration_server_test
-    rclcpp kinova_gen3_interfaces diagnostic_updater diagnostic_msgs)
+    rclcpp rammp_arm_interfaces diagnostic_updater diagnostic_msgs)
 ```
 
 and add `arbitration_server` to the `kinova_gen3_node` `target_link_libraries` list.
@@ -753,9 +753,9 @@ this method inside `ArbitrationServerTest`:
 ```cpp
   // Publishes on /estop and spins until ArbitrationServer has had a chance to handle it.
   void publish_estop(bool engaged, const rclcpp::Time& stamp, const std::string& src) {
-    auto pub = node_->create_publisher<kinova_gen3_interfaces::msg::EStop>(
+    auto pub = node_->create_publisher<rammp_arm_interfaces::msg::EStop>(
         "/estop", rclcpp::QoS(10).reliable());
-    kinova_gen3_interfaces::msg::EStop m;
+    rammp_arm_interfaces::msg::EStop m;
     m.header.stamp = stamp;
     m.engaged = engaged;
     m.source = src;
@@ -809,13 +809,13 @@ TEST_F(ArbitrationServerTest, UnstampedEstopClearIsAccepted) {
 // Engaging the e-stop clears ownership inside the Arbiter, so the token we retained
 // is dead and a later release must not be honoured against a new owner.
 TEST_F(ArbitrationServerTest, EstopForgetsTheRetainedToken) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
   publish_estop(true, node_->now(), "operator");
 
-  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
+  using Rel = rammp_arm_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0xAB);
   auto resp = call<Rel>("release_control", rreq);
@@ -859,13 +859,13 @@ Add this helper method to `ArbitrationServerTest`:
 ```cpp
   // Collects /control_status messages. transient_local matches the publisher, so a
   // subscriber created after the fact still receives the latest state.
-  std::vector<kinova_gen3_interfaces::msg::ControlStatus> collect_status(
+  std::vector<rammp_arm_interfaces::msg::ControlStatus> collect_status(
       std::chrono::milliseconds dwell) {
-    std::vector<kinova_gen3_interfaces::msg::ControlStatus> got;
+    std::vector<rammp_arm_interfaces::msg::ControlStatus> got;
     std::mutex gm;
-    auto sub = node_->create_subscription<kinova_gen3_interfaces::msg::ControlStatus>(
+    auto sub = node_->create_subscription<rammp_arm_interfaces::msg::ControlStatus>(
         "control_status", rclcpp::QoS(10).reliable().transient_local(),
-        [&got, &gm](kinova_gen3_interfaces::msg::ControlStatus::SharedPtr m) {
+        [&got, &gm](rammp_arm_interfaces::msg::ControlStatus::SharedPtr m) {
           std::lock_guard<std::mutex> l(gm); got.push_back(*m);
         });
     SpinThread spin(ex_);
@@ -887,7 +887,7 @@ TEST_F(ArbitrationServerTest, StatusIsNotRepublishedWhileUnchanged) {
 }
 
 TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
@@ -902,7 +902,7 @@ TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
 // this is what /control_status being latched buys, and what lets a reconnecting
 // client discover it was dispossessed.
 TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_arm_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
@@ -916,7 +916,7 @@ TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
 // incumbent is dispossessed, and generation bumps. Asserted so the behaviour is a
 // decision rather than a surprise.
 TEST_F(ArbitrationServerTest, AcquireSeizesFromAnIncumbent) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_arm_interfaces::srv::AcquireControl;
   auto first = std::make_shared<Acq::Request>();
   first->owner_id = "teleop";
   ASSERT_NE(call<Acq>("acquire_control", first), nullptr);
@@ -1039,7 +1039,7 @@ Append to `kinova_gen3_ros2/test/message_mapping_test.cpp`:
 // The file already has `using namespace kinova_gen3_ros2;` at the top, so
 // to_trajectory_goal is called unqualified, and goals are spelled out in full.
 TEST(MessageMapping, CarriesTheArbitrationToken) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   trajectory_msgs::msg::JointTrajectoryPoint p;
   p.positions.assign(7, 0.0);
   g.trajectory.points.push_back(p);

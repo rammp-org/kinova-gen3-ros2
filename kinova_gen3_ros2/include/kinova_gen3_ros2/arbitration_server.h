@@ -6,11 +6,11 @@
 #include <string>
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
-#include "kinova_gen3_interfaces/msg/control_status.hpp"
-#include "kinova_gen3_interfaces/msg/e_stop.hpp"
-#include "kinova_gen3_interfaces/srv/acquire_control.hpp"
-#include "kinova_gen3_interfaces/srv/release_control.hpp"
-#include "kinova_gen3_interfaces/srv/revoke_control.hpp"
+#include "rammp_arm_interfaces/msg/control_status.hpp"
+#include "rammp_arm_interfaces/msg/e_stop.hpp"
+#include "rammp_arm_interfaces/srv/acquire_control.hpp"
+#include "rammp_arm_interfaces/srv/release_control.hpp"
+#include "rammp_arm_interfaces/srv/revoke_control.hpp"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
 
@@ -23,11 +23,11 @@ namespace kinova_gen3_ros2 {
 // a decorator rather than part of the Supervisor.
 class ArbitrationServer {
 public:
-  using AcquireControl = kinova_gen3_interfaces::srv::AcquireControl;
-  using ReleaseControl = kinova_gen3_interfaces::srv::ReleaseControl;
-  using RevokeControl = kinova_gen3_interfaces::srv::RevokeControl;
-  using EStop = kinova_gen3_interfaces::msg::EStop;
-  using ControlStatus = kinova_gen3_interfaces::msg::ControlStatus;
+  using AcquireControl = rammp_arm_interfaces::srv::AcquireControl;
+  using ReleaseControl = rammp_arm_interfaces::srv::ReleaseControl;
+  using RevokeControl = rammp_arm_interfaces::srv::RevokeControl;
+  using EStop = rammp_arm_interfaces::msg::EStop;
+  using ControlStatus = rammp_arm_interfaces::msg::ControlStatus;
 
   ArbitrationServer(rclcpp::Node::SharedPtr node,
                     kinova::interface::ArbitrationSink &arb,

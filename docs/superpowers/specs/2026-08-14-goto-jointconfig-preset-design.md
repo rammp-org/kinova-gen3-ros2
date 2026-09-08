@@ -101,7 +101,7 @@ Node declares `preset_names` (string\[\], default `["home"]`) and, per name, a
 `robot_gen3_2f85.yaml`). `GoToPresetServer` reads these at construction into its
 `const` registry; an unknown `preset_name` is rejected fail-loud in `validate`.
 
-### Interfaces (new `.action` files, `kinova_gen3_interfaces`)
+### Interfaces (new `.action` files, `rammp_arm_interfaces`)
 
 `GoToJointConfig.action` and `GoToPreset.action`. **Result and Feedback blocks are
 byte-identical to `GoToEEPose.action`** (so the templated base sets them uniformly):

@@ -189,14 +189,27 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
+      # Each uploaded digest is an EMPTY file whose NAME is the digest, so the
+      # refs come from the filenames. Built as arrays rather than one
+      # word-split string: the tags come from metadata-action and the digests
+      # from the filesystem, and neither should be at the mercy of $IFS.
       - name: Create the manifest list and push it
         working-directory: /tmp/digests
+        env:
+          IMAGE: ghcr.io/${{ steps.image.outputs.name }}
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/${{ steps.image.outputs.name }}@sha256:%s ' *)
+          refs=()
+          for d in *; do refs+=("${IMAGE}@sha256:${d}"); done
+          tags=()
+          while IFS= read -r t; do tags+=(-t "$t"); done \
+            < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
 
+      # Prints the platforms the tag now resolves to, so a release that somehow
+      # published one architecture is visible in the log rather than only on
+      # the machine that later fails to pull it.
       - name: Show what was published
-        run: |
-          docker buildx imagetools inspect \
-            "ghcr.io/${{ steps.image.outputs.name }}:${{ steps.meta.outputs.version }}"
+        env:
+          IMAGE: ghcr.io/${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"

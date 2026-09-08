@@ -45,6 +45,13 @@ You should see:
   actions: /execute_joint_trajectory, /go_to_ee_pose, ...
 ```
 
+<Callout type="warning">
+The published image is **arm64 only** — it builds on `rammp-base`, which is
+published for the Jetson. On an x86-64 machine `docker run` will fail to find a
+matching image; build from source instead (see below), which does support
+x86-64.
+</Callout>
+
 `--network host` and `--ipc host` are not optional: DDS needs both to reach your
 shell. `RMW_IMPLEMENTATION` must match in **every** shell you use — see
 [Troubleshooting](../troubleshooting) for what happens when it doesn't.

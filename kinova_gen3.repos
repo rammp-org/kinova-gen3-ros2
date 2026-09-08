@@ -15,6 +15,16 @@
 # rsyncs a local core working tree in instead, which also picks up uncommitted
 # core changes. Pinned to main now that Plan 2 (ports + Supervisor) is merged (PR #11).
 repositories:
+  # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
+  # holds one version of a package, so this pin is what decides whether this
+  # module can run alongside any other that speaks the same interfaces.
+  # See rammp-org/rammp-interfaces-ros2 for the versioning policy -- note that
+  # adding a field to an existing message is a MAJOR bump there, because Humble
+  # matches publishers to subscribers on type NAME and never checks content.
+  rammp-interfaces-ros2:
+    type: git
+    url: https://github.com/rammp-org/rammp-interfaces-ros2.git
+    version: v1.0.0
   kinova-gen3-driver:
     type: git
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
@@ -23,7 +33,7 @@ repositories:
     version: main
   RAMMP-CuRobo:
     type: git
-    url: https://github.com/ChrissCox/RAMMP-CuRobo.git
+    url: https://github.com/rammp-org/RAMMP-CuRobo.git
     version: main
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # The bare-metal loop rsyncs just that sub-package; container builds must scope

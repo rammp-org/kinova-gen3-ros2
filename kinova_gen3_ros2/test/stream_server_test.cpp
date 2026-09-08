@@ -78,15 +78,14 @@ protected:
     std::this_thread::sleep_for(300ms);
   }
 
-  std::vector<kinova_gen3_interfaces::msg::StreamStatus>
+  std::vector<rammp_arm_interfaces::msg::StreamStatus>
   collect_status(std::chrono::milliseconds dwell) {
-    std::vector<kinova_gen3_interfaces::msg::StreamStatus> got;
+    std::vector<rammp_arm_interfaces::msg::StreamStatus> got;
     std::mutex gm;
     auto sub =
-        node_->create_subscription<kinova_gen3_interfaces::msg::StreamStatus>(
+        node_->create_subscription<rammp_arm_interfaces::msg::StreamStatus>(
             "stream_status", rclcpp::QoS(10).reliable().transient_local(),
-            [&got,
-             &gm](kinova_gen3_interfaces::msg::StreamStatus::SharedPtr m) {
+            [&got, &gm](rammp_arm_interfaces::msg::StreamStatus::SharedPtr m) {
               std::lock_guard<std::mutex> l(gm);
               got.push_back(*m);
             });
@@ -109,13 +108,13 @@ protected:
 // /list_controllers
 
 TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
-  using Srv = kinova_gen3_interfaces::srv::ListControllers;
+  using Srv = rammp_arm_interfaces::srv::ListControllers;
   auto resp = call<Srv>("list_controllers", std::make_shared<Srv::Request>());
   ASSERT_NE(resp, nullptr);
   EXPECT_EQ(resp->controllers.size(), 8u);
 
   auto find = [&](const std::string &n)
-      -> const kinova_gen3_interfaces::msg::ControllerCapability * {
+      -> const rammp_arm_interfaces::msg::ControllerCapability * {
     for (const auto &c : resp->controllers)
       if (c.name == n)
         return &c;
@@ -159,7 +158,7 @@ TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
 // close
 
 TEST_F(StreamServerTest, OpenMapsTheControllerOntoCoresPair) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_impedance";
   req->timeout_s = 0.1;
@@ -183,7 +182,7 @@ TEST_F(StreamServerTest, OpenMapsTheControllerOntoCoresPair) {
 // An unknown name must not reach core -- core would have to invent an error for
 // something that is purely this layer's vocabulary.
 TEST_F(StreamServerTest, UnknownControllerIsRejectedWithoutReachingCore) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "nonsense";
   req->timeout_s = 0.1;
@@ -197,7 +196,7 @@ TEST_F(StreamServerTest, UnknownControllerIsRejectedWithoutReachingCore) {
 // cartesian_impedance is unavailable, and core has no kind for it at all -- so
 // the rejection has to originate here, not in pair_supported().
 TEST_F(StreamServerTest, UnavailableControllerIsRejectedWithoutReachingCore) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "cartesian_impedance";
   req->timeout_s = 0.1;
@@ -209,7 +208,7 @@ TEST_F(StreamServerTest, UnavailableControllerIsRejectedWithoutReachingCore) {
 
 TEST_F(StreamServerTest, CoresRejectionIsRelayedVerbatim) {
   sink_.accept_open = false;
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_torque";
   req->timeout_s = 0.1;
@@ -221,7 +220,7 @@ TEST_F(StreamServerTest, CoresRejectionIsRelayedVerbatim) {
 }
 
 TEST_F(StreamServerTest, CloseForwardsTheToken) {
-  using Srv = kinova_gen3_interfaces::srv::CloseStream;
+  using Srv = rammp_arm_interfaces::srv::CloseStream;
   auto req = std::make_shared<Srv::Request>();
   req->token = mktoken(0xCD);
   auto resp = call<Srv>("close_stream", req);
@@ -236,7 +235,7 @@ TEST_F(StreamServerTest, CloseForwardsTheToken) {
 // routing
 
 TEST_F(StreamServerTest, JointTopicsRouteToTheirOwnSinkMethod) {
-  kinova_gen3_interfaces::msg::JointSetpoint m;
+  rammp_arm_interfaces::msg::JointSetpoint m;
   m.values = {0.1, 0, 0, 0, 0, 0, 0};
   m.token = mktoken(0xAB);
 
@@ -254,7 +253,7 @@ TEST_F(StreamServerTest, JointTopicsRouteToTheirOwnSinkMethod) {
 }
 
 TEST_F(StreamServerTest, PoseAndTwistRouteToTheirOwnSinkMethod) {
-  kinova_gen3_interfaces::msg::PoseSetpoint p;
+  rammp_arm_interfaces::msg::PoseSetpoint p;
   p.pose.position.x = 0.4;
   p.pose.orientation.w = 1.0;
   p.token = mktoken(0x11);
@@ -263,23 +262,12 @@ TEST_F(StreamServerTest, PoseAndTwistRouteToTheirOwnSinkMethod) {
   EXPECT_EQ(sink_.log().back(), "pose");
   EXPECT_EQ(sink_.last_token, mktoken(0x11));
 
-  kinova_gen3_interfaces::msg::TwistSetpoint t;
+  rammp_arm_interfaces::msg::TwistSetpoint t;
   t.twist.linear.x = 0.05;
   t.token = mktoken(0x22);
   publish_setpoint("/setpoint/twist", t);
   EXPECT_EQ(sink_.log().back(), "twist");
   EXPECT_EQ(sink_.last_token, mktoken(0x22));
-}
-
-// Core has no on_setpoint_wrench, so there is nowhere to route this. The topic
-// exists so the surface is complete; this guards against someone later wiring
-// wrench into the wrong on_setpoint_* method.
-TEST_F(StreamServerTest, WrenchIsDroppedBecauseCoreHasNoSinkForIt) {
-  kinova_gen3_interfaces::msg::WrenchSetpoint w;
-  w.wrench.force.z = 5.0;
-  w.token = mktoken(0x33);
-  publish_setpoint("/setpoint/wrench", w);
-  EXPECT_TRUE(sink_.log().empty());
 }
 
 // -------------------------------------------------------------------
@@ -301,7 +289,7 @@ TEST_F(StreamServerTest, StatusReportsCoresViewNotOurs) {
 // The case that motivated core PR #31: we opened a session, core expired it,
 // and the status must follow core rather than our own record.
 TEST_F(StreamServerTest, StatusFollowsCoreWhenTheSessionExpires) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_impedance";
   req->timeout_s = 0.1;

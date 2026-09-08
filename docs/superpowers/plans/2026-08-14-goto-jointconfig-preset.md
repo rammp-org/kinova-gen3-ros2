@@ -32,7 +32,7 @@ ______________________________________________________________________
 
 ### Task 1: interfaces — `GoToJointConfig.action` + `GoToPreset.action`
 
-**Files:** Create `kinova_gen3_interfaces/action/GoToJointConfig.action`, `kinova_gen3_interfaces/action/GoToPreset.action`; Modify `kinova_gen3_interfaces/CMakeLists.txt`.
+**Files:** Create `rammp_arm_interfaces/action/GoToJointConfig.action`, `rammp_arm_interfaces/action/GoToPreset.action`; Modify `rammp_arm_interfaces/CMakeLists.txt`.
 
 **Interfaces produced:** two actions whose Result/Feedback are byte-identical to `GoToEEPose.action`; Goals differ.
 
@@ -75,9 +75,9 @@ float32 fraction_complete
 trajectory_msgs/JointTrajectoryPoint actual
 ```
 
-- [ ] **Step 3: Register both in `kinova_gen3_interfaces/CMakeLists.txt`** — add the two lines to the existing `rosidl_generate_interfaces(...)` alongside `GoToEEPose.action` (deps unchanged; these use only `trajectory_msgs`/`std_msgs`, already listed).
+- [ ] **Step 3: Register both in `rammp_arm_interfaces/CMakeLists.txt`** — add the two lines to the existing `rosidl_generate_interfaces(...)` alongside `GoToEEPose.action` (deps unchanged; these use only `trajectory_msgs`/`std_msgs`, already listed).
 
-- [ ] **Step 4: Build + verify** — `bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`; then `ros2 interface show kinova_gen3_interfaces/action/GoToJointConfig` and `...GoToPreset` print the fields. Commit (`feat(interfaces): add GoToJointConfig + GoToPreset actions`).
+- [ ] **Step 4: Build + verify** — `bash scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`; then `ros2 interface show rammp_arm_interfaces/action/GoToJointConfig` and `...GoToPreset` print the fields. Commit (`feat(interfaces): add GoToJointConfig + GoToPreset actions`).
 
 ______________________________________________________________________
 
@@ -329,12 +329,12 @@ Note: `to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory&)` is alre
 ```cpp
 #pragma once
 #include "kinova_gen3_ros2/planned_move_server.h"
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 namespace kinova_gen3_ros2 {
 class GoToEEPoseServer
-    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToEEPose> {
+    : public PlannedMoveServer<rammp_arm_interfaces::action::GoToEEPose> {
  public:
-  using Action = kinova_gen3_interfaces::action::GoToEEPose;
+  using Action = rammp_arm_interfaces::action::GoToEEPose;
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter& router,
                    CuroboPlanClient& planner, rclcpp::CallbackGroup::SharedPtr cb)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner, cb) {}
@@ -369,12 +369,12 @@ ______________________________________________________________________
 ```cpp
 #pragma once
 #include "kinova_gen3_ros2/planned_move_server.h"
-#include "kinova_gen3_interfaces/action/go_to_joint_config.hpp"
+#include "rammp_arm_interfaces/action/go_to_joint_config.hpp"
 namespace kinova_gen3_ros2 {
 class GoToJointConfigServer
-    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToJointConfig> {
+    : public PlannedMoveServer<rammp_arm_interfaces::action::GoToJointConfig> {
  public:
-  using Action = kinova_gen3_interfaces::action::GoToJointConfig;
+  using Action = rammp_arm_interfaces::action::GoToJointConfig;
   GoToJointConfigServer(rclcpp::Node::SharedPtr node, GoalRouter& router,
                         CuroboPlanClient& planner, rclcpp::CallbackGroup::SharedPtr cb)
       : PlannedMoveServer<Action>(node, "go_to_joint_config", router, planner, cb) {}
@@ -412,12 +412,12 @@ ______________________________________________________________________
 #include <map>
 #include <vector>
 #include "kinova_gen3_ros2/planned_move_server.h"
-#include "kinova_gen3_interfaces/action/go_to_preset.hpp"
+#include "rammp_arm_interfaces/action/go_to_preset.hpp"
 namespace kinova_gen3_ros2 {
 class GoToPresetServer
-    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToPreset> {
+    : public PlannedMoveServer<rammp_arm_interfaces::action::GoToPreset> {
  public:
-  using Action = kinova_gen3_interfaces::action::GoToPreset;
+  using Action = rammp_arm_interfaces::action::GoToPreset;
   GoToPresetServer(rclcpp::Node::SharedPtr node, GoalRouter& router, CuroboPlanClient& planner,
                    rclcpp::CallbackGroup::SharedPtr cb,
                    std::map<std::string, std::vector<double>> registry)

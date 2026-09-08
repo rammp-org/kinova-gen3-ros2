@@ -1,7 +1,7 @@
 #pragma once
 #include <optional>
 #include <string>
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/planned_move_server.h"
 namespace kinova_gen3_ros2 {
 
@@ -10,9 +10,9 @@ namespace kinova_gen3_ros2 {
 // ExecuteJointTrajectory) -> settle. The lifecycle lives in PlannedMoveServer;
 // only the frame check and the planner call are specific to this action.
 class GoToEEPoseServer
-    : public PlannedMoveServer<kinova_gen3_interfaces::action::GoToEEPose> {
+    : public PlannedMoveServer<rammp_arm_interfaces::action::GoToEEPose> {
 public:
-  using Action = kinova_gen3_interfaces::action::GoToEEPose;
+  using Action = rammp_arm_interfaces::action::GoToEEPose;
 
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,

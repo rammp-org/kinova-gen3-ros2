@@ -40,16 +40,16 @@ ______________________________________________________________________
 
 **Files:**
 
-- Create: `kinova_gen3_interfaces/msg/{JointSetpoint,PoseSetpoint,TwistSetpoint,WrenchSetpoint}.msg`
-- Create: `kinova_gen3_interfaces/msg/{StreamStatus,ControllerCapability}.msg`
-- Create: `kinova_gen3_interfaces/srv/{OpenStream,CloseStream,ListControllers}.srv`
-- Modify: `kinova_gen3_interfaces/CMakeLists.txt`
+- Create: `rammp_arm_interfaces/msg/{JointSetpoint,PoseSetpoint,TwistSetpoint,WrenchSetpoint}.msg`
+- Create: `rammp_arm_interfaces/msg/{StreamStatus,ControllerCapability}.msg`
+- Create: `rammp_arm_interfaces/srv/{OpenStream,CloseStream,ListControllers}.srv`
+- Modify: `rammp_arm_interfaces/CMakeLists.txt`
 
 **Interfaces:**
 
 - Consumes: nothing.
 
-- Produces: `kinova_gen3_interfaces::msg::{JointSetpoint, PoseSetpoint, TwistSetpoint, WrenchSetpoint, StreamStatus, ControllerCapability}` and
+- Produces: `rammp_arm_interfaces::msg::{JointSetpoint, PoseSetpoint, TwistSetpoint, WrenchSetpoint, StreamStatus, ControllerCapability}` and
   `srv::{OpenStream, CloseStream, ListControllers}`. Headers follow the snake_case rule
   confirmed in the arbitration tier (`EStop` → `e_stop.hpp`), so expect
   `joint_setpoint.hpp`, `open_stream.hpp`, etc.
@@ -159,7 +159,7 @@ string message
 ControllerCapability[] controllers
 ```
 
-- [ ] **Step 4: Register them in `kinova_gen3_interfaces/CMakeLists.txt`**
+- [ ] **Step 4: Register them in `rammp_arm_interfaces/CMakeLists.txt`**
 
 Add to `rosidl_generate_interfaces`, after `"srv/RevokeControl.srv"`:
 
@@ -184,8 +184,8 @@ Expected: build succeeds.
 
 ```bash
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
-  ros2 interface show kinova_gen3_interfaces/srv/OpenStream && \
-  ros2 interface show kinova_gen3_interfaces/msg/JointSetpoint'"
+  ros2 interface show rammp_arm_interfaces/srv/OpenStream && \
+  ros2 interface show rammp_arm_interfaces/msg/JointSetpoint'"
 ```
 
 Expected: both print.
@@ -193,7 +193,7 @@ Expected: both print.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add kinova_gen3_interfaces/
+git add rammp_arm_interfaces/
 git commit -m "feat(interfaces): setpoint messages, stream session services, controller capabilities"
 ```
 
@@ -347,12 +347,12 @@ class StreamServerTest : public ::testing::Test {
 }  // namespace
 
 TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
-  using Srv = kinova_gen3_interfaces::srv::ListControllers;
+  using Srv = rammp_arm_interfaces::srv::ListControllers;
   auto resp = call<Srv>("list_controllers", std::make_shared<Srv::Request>());
   ASSERT_NE(resp, nullptr);
   EXPECT_EQ(resp->controllers.size(), 7u);
 
-  auto find = [&](const std::string& n) -> const kinova_gen3_interfaces::msg::ControllerCapability* {
+  auto find = [&](const std::string& n) -> const rammp_arm_interfaces::msg::ControllerCapability* {
     for (const auto& c : resp->controllers) if (c.name == n) return &c;
     return nullptr;
   };
@@ -395,15 +395,15 @@ Expected: FAIL — `kinova_gen3_ros2/stream_server.h: No such file or directory`
 #include <string>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
-#include "kinova_gen3_interfaces/msg/controller_capability.hpp"
-#include "kinova_gen3_interfaces/msg/joint_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/pose_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/stream_status.hpp"
-#include "kinova_gen3_interfaces/msg/twist_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/wrench_setpoint.hpp"
-#include "kinova_gen3_interfaces/srv/close_stream.hpp"
-#include "kinova_gen3_interfaces/srv/list_controllers.hpp"
-#include "kinova_gen3_interfaces/srv/open_stream.hpp"
+#include "rammp_arm_interfaces/msg/controller_capability.hpp"
+#include "rammp_arm_interfaces/msg/joint_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/pose_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/stream_status.hpp"
+#include "rammp_arm_interfaces/msg/twist_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/wrench_setpoint.hpp"
+#include "rammp_arm_interfaces/srv/close_stream.hpp"
+#include "rammp_arm_interfaces/srv/list_controllers.hpp"
+#include "rammp_arm_interfaces/srv/open_stream.hpp"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
 
@@ -419,14 +419,14 @@ namespace kinova_gen3_ros2 {
 // that collapse lives.
 class StreamServer {
  public:
-  using OpenStream      = kinova_gen3_interfaces::srv::OpenStream;
-  using CloseStream     = kinova_gen3_interfaces::srv::CloseStream;
-  using ListControllers = kinova_gen3_interfaces::srv::ListControllers;
-  using StreamStatusMsg = kinova_gen3_interfaces::msg::StreamStatus;
-  using JointSetpointMsg  = kinova_gen3_interfaces::msg::JointSetpoint;
-  using PoseSetpointMsg   = kinova_gen3_interfaces::msg::PoseSetpoint;
-  using TwistSetpointMsg  = kinova_gen3_interfaces::msg::TwistSetpoint;
-  using WrenchSetpointMsg = kinova_gen3_interfaces::msg::WrenchSetpoint;
+  using OpenStream      = rammp_arm_interfaces::srv::OpenStream;
+  using CloseStream     = rammp_arm_interfaces::srv::CloseStream;
+  using ListControllers = rammp_arm_interfaces::srv::ListControllers;
+  using StreamStatusMsg = rammp_arm_interfaces::msg::StreamStatus;
+  using JointSetpointMsg  = rammp_arm_interfaces::msg::JointSetpoint;
+  using PoseSetpointMsg   = rammp_arm_interfaces::msg::PoseSetpoint;
+  using TwistSetpointMsg  = rammp_arm_interfaces::msg::TwistSetpoint;
+  using WrenchSetpointMsg = rammp_arm_interfaces::msg::WrenchSetpoint;
 
   StreamServer(rclcpp::Node::SharedPtr node, kinova::interface::StreamSink& sink);
 
@@ -585,7 +585,7 @@ StreamServer::StreamServer(rclcpp::Node::SharedPtr node, StreamSink& sink)
 void StreamServer::on_list(const std::shared_ptr<ListControllers::Request>,
                            std::shared_ptr<ListControllers::Response> resp) {
   for (const auto& r : registry()) {
-    kinova_gen3_interfaces::msg::ControllerCapability c;
+    rammp_arm_interfaces::msg::ControllerCapability c;
     c.name = r.name;
     c.channels = r.channels;
     c.available = available(r);
@@ -618,7 +618,7 @@ library block:
 add_library(stream_server src/stream_server.cpp)
 target_include_directories(stream_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(stream_server rclcpp kinova_gen3_interfaces geometry_msgs std_msgs)
+ament_target_dependencies(stream_server rclcpp rammp_arm_interfaces geometry_msgs std_msgs)
 target_link_libraries(stream_server kinova_lowlevel::kinova_lowlevel)
 ```
 
@@ -629,7 +629,7 @@ Add `stream_server` to `kinova_gen3_node`'s `target_link_libraries`, and inside
   ament_add_gtest(stream_server_test test/stream_server_test.cpp)
   target_include_directories(stream_server_test PRIVATE test)
   target_link_libraries(stream_server_test stream_server)
-  ament_target_dependencies(stream_server_test rclcpp kinova_gen3_interfaces geometry_msgs)
+  ament_target_dependencies(stream_server_test rclcpp rammp_arm_interfaces geometry_msgs)
 ```
 
 - [ ] **Step 7: Run the test**
@@ -667,7 +667,7 @@ ______________________________________________________________________
 
 ```cpp
 TEST_F(StreamServerTest, OpenMapsTheControllerOntoCoresPair) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_impedance";
   req->timeout_s = 0.1;
@@ -688,7 +688,7 @@ TEST_F(StreamServerTest, OpenMapsTheControllerOntoCoresPair) {
 // An unknown name must not reach core -- core would have to invent an error for
 // something that is purely this layer's vocabulary.
 TEST_F(StreamServerTest, UnknownControllerIsRejectedWithoutReachingCore) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "nonsense";
   req->timeout_s = 0.1;
@@ -702,7 +702,7 @@ TEST_F(StreamServerTest, UnknownControllerIsRejectedWithoutReachingCore) {
 // cartesian_impedance is unavailable in this driver version, and core has no kind for
 // it at all -- so the rejection has to originate here, not in pair_supported().
 TEST_F(StreamServerTest, UnavailableControllerIsRejectedWithoutReachingCore) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "cartesian_impedance";
   req->timeout_s = 0.1;
@@ -714,7 +714,7 @@ TEST_F(StreamServerTest, UnavailableControllerIsRejectedWithoutReachingCore) {
 
 TEST_F(StreamServerTest, CoresRejectionIsRelayedVerbatim) {
   sink_.accept_open = false;
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_torque";
   req->timeout_s = 0.1;
@@ -726,7 +726,7 @@ TEST_F(StreamServerTest, CoresRejectionIsRelayedVerbatim) {
 }
 
 TEST_F(StreamServerTest, CloseForwardsTheToken) {
-  using Srv = kinova_gen3_interfaces::srv::CloseStream;
+  using Srv = rammp_arm_interfaces::srv::CloseStream;
   auto req = std::make_shared<Srv::Request>();
   req->token = mktoken(0xCD);
   auto resp = call<Srv>("close_stream", req);
@@ -850,7 +850,7 @@ and the tests:
 
 ```cpp
 TEST_F(StreamServerTest, JointTopicsRouteToTheirOwnSinkMethod) {
-  kinova_gen3_interfaces::msg::JointSetpoint m;
+  rammp_arm_interfaces::msg::JointSetpoint m;
   m.values = {0.1, 0, 0, 0, 0, 0, 0};
   m.token = mktoken(0xAB);
 
@@ -867,7 +867,7 @@ TEST_F(StreamServerTest, JointTopicsRouteToTheirOwnSinkMethod) {
 }
 
 TEST_F(StreamServerTest, PoseAndTwistRouteToTheirOwnSinkMethod) {
-  kinova_gen3_interfaces::msg::PoseSetpoint p;
+  rammp_arm_interfaces::msg::PoseSetpoint p;
   p.pose.position.x = 0.4;
   p.pose.orientation.w = 1.0;
   p.token = mktoken(0x11);
@@ -875,7 +875,7 @@ TEST_F(StreamServerTest, PoseAndTwistRouteToTheirOwnSinkMethod) {
   EXPECT_EQ(sink_.log().back(), "pose");
   EXPECT_EQ(sink_.last_token, mktoken(0x11));
 
-  kinova_gen3_interfaces::msg::TwistSetpoint t;
+  rammp_arm_interfaces::msg::TwistSetpoint t;
   t.twist.linear.x = 0.05;
   t.token = mktoken(0x22);
   publish_setpoint("/setpoint/twist", t);
@@ -886,7 +886,7 @@ TEST_F(StreamServerTest, PoseAndTwistRouteToTheirOwnSinkMethod) {
 // Core has no on_setpoint_wrench, so there is nowhere to route this. The topic exists
 // so the surface is complete; the message is dropped, loudly enough to diagnose.
 TEST_F(StreamServerTest, WrenchIsDroppedBecauseCoreHasNoSinkForIt) {
-  kinova_gen3_interfaces::msg::WrenchSetpoint w;
+  rammp_arm_interfaces::msg::WrenchSetpoint w;
   w.wrench.force.z = 5.0;
   w.token = mktoken(0x33);
   publish_setpoint("/setpoint/wrench", w);
@@ -994,13 +994,13 @@ ______________________________________________________________________
 Add a collector to the fixture:
 
 ```cpp
-  std::vector<kinova_gen3_interfaces::msg::StreamStatus> collect_status(
+  std::vector<rammp_arm_interfaces::msg::StreamStatus> collect_status(
       std::chrono::milliseconds dwell) {
-    std::vector<kinova_gen3_interfaces::msg::StreamStatus> got;
+    std::vector<rammp_arm_interfaces::msg::StreamStatus> got;
     std::mutex gm;
-    auto sub = node_->create_subscription<kinova_gen3_interfaces::msg::StreamStatus>(
+    auto sub = node_->create_subscription<rammp_arm_interfaces::msg::StreamStatus>(
         "stream_status", rclcpp::QoS(10).reliable().transient_local(),
-        [&got, &gm](kinova_gen3_interfaces::msg::StreamStatus::SharedPtr m) {
+        [&got, &gm](rammp_arm_interfaces::msg::StreamStatus::SharedPtr m) {
           std::lock_guard<std::mutex> l(gm); got.push_back(*m);
         });
     { SpinThread spin(*ex_); std::this_thread::sleep_for(dwell); }
@@ -1028,7 +1028,7 @@ TEST_F(StreamServerTest, StatusReportsCoresViewNotOurs) {
 // The case that motivated core PR #31: we opened a session, core expired it, and the
 // status must follow core rather than our own record.
 TEST_F(StreamServerTest, StatusFollowsCoreWhenTheSessionExpires) {
-  using Srv = kinova_gen3_interfaces::srv::OpenStream;
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_impedance";
   req->timeout_s = 0.1;
@@ -1062,8 +1062,8 @@ Expected: FAIL — nothing is published, because `publish_status_if_changed` is 
 Add a payload comparator to the anonymous namespace:
 
 ```cpp
-bool same(const kinova_gen3_interfaces::msg::StreamStatus& a,
-          const kinova_gen3_interfaces::msg::StreamStatus& b) {
+bool same(const rammp_arm_interfaces::msg::StreamStatus& a,
+          const rammp_arm_interfaces::msg::StreamStatus& b) {
   return a.open == b.open && a.controller == b.controller && a.channels == b.channels &&
          a.timeout_s == b.timeout_s && a.rejected_count == b.rejected_count;
 }
@@ -1164,7 +1164,7 @@ Expected: `success_case=0 divergence_case=0` — the trajectory path is untouche
 ssh abra "bash -lc 'source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash && \
   cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver && \
   (ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf &) && \
-  sleep 6 && ros2 service call /list_controllers kinova_gen3_interfaces/srv/ListControllers {} | head -40 && \
+  sleep 6 && ros2 service call /list_controllers rammp_arm_interfaces/srv/ListControllers {} | head -40 && \
   ros2 topic list | grep setpoint && \
   pkill -TERM -f kinova_gen3_node'"
 ```
@@ -1328,13 +1328,13 @@ covering: the `/open_stream` / `/close_stream` / `/list_controllers` services; t
 its available column; and the lifecycle:
 
 ```bash
-ros2 service call /acquire_control kinova_gen3_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
-ros2 service call /list_controllers kinova_gen3_interfaces/srv/ListControllers {}
+ros2 service call /acquire_control rammp_arm_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
+ros2 service call /list_controllers rammp_arm_interfaces/srv/ListControllers {}
 # create your publisher and let discovery settle BEFORE opening
-ros2 service call /open_stream kinova_gen3_interfaces/srv/OpenStream \
+ros2 service call /open_stream rammp_arm_interfaces/srv/OpenStream \
   "{controller: 'joint_impedance', timeout_s: 0.1, token: [...]}"
 # publish on the returned channel faster than timeout_s
-ros2 service call /close_stream kinova_gen3_interfaces/srv/CloseStream "{token: [...]}"
+ros2 service call /close_stream rammp_arm_interfaces/srv/CloseStream "{token: [...]}"
 ```
 
 State the four rules that bite: one session at a time; the controller is fixed for its

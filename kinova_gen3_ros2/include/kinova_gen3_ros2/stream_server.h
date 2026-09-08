@@ -6,15 +6,14 @@
 #include <string>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
-#include "kinova_gen3_interfaces/msg/controller_capability.hpp"
-#include "kinova_gen3_interfaces/msg/joint_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/pose_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/stream_status.hpp"
-#include "kinova_gen3_interfaces/msg/twist_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/wrench_setpoint.hpp"
-#include "kinova_gen3_interfaces/srv/close_stream.hpp"
-#include "kinova_gen3_interfaces/srv/list_controllers.hpp"
-#include "kinova_gen3_interfaces/srv/open_stream.hpp"
+#include "rammp_arm_interfaces/msg/controller_capability.hpp"
+#include "rammp_arm_interfaces/msg/joint_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/pose_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/stream_status.hpp"
+#include "rammp_arm_interfaces/msg/twist_setpoint.hpp"
+#include "rammp_arm_interfaces/srv/close_stream.hpp"
+#include "rammp_arm_interfaces/srv/list_controllers.hpp"
+#include "rammp_arm_interfaces/srv/open_stream.hpp"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
 
@@ -31,14 +30,13 @@ namespace kinova_gen3_ros2 {
 // is the only place that collapse lives.
 class StreamServer {
 public:
-  using OpenStream = kinova_gen3_interfaces::srv::OpenStream;
-  using CloseStream = kinova_gen3_interfaces::srv::CloseStream;
-  using ListControllers = kinova_gen3_interfaces::srv::ListControllers;
-  using StreamStatusMsg = kinova_gen3_interfaces::msg::StreamStatus;
-  using JointSetpointMsg = kinova_gen3_interfaces::msg::JointSetpoint;
-  using PoseSetpointMsg = kinova_gen3_interfaces::msg::PoseSetpoint;
-  using TwistSetpointMsg = kinova_gen3_interfaces::msg::TwistSetpoint;
-  using WrenchSetpointMsg = kinova_gen3_interfaces::msg::WrenchSetpoint;
+  using OpenStream = rammp_arm_interfaces::srv::OpenStream;
+  using CloseStream = rammp_arm_interfaces::srv::CloseStream;
+  using ListControllers = rammp_arm_interfaces::srv::ListControllers;
+  using StreamStatusMsg = rammp_arm_interfaces::msg::StreamStatus;
+  using JointSetpointMsg = rammp_arm_interfaces::msg::JointSetpoint;
+  using PoseSetpointMsg = rammp_arm_interfaces::msg::PoseSetpoint;
+  using TwistSetpointMsg = rammp_arm_interfaces::msg::TwistSetpoint;
 
   StreamServer(rclcpp::Node::SharedPtr node,
                kinova::interface::StreamSink &sink);
@@ -77,7 +75,6 @@ private:
   void on_joint_torque(const JointSetpointMsg::SharedPtr);
   void on_pose(const PoseSetpointMsg::SharedPtr);
   void on_twist(const TwistSetpointMsg::SharedPtr);
-  void on_wrench(const WrenchSetpointMsg::SharedPtr);
 
   rclcpp::Node::SharedPtr node_;
   kinova::interface::StreamSink &sink_;
@@ -92,7 +89,6 @@ private:
   rclcpp::Subscription<JointSetpointMsg>::SharedPtr jp_sub_, jv_sub_, jt_sub_;
   rclcpp::Subscription<PoseSetpointMsg>::SharedPtr pose_sub_;
   rclcpp::Subscription<TwistSetpointMsg>::SharedPtr twist_sub_;
-  rclcpp::Subscription<WrenchSetpointMsg>::SharedPtr wrench_sub_;
 
   std::mutex m_;
   std::string open_controller_; // our label for core's (kind, mode)

@@ -13,8 +13,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
-from kinova_gen3_interfaces.msg import ControlStatus, EStop, GripperState, StreamStatus
-from kinova_gen3_interfaces.srv import (
+from rammp_arm_interfaces.msg import ControlStatus, EStop, GripperState, StreamStatus
+from rammp_arm_interfaces.srv import (
     AcquireControl,
     CloseStream,
     ListControllers,

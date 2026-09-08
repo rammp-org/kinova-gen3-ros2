@@ -62,7 +62,7 @@ tracks them. Seed waypoint 0 from where the arm *is*, then move one joint a litt
 
 ```sh
 ros2 action send_goal /execute_joint_trajectory \
-  kinova_gen3_interfaces/action/ExecuteJointTrajectory \
+  rammp_arm_interfaces/action/ExecuteJointTrajectory \
   "{trajectory: {points: [
       {positions: [0,0.26,3.14,-2.27,0,0.96,1.57], time_from_start: {sec: 0}},
       {positions: [0,0.26,3.14,-2.27,0,1.21,1.57], time_from_start: {sec: 3}}

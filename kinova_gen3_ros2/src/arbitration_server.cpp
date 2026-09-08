@@ -11,8 +11,8 @@ using std::placeholders::_2;
 namespace {
 // Compare the PAYLOAD only. The header stamp changes every poll, so including
 // it would make "on change" mean "at 10 Hz forever".
-bool same(const kinova_gen3_interfaces::msg::ControlStatus &a,
-          const kinova_gen3_interfaces::msg::ControlStatus &b) {
+bool same(const rammp_arm_interfaces::msg::ControlStatus &a,
+          const rammp_arm_interfaces::msg::ControlStatus &b) {
   return a.arbitration_enabled == b.arbitration_enabled &&
          a.estopped == b.estopped && a.owned == b.owned &&
          a.owner_id == b.owner_id && a.generation == b.generation &&

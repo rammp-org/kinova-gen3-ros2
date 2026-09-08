@@ -20,7 +20,7 @@ Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
       "joint_states", rclcpp::SensorDataQoS());
   // Same QoS as /joint_states: it is the same data at the same rate from the
   // same pump tick, so a subscriber matching one matches the other.
-  ee_pub_ = node_->create_publisher<kinova_gen3_interfaces::msg::EeState>(
+  ee_pub_ = node_->create_publisher<rammp_arm_interfaces::msg::EeState>(
       "ee_state", rclcpp::SensorDataQoS());
 
   updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
@@ -166,7 +166,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
 
   state_pub_->publish(msg);
 
-  kinova_gen3_interfaces::msg::EeState ee;
+  rammp_arm_interfaces::msg::EeState ee;
   ee.header.stamp = msg.header.stamp; // same tick as the joint state above
   ee.pose.position.x = s.ee_pose.p.x();
   ee.pose.position.y = s.ee_pose.p.y();

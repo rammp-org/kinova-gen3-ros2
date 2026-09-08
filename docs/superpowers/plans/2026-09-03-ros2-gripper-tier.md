@@ -27,15 +27,15 @@ ______________________________________________________________________
 
 **Files:**
 
-- Create: `kinova_gen3_interfaces/msg/GripperSetpoint.msg`
-- Create: `kinova_gen3_interfaces/msg/GripperState.msg`
-- Modify: `kinova_gen3_interfaces/CMakeLists.txt:31` (append to the `rosidl_generate_interfaces` list)
+- Create: `rammp_arm_interfaces/msg/GripperSetpoint.msg`
+- Create: `rammp_arm_interfaces/msg/GripperState.msg`
+- Modify: `rammp_arm_interfaces/CMakeLists.txt:31` (append to the `rosidl_generate_interfaces` list)
 
 **Interfaces:**
 
 - Consumes: nothing.
 
-- Produces: `kinova_gen3_interfaces/msg/GripperSetpoint` with fields `position` (float32), `speed` (float32), `force` (float32), `token` (uint8\[16\]). `kinova_gen3_interfaces/msg/GripperState` with `header` (std_msgs/Header), `position` (float32), `effort` (float32), `current` (float32), `present` (bool).
+- Produces: `rammp_arm_interfaces/msg/GripperSetpoint` with fields `position` (float32), `speed` (float32), `force` (float32), `token` (uint8\[16\]). `rammp_arm_interfaces/msg/GripperState` with `header` (std_msgs/Header), `position` (float32), `effort` (float32), `current` (float32), `present` (bool).
 
 - [ ] **Step 1: Write `GripperSetpoint.msg`**
 
@@ -99,7 +99,7 @@ uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
   'cd /home/abra/kinova_gen3_ros2 && make build 2>&1 | tail -5'
 uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'docker run --rm kinova-gen3-ros2:humble bash -lc "source /ros2_ws/install/setup.bash && ros2 interface show kinova_gen3_interfaces/msg/GripperSetpoint"'
+  'docker run --rm kinova-gen3-ros2:humble bash -lc "source /ros2_ws/install/setup.bash && ros2 interface show rammp_arm_interfaces/msg/GripperSetpoint"'
 ```
 
 Expected: the field list prints, including `uint8[16] token` and NO `active` field.
@@ -107,7 +107,7 @@ Expected: the field list prints, including `uint8[16] token` and NO `active` fie
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kinova_gen3_interfaces/msg/GripperSetpoint.msg kinova_gen3_interfaces/msg/GripperState.msg kinova_gen3_interfaces/CMakeLists.txt
+git add rammp_arm_interfaces/msg/GripperSetpoint.msg rammp_arm_interfaces/msg/GripperState.msg rammp_arm_interfaces/CMakeLists.txt
 git commit -m "feat(interfaces): gripper setpoint and state messages"
 ```
 
@@ -123,22 +123,22 @@ ______________________________________________________________________
 
 **Interfaces:**
 
-- Consumes: `kinova_gen3_interfaces/msg/GripperSetpoint`, `kinova_gen3_interfaces/msg/GripperState` (Task 1); `kinova::interface::GripperSetpoint`, `kinova::interface::GripperState` from `kinova_lowlevel/interface/value_types.h`.
+- Consumes: `rammp_arm_interfaces/msg/GripperSetpoint`, `rammp_arm_interfaces/msg/GripperState` (Task 1); `kinova::interface::GripperSetpoint`, `kinova::interface::GripperState` from `kinova_lowlevel/interface/value_types.h`.
 
 - Produces:
 
   - `constexpr double kKnuckleUpperRad = 0.8;`
   - `double gripper_to_knuckle_rad(float normalized);`
-  - `kinova::interface::GripperSetpoint to_gripper_setpoint(const kinova_gen3_interfaces::msg::GripperSetpoint& m);`
-  - `kinova_gen3_interfaces::msg::GripperState to_gripper_state_msg(const kinova::interface::GripperState& g);`
+  - `kinova::interface::GripperSetpoint to_gripper_setpoint(const rammp_arm_interfaces::msg::GripperSetpoint& m);`
+  - `rammp_arm_interfaces::msg::GripperState to_gripper_state_msg(const kinova::interface::GripperState& g);`
 
 - [ ] **Step 1: Write the failing tests**
 
 Append to `kinova_gen3_ros2/test/message_mapping_test.cpp`:
 
 ```cpp
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 
 TEST(GripperMapping, NormalizedMapsOntoTheKnuckleLimits) {
   EXPECT_DOUBLE_EQ(kinova_gen3_ros2::gripper_to_knuckle_rad(0.0f), 0.0);
@@ -150,7 +150,7 @@ TEST(GripperMapping, NormalizedMapsOntoTheKnuckleLimits) {
 // alone rather than inventing a value -- set_target discards it either way, but a caller
 // reading the struct should not see a fabricated flag.
 TEST(GripperMapping, SetpointCarriesAllThreeFieldsAndTheToken) {
-  kinova_gen3_interfaces::msg::GripperSetpoint m;
+  rammp_arm_interfaces::msg::GripperSetpoint m;
   m.position = 0.25f; m.speed = 0.5f; m.force = 0.75f;
   m.token[0] = 7; m.token[15] = 9;
   const auto s = kinova_gen3_ros2::to_gripper_setpoint(m);
@@ -188,8 +188,8 @@ Expected: FAIL to compile — `gripper_to_knuckle_rad` is not a member of `kinov
 Add to `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h`, inside `namespace kinova_gen3_ros2`, and add the two `#include`s at the top alongside the existing ones:
 
 ```cpp
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 
 // robotiq_85_left_knuckle_joint's URDF upper limit. The gripper's ONE actuated DOF;
 // robot_state_publisher derives the five mimics from it (verified 2026-09-03).
@@ -199,8 +199,8 @@ inline constexpr double kKnuckleUpperRad = 0.8;
 double gripper_to_knuckle_rad(float normalized);
 
 kinova::interface::GripperSetpoint to_gripper_setpoint(
-    const kinova_gen3_interfaces::msg::GripperSetpoint& m);
-kinova_gen3_interfaces::msg::GripperState to_gripper_state_msg(
+    const rammp_arm_interfaces::msg::GripperSetpoint& m);
+rammp_arm_interfaces::msg::GripperState to_gripper_state_msg(
     const kinova::interface::GripperState& g);
 ```
 
@@ -212,7 +212,7 @@ double gripper_to_knuckle_rad(float normalized) {
 }
 
 kinova::interface::GripperSetpoint to_gripper_setpoint(
-    const kinova_gen3_interfaces::msg::GripperSetpoint& m) {
+    const rammp_arm_interfaces::msg::GripperSetpoint& m) {
   kinova::interface::GripperSetpoint s;
   // No `active`: the ROS message has none, and set_target arms stamping regardless.
   // Clamping is core's job -- set_target is the ONE place the [0,1] range is enforced
@@ -224,9 +224,9 @@ kinova::interface::GripperSetpoint to_gripper_setpoint(
   return s;
 }
 
-kinova_gen3_interfaces::msg::GripperState to_gripper_state_msg(
+rammp_arm_interfaces::msg::GripperState to_gripper_state_msg(
     const kinova::interface::GripperState& g) {
-  kinova_gen3_interfaces::msg::GripperState m;
+  rammp_arm_interfaces::msg::GripperState m;
   // g.stamp_s is deliberately NOT used: it is QUERY time, not sample time. The caller
   // stamps with the message it is publishing alongside.
   m.position = g.position;
@@ -313,8 +313,8 @@ Create `kinova_gen3_ros2/test/gripper_server_test.cpp`:
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_gen3_ros2/gripper_server.h"
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "fake_gripper_sink.h"
 
 using namespace std::chrono_literals;
@@ -339,11 +339,11 @@ TEST_F(GripperServerTest, ASetpointReachesTheSinkWithAllThreeFields) {
   FakeGripperSink sink;
   kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
 
-  auto pub = node_->create_publisher<kinova_gen3_interfaces::msg::GripperSetpoint>(
+  auto pub = node_->create_publisher<rammp_arm_interfaces::msg::GripperSetpoint>(
       "/setpoint/gripper", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort());
   spin_for(200ms);   // let discovery settle
 
-  kinova_gen3_interfaces::msg::GripperSetpoint m;
+  rammp_arm_interfaces::msg::GripperSetpoint m;
   m.position = 0.6f; m.speed = 0.4f; m.force = 0.2f; m.token[0] = 3;
   for (int i = 0; i < 20 && sink.count() == 0; ++i) { pub->publish(m); spin_for(20ms); }
 
@@ -360,11 +360,11 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
   sink.state.current = 0.05f; sink.state.present = true;
   kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
 
-  kinova_gen3_interfaces::msg::GripperState got;
+  rammp_arm_interfaces::msg::GripperState got;
   bool seen = false;
-  auto sub = node_->create_subscription<kinova_gen3_interfaces::msg::GripperState>(
+  auto sub = node_->create_subscription<rammp_arm_interfaces::msg::GripperState>(
       "/gripper_state", rclcpp::SensorDataQoS(),
-      [&](kinova_gen3_interfaces::msg::GripperState::SharedPtr msg) { got = *msg; seen = true; });
+      [&](rammp_arm_interfaces::msg::GripperState::SharedPtr msg) { got = *msg; seen = true; });
   spin_for(200ms);
 
   for (int i = 0; i < 20 && !seen; ++i) {
@@ -399,8 +399,8 @@ Create `kinova_gen3_ros2/include/kinova_gen3_ros2/gripper_server.h`:
 #include <memory>
 #include "rclcpp/rclcpp.hpp"
 #include "builtin_interfaces/msg/time.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
@@ -415,8 +415,8 @@ namespace kinova_gen3_ros2 {
 // rides the ARM's token by core's spec decision, one physical machine one holder.
 class GripperServer {
  public:
-  using GripperSetpointMsg = kinova_gen3_interfaces::msg::GripperSetpoint;
-  using GripperStateMsg    = kinova_gen3_interfaces::msg::GripperState;
+  using GripperSetpointMsg = rammp_arm_interfaces::msg::GripperSetpoint;
+  using GripperStateMsg    = rammp_arm_interfaces::msg::GripperState;
 
   // expect_gripper: "expected" cannot be inferred from the node's own model -- it loads
   // the FROZEN 7-DOF URDF, where the Robotiq joints are type="fixed", so its model never
@@ -519,7 +519,7 @@ target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_low
 
 ament_add_gtest(gripper_server_test test/gripper_server_test.cpp)
 target_link_libraries(gripper_server_test gripper_server)
-ament_target_dependencies(gripper_server_test rclcpp kinova_gen3_interfaces)
+ament_target_dependencies(gripper_server_test rclcpp rammp_arm_interfaces)
 target_include_directories(gripper_server_test PRIVATE test)
 ```
 
@@ -882,7 +882,7 @@ still actuation, so the e-stop must already be proven in this session.
 """
 import time
 
-from kinova_gen3_interfaces.msg import GripperSetpoint, GripperState
+from rammp_arm_interfaces.msg import GripperSetpoint, GripperState
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from harness import FAIL, PASS, REGISTRY, SKIP, ZERO_TOKEN, Result, tok
@@ -976,7 +976,7 @@ topic that was never registered. In `harness.py`, add the import and one `self.s
 line beside the existing three in `Ctx.__init__`:
 
 ```python
-from kinova_gen3_interfaces.msg import GripperState
+from rammp_arm_interfaces.msg import GripperState
 ...
         self.sub(GripperState, "gripper_state", SENSOR_QOS)
 ```

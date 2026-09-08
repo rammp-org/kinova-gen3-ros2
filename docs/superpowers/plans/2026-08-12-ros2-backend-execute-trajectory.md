@@ -4,7 +4,7 @@
 
 **Goal:** Stand up the `kinova_gen3_ros2` ROS2 Humble frontend so a ROS2 action client can send a full `ExecuteJointTrajectory` goal and have the driver execute it — proven end-to-end against `SimTransport`, then built for and run on the real arm (attended).
 
-**Architecture:** Two ament packages in this repo. `kinova_gen3_interfaces` defines the custom action + gains msg (rosidl). `kinova_gen3_ros2` holds `Ros2Backend` (the only unit that includes rclcpp — it owns an rclcpp action server whose callbacks call the driver's `CommandSink`, and it implements the driver's driven ports `ActionServerPort`/`StreamPort` to push feedback/results back out) plus a DI bring-up node that wires the transport → `FeedbackTap` → `RtExecutor` + modes + `Supervisor` + `Ros2Backend` and spins. The core driver (`kinova_lowlevel`) is vendored into a colcon workspace and consumed via `find_package(kinova_lowlevel CONFIG)`. Nothing new runs on the 1 kHz RT thread.
+**Architecture:** Two ament packages in this repo. `rammp_arm_interfaces` defines the custom action + gains msg (rosidl). `kinova_gen3_ros2` holds `Ros2Backend` (the only unit that includes rclcpp — it owns an rclcpp action server whose callbacks call the driver's `CommandSink`, and it implements the driver's driven ports `ActionServerPort`/`StreamPort` to push feedback/results back out) plus a DI bring-up node that wires the transport → `FeedbackTap` → `RtExecutor` + modes + `Supervisor` + `Ros2Backend` and spins. The core driver (`kinova_lowlevel`) is vendored into a colcon workspace and consumed via `find_package(kinova_lowlevel CONFIG)`. Nothing new runs on the 1 kHz RT thread.
 
 **Tech Stack:** ROS2 Humble, rclcpp / rclcpp_action, rosidl, colcon/ament_cmake, C++17, rclpy (test client), gtest. Builds on aarch64 (abra) only.
 
@@ -83,7 +83,7 @@ ______________________________________________________________________
 - `scripts/abra_colcon.sh` — rsync muk→abra + colcon build (+ optional gtest / node-launch test) (NEW)
 - `kinova_gen3.repos` — vcs source list documenting the core's GitHub origin (NEW)
 - `README.md` — build/run instructions (NEW)
-- `kinova_gen3_interfaces/{package.xml,CMakeLists.txt,action/ExecuteJointTrajectory.action,msg/JointImpedanceGains.msg}` (NEW)
+- `rammp_arm_interfaces/{package.xml,CMakeLists.txt,action/ExecuteJointTrajectory.action,msg/JointImpedanceGains.msg}` (NEW)
 - `kinova_gen3_ros2/package.xml`, `kinova_gen3_ros2/CMakeLists.txt` (NEW)
 - `kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h` + `src/message_mapping.cpp` — pure value-type↔msg field copies (NEW)
 - `kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h` + `src/ros2_backend.cpp` — action server + driven ports (NEW)
@@ -170,21 +170,21 @@ git commit -m "build: colcon deploy loop + vendored-core build (interop spike)"
 
 ______________________________________________________________________
 
-### Task 2: `kinova_gen3_interfaces` package (the action + gains msg)
+### Task 2: `rammp_arm_interfaces` package (the action + gains msg)
 
 **Files:**
 
-- Create: `kinova_gen3_interfaces/package.xml`, `kinova_gen3_interfaces/CMakeLists.txt`,
-  `kinova_gen3_interfaces/action/ExecuteJointTrajectory.action`, `kinova_gen3_interfaces/msg/JointImpedanceGains.msg`
+- Create: `rammp_arm_interfaces/package.xml`, `rammp_arm_interfaces/CMakeLists.txt`,
+  `rammp_arm_interfaces/action/ExecuteJointTrajectory.action`, `rammp_arm_interfaces/msg/JointImpedanceGains.msg`
 
 **Interfaces:**
 
-- Produces: the action type `kinova_gen3_interfaces::action::ExecuteJointTrajectory` (C++ header `kinova_gen3_interfaces/action/execute_joint_trajectory.hpp`) and `kinova_gen3_interfaces::msg::JointImpedanceGains`, with the field layout below.
+- Produces: the action type `rammp_arm_interfaces::action::ExecuteJointTrajectory` (C++ header `rammp_arm_interfaces/action/execute_joint_trajectory.hpp`) and `rammp_arm_interfaces::msg::JointImpedanceGains`, with the field layout below.
 
 - [ ] **Step 1: Write the action + msg**
 
 ```
-# kinova_gen3_interfaces/action/ExecuteJointTrajectory.action
+# rammp_arm_interfaces/action/ExecuteJointTrajectory.action
 # ---------- Goal ----------
 trajectory_msgs/JointTrajectory       trajectory
 control_msgs/JointTolerance[]         path_tolerance
@@ -210,7 +210,7 @@ float32                                fraction_complete
 ```
 
 ```
-# kinova_gen3_interfaces/msg/JointImpedanceGains.msg
+# rammp_arm_interfaces/msg/JointImpedanceGains.msg
 float64[7] kq
 float64    zeta
 float64[7] torque_limit
@@ -221,7 +221,7 @@ float64[7] torque_limit
 ```xml
 <?xml version="1.0"?>
 <package format="3">
-  <name>kinova_gen3_interfaces</name>
+  <name>rammp_arm_interfaces</name>
   <version>0.1.0</version>
   <description>Kinova arm ROS2 action/msg interfaces</description>
   <maintainer email="swapnil.pande98@gmail.com">Swapnil Pande</maintainer>
@@ -243,7 +243,7 @@ float64[7] torque_limit
 
 ```cmake
 cmake_minimum_required(VERSION 3.8)
-project(kinova_gen3_interfaces)
+project(rammp_arm_interfaces)
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(builtin_interfaces REQUIRED)
@@ -260,15 +260,15 @@ ament_package()
 
 - [ ] **Step 4: Build and verify generation**
 
-Run: `bash scripts/abra_colcon.sh --packages-select kinova_gen3_interfaces`
+Run: `bash scripts/abra_colcon.sh --packages-select rammp_arm_interfaces`
 Expected: build succeeds; then
-`ssh abra 'source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show kinova_gen3_interfaces/action/ExecuteJointTrajectory'`
+`ssh abra 'source /opt/ros/humble/setup.bash; source /tmp/kinova-ros2-ws/install/setup.bash; ros2 interface show rammp_arm_interfaces/action/ExecuteJointTrajectory'`
 Expected: prints the goal/result/feedback field layout above.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kinova_gen3_interfaces
+git add rammp_arm_interfaces
 git commit -m "feat(interfaces): ExecuteJointTrajectory.action + JointImpedanceGains.msg"
 ```
 
@@ -310,7 +310,7 @@ static trajectory_msgs::msg::JointTrajectoryPoint pt(double v, double t) {
 }
 
 TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = { pt(0.0, 0.0), pt(0.5, 2.0) };
   g.control_mode = 0;      // POSITION
   g.preemption   = 1;      // LATEST_WINS
@@ -326,7 +326,7 @@ TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
 }
 
 TEST(MessageMapping, GoalImpedanceGainsAndPathTol) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = { pt(0.0, 0.0), pt(0.1, 1.0) };
   g.control_mode = 1;      // IMPEDANCE
   for (int i = 0; i < 7; ++i) g.gains.kq[i] = 60.0;
@@ -367,7 +367,7 @@ TEST(MessageMapping, ResultCarriesErrorCode) {
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>kinova_gen3_interfaces</depend>
+  <depend>rammp_arm_interfaces</depend>
   <depend>kinova_lowlevel</depend>
   <test_depend>ament_cmake_gtest</test_depend>
   <export><build_type>ament_cmake</build_type></export>
@@ -382,20 +382,20 @@ project(kinova_gen3_ros2)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(kinova_gen3_interfaces REQUIRED)
+find_package(rammp_arm_interfaces REQUIRED)
 find_package(kinova_lowlevel CONFIG REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(message_mapping rclcpp kinova_gen3_interfaces)
+ament_target_dependencies(message_mapping rclcpp rammp_arm_interfaces)
 target_link_libraries(message_mapping kinova_lowlevel::kinova_lowlevel)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(message_mapping_test test/message_mapping_test.cpp)
   target_link_libraries(message_mapping_test message_mapping)
-  ament_target_dependencies(message_mapping_test kinova_gen3_interfaces)
+  ament_target_dependencies(message_mapping_test rammp_arm_interfaces)
 endif()
 
 ament_package()
@@ -412,10 +412,10 @@ Expected: FAIL — `message_mapping.h` not found (compile error).
 ```cpp
 // kinova_gen3_ros2/include/kinova_gen3_ros2/message_mapping.h
 #pragma once
-#include "kinova_gen3_interfaces/action/execute_joint_trajectory.hpp"
+#include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
 #include "kinova_lowlevel/interface/value_types.h"
 namespace kinova_gen3_ros2 {
-using ExecuteJointTrajectory = kinova_gen3_interfaces::action::ExecuteJointTrajectory;
+using ExecuteJointTrajectory = rammp_arm_interfaces::action::ExecuteJointTrajectory;
 kinova::interface::TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal& g);
 ExecuteJointTrajectory::Feedback to_feedback_msg(const kinova::interface::GoalId& id,
                                                  const kinova::interface::TrajectoryFeedback& fb);
@@ -524,7 +524,7 @@ ______________________________________________________________________
 #include <mutex>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_gen3_interfaces/action/execute_joint_trajectory.hpp"
+#include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
@@ -532,7 +532,7 @@ namespace kinova_gen3_ros2 {
 class Ros2Backend : public kinova::interface::ActionServerPort,
                     public kinova::interface::StreamPort {
  public:
-  using Action = kinova_gen3_interfaces::action::ExecuteJointTrajectory;
+  using Action = rammp_arm_interfaces::action::ExecuteJointTrajectory;
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
   explicit Ros2Backend(rclcpp::Node::SharedPtr node);
@@ -622,7 +622,7 @@ In `kinova_gen3_ros2/CMakeLists.txt`, add after the `message_mapping` library:
 ```cmake
 add_library(ros2_backend src/ros2_backend.cpp)
 target_include_directories(ros2_backend PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-ament_target_dependencies(ros2_backend rclcpp rclcpp_action kinova_gen3_interfaces)
+ament_target_dependencies(ros2_backend rclcpp rclcpp_action rammp_arm_interfaces)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 ```
 
@@ -733,7 +733,7 @@ In `kinova_gen3_ros2/CMakeLists.txt`, add:
 
 ```cmake
 add_executable(kinova_gen3_node src/bringup_node.cpp)
-ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action kinova_gen3_interfaces)
+ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces)
 target_link_libraries(kinova_gen3_node ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)   # sim build; Task 7 flips this
 install(TARGETS kinova_gen3_node DESTINATION lib/${PROJECT_NAME})
@@ -789,7 +789,7 @@ from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Duration
 from control_msgs.msg import JointTolerance
 from trajectory_msgs.msg import JointTrajectoryPoint
-from kinova_gen3_interfaces.action import ExecuteJointTrajectory
+from rammp_arm_interfaces.action import ExecuteJointTrajectory
 
 class C(Node):
     def __init__(self, args):

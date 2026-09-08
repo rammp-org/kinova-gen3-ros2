@@ -32,7 +32,7 @@ repositories:
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
-    version: main
+    version: v1.0.0
   RAMMP-CuRobo:
     type: git
     url: https://github.com/rammp-org/RAMMP-CuRobo.git

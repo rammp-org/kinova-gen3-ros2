@@ -67,11 +67,47 @@ RUN source /opt/ros/humble/setup.bash && \
     rm -rf /var/lib/apt/lists/*
 
 # --- KORTEX SDK (real-arm builds only) ----------------------------------------
-# docker/vendor/ is normally empty (just .gitkeep), so this is a no-op layer for
-# sim images. `make stage-kortex` rsyncs the proprietary aarch64 SDK into it for
-# a real-arm build. It has to be present at BUILD time — libKortexApiCpp.a is
-# linked statically, so it cannot be bind-mounted at run time.
+# Two ways the SDK arrives, checked in that order:
+#
+#   1. STAGED. `make stage-kortex` rsyncs it into docker/vendor/ from a local
+#      copy. docker/vendor/ is normally empty (just .gitkeep), so this COPY is a
+#      no-op layer for sim images. Staging wins when present: it needs no
+#      network and it lets you build against a specific local SDK.
+#
+#   2. FETCHED. Otherwise, a KORTEX build downloads it from Kinova's public
+#      artifactory. That URL needs no credentials, which is what lets CI build
+#      the real-arm image at all: with no fetch path, the SDK would have to come
+#      from a developer's machine and the KORTEX build would have no automated
+#      coverage, letting a change that broke only it reach the robot uncaught.
+#
+# Either way it must be present at BUILD time: libKortexApiCpp.a is linked
+# statically, so it cannot be bind-mounted at run time -- and it is why the
+# published image embeds the SDK rather than expecting one on the host.
+ARG KINOVA_ENABLE_KORTEX=OFF
+ARG KORTEX_SDK_DIR=kortex_api_2.8.0_aarch64
+# Kinova ships a per-architecture SDK, so the URL follows the build platform.
+# TARGETARCH is set automatically by buildx.
+#   arm64 -> linux_aarch64_gcc_7.4.zip   (the Jetson; the proven path)
+#   amd64 -> linux_x86-64_gcc_5.4.zip    (newest x86-64 Kinova publishes for 2.8.0)
+# Note the mismatch: aarch64 gets a gcc 7.4 build, x86-64 only a gcc 5.4 one.
+ARG TARGETARCH
+ARG KORTEX_SDK_BASE=https://artifactory.kinovaapps.com/artifactory/generic-public/kortex/API/2.8.0
 COPY docker/vendor/ /opt/kortex/
+RUN if [ "${KINOVA_ENABLE_KORTEX}" = "ON" ] && \
+       [ ! -d "/opt/kortex/${KORTEX_SDK_DIR}/lib" ]; then \
+      case "${TARGETARCH}" in \
+        arm64) SDK_ZIP=linux_aarch64_gcc_7.4.zip ;; \
+        amd64) SDK_ZIP=linux_x86-64_gcc_5.4.zip ;; \
+        *) echo "no KORTEX SDK published for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+      esac && \
+      echo "KORTEX SDK not staged; fetching ${KORTEX_SDK_BASE}/${SDK_ZIP}" && \
+      curl -fsSL "${KORTEX_SDK_BASE}/${SDK_ZIP}" -o /tmp/kortex.zip && \
+      mkdir -p "/opt/kortex/${KORTEX_SDK_DIR}" && \
+      python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+        /tmp/kortex.zip "/opt/kortex/${KORTEX_SDK_DIR}" && \
+      rm -f /tmp/kortex.zip && \
+      test -f "/opt/kortex/${KORTEX_SDK_DIR}/lib/release/libKortexApiCpp.a"; \
+    fi
 
 # --- workspace source + build -------------------------------------------------
 COPY . src/kinova_gen3_ros2/
@@ -80,8 +116,6 @@ COPY . src/kinova_gen3_ros2/
 # deps (kinova_lowlevel, rammp_arm_interfaces, rammp_curobo_interfaces) and
 # stops there — rammp_curobo_ros is the GPU planner node and belongs in the
 # rammp-curobo image, not this one.
-ARG KINOVA_ENABLE_KORTEX=OFF
-ARG KORTEX_SDK_DIR=kortex_api_2.8.0_aarch64
 RUN source /opt/ros/humble/setup.bash && \
     export CMAKE_PREFIX_PATH="${CMEEL_PREFIX}:${CMAKE_PREFIX_PATH:-}" && \
     colcon build --symlink-install --event-handlers console_direct+ \

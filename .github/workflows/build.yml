@@ -44,16 +44,15 @@ jobs:
       - name: Publishes, and exits on SIGTERM
         run: SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:ci
 
-  # The image that actually drives a robot. Until now it had NO automated
-  # coverage: the SDK lived only in a developer's home directory, so every
-  # KORTEX build in this project's history was run by hand, and a change that
-  # broke only this path would have reached the arm uncaught.
+  # The image that actually drives a robot. The sim image above cannot, so
+  # without this job a change that broke only the KORTEX path would reach the
+  # arm uncaught.
   #
   # BOTH architectures. Kinova publishes a per-arch SDK and the Dockerfile picks
   # by TARGETARCH: aarch64_gcc_7.4 for arm64, x86-64_gcc_5.4 for amd64. The
-  # amd64 one spans the gcc 5.4 -> 11 C++11 ABI change and was checked rather
-  # than assumed -- it links clean, the node starts, and the binary carries the
-  # real KortexTransport (31 symbols), not the sim fallback.
+  # amd64 SDK spans the gcc 5.4 -> 11 C++11 ABI change, which makes linking the
+  # part worth guarding: the binary has to carry the real KortexTransport (31
+  # symbols), not the sim fallback.
   #
   # amd64 matters beyond coverage: the driver reaches the arm over IP, so an
   # x86-64 KORTEX image lets a laptop drive the robot without a Jetson.
@@ -61,10 +60,17 @@ jobs:
   # arm64 builds under QEMU here, so this job does not also run the smoke test.
   # Compiling and LINKING is what breaks; startup is covered by the sim smoke.
   #
-  # Builds only. Nothing is pushed: the SDK carries no licence of its own, and
-  # building is not redistributing.
+  # This job is also the release. On a v* tag it pushes both arches to ghcr as a
+  # single manifest, so `docker pull ghcr.io/rammp-org/kinova-gen3-ros2:1.0.0`
+  # resolves to the right architecture on a Jetson or a laptop. Branch and PR
+  # builds compile and discard. It needs fragment and smoke green first: a tag
+  # must not publish an image whose validation failed.
   kortex:
+    needs: [fragment, smoke]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -72,29 +78,49 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # ghcr rejects an uppercase path, and the org name is mixed case.
+      - id: image
+        name: Compute lowercase image name
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Semver only: an image is a release artifact, so branch and sha tags would
+      # just accumulate. `latest` follows the newest non-prerelease tag, which is
+      # metadata-action's default and what a bare `docker pull` gets.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
       - name: Build the KORTEX image (both arches, fetches the SDK)
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm64,linux/amd64
-          push: false
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             KINOVA_ENABLE_KORTEX=ON
 
   # Both architectures of the sim image, built and discarded.
   #
-  # This job used to publish to ghcr. It no longer pushes anything, for a reason
-  # worth stating: the sim image cannot drive an arm, so publishing it invites
-  # someone to pull 1.0.0 and find an artifact that does not do the job. The
-  # image worth publishing is the KORTEX one, and whether it MAY be published
-  # depends on terms the SDK artifact does not state -- it ships no licence file
-  # and its headers carry no notice. Kinova's published licence for this API is
-  # BSD-3-Clause, which would permit binary redistribution with the notice
-  # attached, but that covers a repo of examples rather than this binary.
-  #
-  # So CI proves both images build, and publishes neither. To turn publishing
-  # back on once the terms are settled: restore the ghcr login and
-  # docker/metadata-action steps, and set push: true.
+  # Deliberately never pushed: the sim image cannot drive an arm, so shipping it
+  # under a release tag invites someone to pull 1.0.0 and find an artifact that
+  # does not do the job. The KORTEX job above is the one that publishes. This
+  # job exists to prove the sim image still builds on arm64, which the smoke job
+  # cannot show -- it builds natively on an x86-64 runner.
   multiarch:
     needs: [fragment, smoke, kortex]
     if: github.event_name != 'pull_request'
@@ -106,9 +132,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # amd64 is verified, not assumed: it builds (cmeel ships
-      # manylinux_2_28_x86_64 wheels), the node starts, and conformance passes
-      # 32/32 there -- the same numbers as arm64.
+      # amd64 is a supported target, not a side effect: cmeel ships
+      # manylinux_2_28_x86_64 wheels, and conformance passes 32/32 there, the
+      # same as arm64.
       - name: Build both architectures
         uses: docker/build-push-action@v6
         with:

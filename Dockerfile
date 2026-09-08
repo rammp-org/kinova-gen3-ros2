@@ -76,18 +76,13 @@ RUN source /opt/ros/humble/setup.bash && \
 #
 #   2. FETCHED. Otherwise, a KORTEX build downloads it from Kinova's public
 #      artifactory. That URL needs no credentials, which is what lets CI build
-#      the real-arm image at all -- before this, the SDK only existed in a
-#      developer's home directory, so the KORTEX path had NO automated coverage
-#      and a change that broke only it would reach the robot uncaught.
+#      the real-arm image at all: with no fetch path, the SDK would have to come
+#      from a developer's machine and the KORTEX build would have no automated
+#      coverage, letting a change that broke only it reach the robot uncaught.
 #
 # Either way it must be present at BUILD time: libKortexApiCpp.a is linked
-# statically, so it cannot be bind-mounted at run time.
-#
-# NOTE: the SDK is aarch64-only, so a KORTEX build is arm64-only. It carries no
-# licence file of its own; Kinova's published licence for this API
-# (github.com/Kinovarobotics/Kinova-kortex2_Gen3_G3L) is BSD-3-Clause, but that
-# repo ships examples and docs rather than this binary. Building is not
-# redistributing -- check the terms before publishing an image that embeds it.
+# statically, so it cannot be bind-mounted at run time -- and it is why the
+# published image embeds the SDK rather than expecting one on the host.
 ARG KINOVA_ENABLE_KORTEX=OFF
 ARG KORTEX_SDK_DIR=kortex_api_2.8.0_aarch64
 # Kinova ships a per-architecture SDK, so the URL follows the build platform.

@@ -8,6 +8,12 @@
 # lifecycle"), so this cannot be one fragment. Two alternatives reference this
 # file by service name -- see rammp-alternative*.yaml.
 #
+# A SECOND copy of this topology is published for people who pull the image and
+# never clone this repo -- docs/getting-started.mdx, "Doing it yourself". It is
+# deliberately not identical: that one pulls tagged images from ghcr, this one
+# runs what the fleet builds locally. Change the services, ports, caps or
+# ulimits here and that copy needs the same edit.
+#
 # The compose-file path is also the ONLY one with ${VAR} interpolation:
 # load_service() calls _interpolate, while an inline `container:` block is
 # returned verbatim by DockerLauncher._service(). That is what gives the arm's

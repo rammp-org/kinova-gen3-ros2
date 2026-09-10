@@ -5,21 +5,19 @@
 # would build a second copy in /module_ws on top of the base's -- and a colcon
 # workspace holds exactly one version of a package. The interface pin is the
 # base image tag in the Dockerfile, not a line in this file.
-# Plain `main` is sufficient (verified by a container build on 2026-09-03). Core PRs
-# #31 (stream-status port), #32 (velocity mode + EE-pose-into-position), #33
-# (ArmState::ee_twist) and #35 (the gripper tier) are all merged, and this repo has
-# adopted #35's two breaking changes (Supervisor takes SupervisorDeps; Arbiter gained
-# a GripperSink downstream). The old
-# `CORE_REF=integration/velocity-and-stream-status` override is gone and that
-# integration branch can be deleted.
 #
-# CORE_REF itself stays as a general escape hatch (see the Makefile) for the next time
-# this repo needs a core change that has not reached main.
+# BOTH repositories below are pinned to a TAG, never a branch. A tagged image
+# that builds from a moving branch is not reproducible: rebuild v1.0.0 next
+# month and you get whatever those branches have become, with nothing in this
+# file changed to explain the difference.
+#
+# CORE_REF stays as a general escape hatch (see the Makefile) for the next time
+# this repo needs a core change that has not reached a core release.
 #
 # NOTE (2026-08): the CONTAINER build (docker/Dockerfile) does vcs-import this.
 # The bare-metal dev loop does not — abra has no GitHub key, so scripts/abra_colcon.sh
 # rsyncs a local core working tree in instead, which also picks up uncommitted
-# core changes. Pinned to main now that Plan 2 (ports + Supervisor) is merged (PR #11).
+# core changes -- so the bare-metal loop does NOT honour the pins below.
 repositories:
   # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
   # holds one version of a package, so this pin is what decides whether this
@@ -32,11 +30,14 @@ repositories:
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
-    version: main
+    version: v1.0.0
   RAMMP-CuRobo:
     type: git
     url: https://github.com/rammp-org/RAMMP-CuRobo.git
-    version: main
+    # v1.0.0 and main carry an IDENTICAL IDL -- only rammp_curobo_interfaces'
+    # package.xml <version> differs between them -- so this pin buys
+    # reproducibility without changing the contract this module compiles against.
+    version: v1.0.0
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # The bare-metal loop rsyncs just that sub-package; container builds must scope
     # colcon with --packages-up-to kinova_gen3_ros2 so the GPU packages are skipped.

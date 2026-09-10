@@ -108,13 +108,13 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 
 ### Published topics
 
-| Topic            | Type                                 | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
-| ---------------- | ------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `joint_states`   | `sensor_msgs/JointState`             | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz.                                                                                                                                                                                                              |
-| `control_status` | `rammp_arm_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
-| `ee_state`       | `rammp_arm_interfaces/EeState`       | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
-| `stream_status`  | `rammp_arm_interfaces/StreamStatus`  | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
-| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`    | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
+| Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz.                                                                                                                                                                                                              |
+| `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
+| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
+| `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
+| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
 
 Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -143,7 +143,7 @@ report: the gripper's `force` is a current ceiling on the command side, and
 
 | Topic                      | Type                                 | QoS                    | Notes                                                                                                                               |
 | -------------------------- | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `/estop`                   | `rammp_arm_interfaces/EStop`         | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
+| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
 | `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint angles, **rad**.                                                                                                              |
 | `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint rates, **rad/s**.                                                                                                             |
 | `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint torques, **N·m**.                                                                                                             |
@@ -161,7 +161,7 @@ produce — requesting durability would make an operator's e-stop silently fail 
 connect. This works:
 
 ```bash
-ros2 topic pub --once /estop rammp_arm_interfaces/msg/EStop \
+ros2 topic pub --once /estop rammp_common_interfaces/msg/EStop \
   "{engaged: true, source: 'cli', reason: 'testing'}"
 ```
 
@@ -181,7 +181,7 @@ stamp, what `ros2 topic pub` sends) is accepted with a warning.
 
 ```bash
 # acquire, then put the returned token on every goal
-ros2 service call /acquire_control rammp_arm_interfaces/srv/AcquireControl \
+ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl \
   "{owner_id: 'orchestrator'}"
 ```
 
@@ -238,7 +238,7 @@ landing is still observable: they refresh the session deadline, so `/stream_stat
 `open` past `timeout_s` only while they are actually arriving.
 
 ```bash
-ros2 service call /acquire_control rammp_arm_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
+ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
 ros2 service call /list_controllers rammp_arm_interfaces/srv/ListControllers "{}"
 # create your publisher and let discovery settle BEFORE opening -- see below
 ros2 service call /open_stream rammp_arm_interfaces/srv/OpenStream \

@@ -9,6 +9,7 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>rammp_arm_interfaces</depend>
+  <depend>rammp_common_interfaces</depend>
   <depend>kinova_lowlevel</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>

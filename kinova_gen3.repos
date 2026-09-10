@@ -1,10 +1,10 @@
 # kinova_gen3.repos — colcon workspace source list.
 #
-# rammp-interfaces-ros2 is deliberately ABSENT. rammp_arm_interfaces arrives
-# compiled into rammp-base, so listing it here would build a second copy in
-# /module_ws on top of the base's -- and a colcon workspace holds exactly one
-# version of a package. The interface pin is the base image tag in the
-# Dockerfile, not a line in this file.
+# rammp-interfaces-ros2 is deliberately ABSENT. rammp_arm_interfaces and
+# rammp_common_interfaces arrive compiled into rammp-base, so listing it here
+# would build a second copy in /module_ws on top of the base's -- and a colcon
+# workspace holds exactly one version of a package. The interface pin is the
+# base image tag in the Dockerfile, not a line in this file.
 # Plain `main` is sufficient (verified by a container build on 2026-09-03). Core PRs
 # #31 (stream-status port), #32 (velocity mode + EE-pose-into-position), #33
 # (ArmState::ee_twist) and #35 (the gripper tier) are all merged, and this repo has

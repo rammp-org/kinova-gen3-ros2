@@ -8,9 +8,10 @@
 # the fleet's config), the shared entrypoint, and the interface contract
 # compiled in. So this file installs none of those.
 #
-# THE BASE TAG IS THE INTERFACE PIN. rammp_arm_interfaces arrives inside
-# rammp-base, at whatever ref that image was built with, so "which contract does
-# this node speak" is answered by the FROM line -- not by kinova_gen3.repos,
+# THE BASE TAG IS THE INTERFACE PIN. rammp_arm_interfaces and
+# rammp_common_interfaces arrive inside rammp-base, at whatever ref that image
+# was built with, so "which contract does this node speak" is answered by the
+# FROM line -- not by kinova_gen3.repos,
 # which deliberately no longer lists the interfaces. Two modules interoperate if
 # they share a base tag.
 #
@@ -124,8 +125,8 @@ RUN if [ "${KINOVA_ENABLE_KORTEX}" = "ON" ] && \
 COPY . src/kinova_gen3_ros2/
 
 # --packages-up-to kinova_gen3_ros2 builds exactly the node and its recursive
-# deps (kinova_lowlevel, rammp_arm_interfaces, rammp_curobo_interfaces) and
-# stops there — rammp_curobo_ros is the GPU planner node and belongs in the
+# deps (kinova_lowlevel, rammp_arm_interfaces, rammp_common_interfaces,
+# rammp_curobo_interfaces) and stops there — rammp_curobo_ros is the GPU planner node and belongs in the
 # rammp-curobo image, not this one.
 RUN source /opt/ros/humble/setup.bash && \
     source /ros2_ws/install/setup.bash && \

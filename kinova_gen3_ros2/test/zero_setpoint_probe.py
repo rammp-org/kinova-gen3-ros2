@@ -16,12 +16,8 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rammp_arm_interfaces.msg import JointSetpoint, TwistSetpoint
-from rammp_arm_interfaces.srv import (
-    AcquireControl,
-    CloseStream,
-    OpenStream,
-    ReleaseControl,
-)
+from rammp_arm_interfaces.srv import CloseStream, OpenStream
+from rammp_common_interfaces.srv import AcquireControl, ReleaseControl
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState

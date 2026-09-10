@@ -13,15 +13,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
-from rammp_arm_interfaces.msg import ControlStatus, EStop, GripperState, StreamStatus
-from rammp_arm_interfaces.srv import (
-    AcquireControl,
-    CloseStream,
-    ListControllers,
-    OpenStream,
-    ReleaseControl,
-    RevokeControl,
-)
+from rammp_arm_interfaces.msg import GripperState, StreamStatus
+from rammp_arm_interfaces.srv import CloseStream, ListControllers, OpenStream
+from rammp_common_interfaces.msg import ControlStatus, EStop
+from rammp_common_interfaces.srv import AcquireControl, ReleaseControl, RevokeControl
 from sensor_msgs.msg import JointState
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"

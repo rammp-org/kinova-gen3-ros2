@@ -4,6 +4,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rammp_arm_interfaces REQUIRED)
+find_package(rammp_common_interfaces REQUIRED)
 find_package(kinova_lowlevel CONFIG REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
@@ -53,7 +54,7 @@ add_library(arbitration_server src/arbitration_server.cpp)
 target_include_directories(arbitration_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(arbitration_server
-  rclcpp rammp_arm_interfaces std_msgs diagnostic_msgs diagnostic_updater)
+  rclcpp rammp_common_interfaces std_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(arbitration_server kinova_lowlevel::kinova_lowlevel)
 
 # The ROS face of core's StreamSink: session services, setpoint topics, /stream_status.
@@ -114,7 +115,7 @@ if(BUILD_TESTING)
   target_include_directories(arbitration_server_test PRIVATE test)
   target_link_libraries(arbitration_server_test arbitration_server)
   ament_target_dependencies(arbitration_server_test
-    rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
+    rclcpp rammp_common_interfaces diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(goal_router_test test/goal_router_test.cpp)
   target_link_libraries(goal_router_test goal_router)

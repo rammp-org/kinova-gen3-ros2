@@ -23,9 +23,14 @@ CORE_ARG    := $(if $(CORE_REF),--build-arg CORE_REF=$(CORE_REF),)
 KORTEX_SRC  ?= $(HOME)/kortex_api_2.8.0_aarch64
 KORTEX_SDK_DIR := $(notdir $(KORTEX_SRC))
 
-NODE   := /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
-CLIENT := /ros2_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py
-URDF   := /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+# /module_ws, not /ros2_ws. The image builds FROM rammp-base, so /ros2_ws is the
+# BASE's workspace -- the interface contract, already built -- and this node
+# overlays into /module_ws (Dockerfile WORKDIR, and `COPY . src/kinova_gen3_ros2/`
+# is relative to it). The old paths built fine and then died at `docker run` on a
+# path the image does not contain.
+NODE   := /module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
+CLIENT := /module_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py
+URDF   := /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 
 # Pin the RT loop to abra's isolated core. The host boots with
 # `isolcpus=11 nohz_full=11 rcu_nocbs=11` and the core driver's scripts/rt_setup.sh

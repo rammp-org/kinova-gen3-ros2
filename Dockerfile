@@ -45,8 +45,8 @@ RUN rosdep update --rosdistro humble
 # Jetson runs — see that file for why pinning `pin` alone is not enough.
 # Deliberately NOT ros-humble-pinocchio: that is 4.0.0 on Humble arm64, a major
 # version ahead of what the core driver is validated against. The pip (cmeel)
-# wheels also land at the same prefix the bare-metal build uses, so the CMake
-# incantation below is identical to scripts/abra_colcon.sh.
+# wheels also land at the same prefix a native build uses, so the CMake
+# incantation below matches the README's native build.
 COPY docker/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 ENV CMEEL_PREFIX=/usr/local/lib/python3.10/dist-packages/cmeel.prefix
@@ -147,6 +147,6 @@ ENV URDF=/module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 # binary as a child of a Python wrapper, so the SIGTERM `docker stop` sends to
 # PID 1 would hit the wrapper and never reach the node — it would be SIGKILLed
 # 10s later with no safe_shutdown(). Exec'd directly, the node IS PID 1 and its
-# SIGTERM handler runs the clean stop path. (Same trap as scripts/abra_e2e_sim.sh.)
+# SIGTERM handler runs the clean stop path.
 CMD ["/module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node", \
      "--sim", "--urdf", "/module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf"]

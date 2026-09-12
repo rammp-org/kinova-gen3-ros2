@@ -6,9 +6,9 @@
 // Ordered for a newcomer: start, then reference, then the deeper guides, with
 // troubleshooting last so it is findable when something breaks.
 //
-// Only user-facing pages belong here. Operational records -- the on-robot runbook
-// and the dated handoff notes -- stay in the repo and are excluded in the hub's
-// sources.yml, along with docs/superpowers/ (specs and plans).
+// Only user-facing pages belong here. Operational records -- the on-robot runbook --
+// stay in the repo and are excluded in the hub's sources.yml, along with
+// docs/superpowers/ (design specs).
 export default {
   index: 'Introduction',
   'getting-started': 'Getting started',

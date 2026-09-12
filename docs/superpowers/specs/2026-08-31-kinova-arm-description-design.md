@@ -63,7 +63,7 @@ No RViz config: the approved scope is the two launch files. `rviz2` against
 `/robot_description` works without one, and a checked-in config is another artifact to
 keep current as the model changes. Easy to add later if the default view is annoying.
 
-The three upstream description packages are already installed on abra and are
+The three upstream description packages are
 apt-installable (`ros-humble-kortex-description` and friends), so depending on them
 costs three lines and no vendoring. **No meshes are copied into this repo.**
 

@@ -15,7 +15,7 @@ planning action and executes the returned trajectory through the **same
 `Supervisor` seam** the `ExecuteJointTrajectory` handler already uses.
 
 This realizes the tier locked in the handoff
-(`docs/2026-08-14-curobo-action-tier-handoff.md`, §2): EE-pose goals go through
+(`docs/2026-08-14-curobo-action-tier-handoff.md`, §2, since removed — see git history): EE-pose goals go through
 cuRobo; pre-planned `ExecuteJointTrajectory` goals still bypass the planner; **one
 node** of ours hosts both action servers and is a cuRobo client; high-level
 handlers feed the planned trajectory into the `Supervisor` internally (no
@@ -256,20 +256,20 @@ message field) rather than disabling the guard outright. Measured on the attende
   returns a canned `JointTrajectory`; `GoToEEPoseServer` + a `Supervisor` on
   `SimTransport` drive one goal end-to-end → assert feedback (`planning`→`executing`)
   and terminal `SUCCESSFUL`. A second case: fake server aborts (`success=false`) →
-  assert `PLANNING_FAILED` with the message relayed. Runs headless on abra; no GPU.
+  assert `PLANNING_FAILED` with the message relayed. Runs headless; no GPU.
 - **RT-safety:** unchanged — no new RT-path work; the core `RtSafety` gate still
   covers the sampler/pump against `SimTransport`.
-- **Real-arm (attended, Milestone C):** the real cuRobo GPU node + our node on abra;
+- **Real-arm (attended, Milestone C):** the real cuRobo GPU node + our node;
   a small/near base-frame target, slow, e-stop in hand, per `docs/on-robot-runbook.md`
-  and the handoff §6 operational facts (`pkill -TERM -f kinova_gen3_node`, best-effort
-  `/joint_states` QoS, `ssh abra 'bash -lc "…"'`). Gated behind the sim integration.
+  (`pkill -TERM -f kinova_gen3_node`, best-effort `/joint_states` QoS). Gated behind
+  the sim integration.
 
 ## Milestones (each independently testable)
 
 - **A — interfaces + core code:** `GoToEEPose.action` generates; `result_code`
   gains `kPlanningFailed`; both importable/linkable.
 - **B — sim end-to-end with fake cuRobo (the proof, no GPU/hardware):** the two
-  unit tests + the rclcpp integration test green on abra. Validates the whole pipe:
+  unit tests + the rclcpp integration test green. Validates the whole pipe:
   server → cuRobo client → CommandSink → Supervisor → SimTransport → GoalRouter →
   result, plus the `PLANNING_FAILED` path.
 - **C — attended real-arm run:** real cuRobo node + our node; a small pose goal

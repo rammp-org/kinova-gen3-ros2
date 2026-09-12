@@ -8,7 +8,7 @@ Core is untouched (reuses `result_code::kPlanningFailed = -7`).
 ## What this is
 
 The remaining two high-level actions from the action-tier handoff
-(`docs/2026-08-14-curobo-action-tier-handoff.md` §2): **`GoToJointConfig`** and
+(`docs/2026-08-14-curobo-action-tier-handoff.md` §2, since removed — see git history): **`GoToJointConfig`** and
 **`GoToPreset`**, bundled into one PR stacked on the just-shipped `GoToEEPose`.
 Both delegate collision-free planning to the external cuRobo node and execute the
 returned trajectory through the same `Supervisor` `CommandSink` seam.
@@ -162,7 +162,7 @@ Planning failure / unknown preset / bad joints short-circuit to `settle_local`
   rejected. Registry-from-params covered by the bring-up path.
 - **Regression:** the existing `ExecuteJointTrajectory` e2e-sim + `GoToEEPose`
   integration tests must stay green after the refactor.
-- All on abra (`scripts/abra_colcon.sh --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`); real-arm runs pin **`--cpu 11`** (per RT fix `79d1050`;
+- Build with `colcon build --packages-up-to kinova_gen3_ros2 --cmake-args -DBUILD_TESTING=ON`; real-arm runs pin the RT loop to the isolated core with **`--cpu`** (per RT fix `79d1050`;
   `make sim/real` do this automatically).
 
 ## Out of scope (future specs — NOT this PR)

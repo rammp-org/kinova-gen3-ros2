@@ -197,23 +197,25 @@ You need **ROS 2 Humble** already installed. Everything below was run start to
 finish on a clean `ros:humble`.
 
 ```sh
-sudo apt install -y git python3-pip python3-vcstool ros-humble-rmw-cyclonedds-cpp
-rosdep update --rosdistro humble        # first time only
+sudo apt install -y git python3-pip python3-vcstool python3-rosdep ros-humble-rmw-cyclonedds-cpp
+sudo rosdep init                          # first time on this machine only
+rosdep update --rosdistro humble
 
-mkdir -p ~/kinova_ws/src && cd ~/kinova_ws
+mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
 git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
 vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
+git clone --branch v1.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
 ```
 
-`kinova_gen3.repos` brings in the core driver, the interfaces, and cuRobo's message
-definitions. It does **not** contain this repo, which is why you clone that yourself
-first.
+`kinova_gen3.repos` brings in the core driver and cuRobo's message definitions. It
+does **not** contain this repo, which is why you clone that yourself first, and it
+does not contain the RAMMP interfaces either — the container gets those from its base
+image, so a native build clones them itself.
 
 ### Pinocchio has to come from pip, pinned
 
 ```sh
 pip install -r src/kinova_gen3_ros2/docker/requirements.txt
-export CMEEL_PREFIX="$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/cmeel.prefix"
 ```
 
 Do **not** install `ros-humble-pinocchio`. It is 4.0.0 on Humble — a major version
@@ -228,12 +230,14 @@ cmeel stack drifted.
 ### Build
 
 ```sh
+source /opt/ros/humble/setup.bash
 rosdep install --ignore-src -y --skip-keys pinocchio --from-paths \
   src/kinova_gen3_ros2 src/kinova-gen3-driver src/rammp-interfaces-ros2 \
   src/RAMMP-CuRobo/rammp_curobo_interfaces
 
-export CMAKE_PREFIX_PATH="$CMEEL_PREFIX:${CMAKE_PREFIX_PATH:-}"
-colcon build --packages-up-to kinova_gen3_ros2 --cmake-args -DCMAKE_BUILD_TYPE=Release
+export CMAKE_PREFIX_PATH="$(python3 -m cmeel cmake):${CMAKE_PREFIX_PATH:-}"
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
 Both of those are narrower than the obvious version, on purpose:

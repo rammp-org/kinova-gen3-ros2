@@ -17,7 +17,7 @@ IMAGE_REAL  ?= kinova-gen3-ros2:kortex
 # Override the core ref that kinova_gen3.repos pins, e.g.
 #   make build CORE_REF=feat/planning-failed-result-code
 # Needed whenever this repo depends on a core change that has not reached core
-# main yet — the container clones main, unlike the rsync dev loop.
+# main yet — the container clones the pinned ref, not your local checkout.
 CORE_REF    ?=
 CORE_ARG    := $(if $(CORE_REF),--build-arg CORE_REF=$(CORE_REF),)
 KORTEX_SRC  ?= $(HOME)/kortex_api_2.8.0_aarch64
@@ -32,9 +32,10 @@ NODE   := /module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_n
 CLIENT := /module_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py
 URDF   := /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 
-# Pin the RT loop to abra's isolated core. The host boots with
-# `isolcpus=11 nohz_full=11 rcu_nocbs=11` and the core driver's scripts/rt_setup.sh
-# defaults RT_CORE=11. isolcpus takes that core OUT of the scheduler's load
+# Pin the RT loop to the host's isolated core. Boot the host with e.g.
+# `isolcpus=11 nohz_full=11 rcu_nocbs=11` (the core driver's scripts/rt_setup.sh
+# defaults RT_CORE=11), or pass RT_CORE=-1 on a machine with no isolated core.
+# isolcpus takes that core OUT of the scheduler's load
 # balancing, so a thread only ever lands there via explicit affinity — without
 # --cpu the node calls no sched_setaffinity at all (enable_rt guards it on
 # cpu >= 0) and the 1 kHz loop runs on the general cores forever.
@@ -63,8 +64,8 @@ build:                     ## Build the sim image
 sim: build                 ## Run the node in sim, foreground
 	$(RUN) -it --name kinova_gen3_sim $(IMAGE) $(NODE) --sim $(NODE_ARGS)
 
-# Success case then forced-divergence case, same assertions as
-# scripts/abra_e2e_sim.sh but against the containerized node.
+# Success case then forced-divergence case, same assertions as the README's
+# native sim end-to-end, but against the containerized node.
 e2e: build                 ## Sim integration check (success + path-tolerance abort)
 	$(RUN) -d --name kinova_gen3_e2e $(IMAGE) $(NODE) --sim $(NODE_ARGS)
 	@sleep 5

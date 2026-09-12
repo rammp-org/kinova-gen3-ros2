@@ -486,7 +486,7 @@ cannot be commanded until someone re-acquires.
 
 `arbitration_mode` defaults to `disabled`, which costs no safety — `estop()` latches over
 *both* modes, and `kDisabled` is the one thing e-stop does not bypass. Under the default,
-`send_trajectory.py`, `scripts/abra_e2e_sim.sh`, `make e2e` and the dojo workflows keep
+`send_trajectory.py`, `make e2e` and the dojo workflows keep
 working untouched; enabling arbitration is an opt-in launch argument.
 
 The `.action` files change, so all clients must be **rebuilt** even though their behaviour

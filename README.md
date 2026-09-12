@@ -402,30 +402,55 @@ with an error if launched without `--sim`.
 
 ## Build
 
-Both packages are colcon/ament; the core is vendored into the same workspace
-`src/` and found via `find_package(kinova_lowlevel CONFIG REQUIRED)` (the core
-exports `kinova_lowlevelConfig.cmake`). `kinova_gen3.repos` documents the intended
-source pin (core `main`) and is what the **container** build vcs-imports; the
-bare-metal dev loop rsyncs a local core working tree instead, because abra has no
-GitHub key (and that way it picks up uncommitted core changes).
-
-Everything builds **and runs on abra** (aarch64) — same host, so the absolute
-paths baked into the core's exported target stay valid.
+A standard colcon workspace on **ROS 2 Humble** (Ubuntu 22.04, x86-64 or aarch64).
+The core is built in the same workspace and found via
+`find_package(kinova_lowlevel CONFIG REQUIRED)`. `kinova_gen3.repos` pulls in the core
+and cuRobo's message definitions; the RAMMP interfaces are cloned separately, because
+the container gets them from its base image instead.
 
 ```sh
-# from muk — rsync core + this repo to abra, then colcon build there (sim by default)
-bash scripts/abra_colcon.sh
-bash scripts/abra_colcon.sh --packages-select kinova_gen3_ros2      # extra args pass through
+sudo apt install -y git python3-pip python3-vcstool python3-rosdep
+sudo rosdep init                          # first time on this machine only
+rosdep update --rosdistro humble
+
+mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
+git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
+vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
+git clone --branch v1.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
+
+# pinocchio comes from pinned pip wheels, NOT ros-humble-pinocchio (see Container below)
+pip install -r src/kinova_gen3_ros2/docker/requirements.txt
+
+source /opt/ros/humble/setup.bash
+rosdep install --ignore-src -y --skip-keys pinocchio --from-paths \
+  src/kinova_gen3_ros2 src/kinova-gen3-driver src/rammp-interfaces-ros2 \
+  src/RAMMP-CuRobo/rammp_curobo_interfaces
+
+export CMAKE_PREFIX_PATH="$(python3 -m cmeel cmake):${CMAKE_PREFIX_PATH:-}"
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+source install/setup.bash
 ```
 
-Real-arm (KORTEX-linked) build — **always pass the flag explicitly**, since the
-CMake cache persists `KINOVA_ENABLE_KORTEX` across rebuilds:
+Two things are narrower than the obvious version, on purpose: `--from-paths` lists
+packages rather than `src`, and `--packages-up-to` stops at the driver. The repos file
+brings in all of RAMMP-CuRobo, and its planner package needs a GPU stack this node
+never uses.
+
+Real-arm (KORTEX-linked) build. The SDK is linked statically, so it must be on disk at
+build time; Kinova publishes it without credentials. **Always pass the flag
+explicitly**, since the CMake cache persists `KINOVA_ENABLE_KORTEX` across rebuilds:
 
 ```sh
-bash scripts/abra_colcon.sh --cmake-args \
-  -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64
+# aarch64: linux_aarch64_gcc_7.4.zip   x86-64: linux_x86-64_gcc_5.4.zip
+curl -fsSL -o /tmp/kortex.zip \
+  https://artifactory.kinovaapps.com/artifactory/generic-public/kortex/API/2.8.0/linux_x86-64_gcc_5.4.zip
+mkdir -p ~/kortex_api && unzip -q /tmp/kortex.zip -d ~/kortex_api
+
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR="$HOME/kortex_api"
 # and back to sim-only when done on the arm:
-bash scripts/abra_colcon.sh --cmake-args -DKINOVA_ENABLE_KORTEX=OFF
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args -DKINOVA_ENABLE_KORTEX=OFF
 ```
 
 Sanity check for which mode got built: the KORTEX binary is ~9.7 MB (vs ~1.5 MB
@@ -462,7 +487,7 @@ make real IP=192.168.1.10  # KORTEX-enabled build, then run against the arm
 Three things about this image are load-bearing:
 
 - **pinocchio is pinned to `pip install pin==3.9.0`**, matching the version
-  validated on the Jetson, and lands at the same cmeel prefix the bare-metal
+  validated on the Jetson, and lands at the same cmeel prefix the native
   build uses. It is deliberately *not* `ros-humble-pinocchio`, which is 4.0.0 on
   Humble arm64 — a major version ahead of what the core is validated against.
   That is also why `rosdep install` runs with `--skip-keys pinocchio`: the core's
@@ -492,17 +517,19 @@ boundary, and `--cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1` so
 is not needed. Verify the RT part with `chrt -p 1` inside the container — it
 should report `SCHED_FIFO` priority 80.
 
-**Core pinning is a node argument, not a Docker flag.** abra boots
-`isolcpus=11 nohz_full=11 rcu_nocbs=11` and the core driver's `scripts/rt_setup.sh`
-defaults `RT_CORE=11`. `isolcpus` removes that core from the scheduler's load
-balancing, so a thread reaches it *only* via explicit affinity — and `enable_rt()`
-guards its `sched_setaffinity` on `cpu >= 0`, which `--cpu` is the only way to set.
-Omit `--cpu` and the 1 kHz loop runs on the general cores forever, even though
-`chrt` still cheerfully reports `SCHED_FIFO`/80. The Makefile passes
-`--cpu $(RT_CORE)` (default 11) on every run target. Verify with:
+**Core pinning is a node argument, not a Docker flag.** For real-time, boot the host
+with one core isolated, e.g. `isolcpus=11 nohz_full=11 rcu_nocbs=11` (the core
+driver's `scripts/rt_setup.sh` defaults `RT_CORE=11`). `isolcpus` removes that core
+from the scheduler's load balancing, so a thread reaches it *only* via explicit
+affinity — and `enable_rt()` guards its `sched_setaffinity` on `cpu >= 0`, which
+`--cpu` is the only way to set. Omit `--cpu` and the 1 kHz loop runs on the general
+cores forever, even though `chrt` still cheerfully reports `SCHED_FIFO`/80. The
+Makefile passes `--cpu $(RT_CORE)` (default 11) on every run target; set `RT_CORE`
+to your isolated core, or `RT_CORE=-1` to skip pinning on a machine without one.
+Verify with:
 
 ```sh
-docker exec <container> taskset -pc 1     # expect "current affinity list: 11"
+docker exec <container> taskset -pc 1     # expect "current affinity list: <RT_CORE>"
 ```
 
 Do **not** use Docker's `--cpuset-cpus` for this. That confines the entire
@@ -513,20 +540,21 @@ after `bringup_node` has already spawned the non-RT threads.
 
 ## Run
 
-Sim, on abra:
+Sim, from the workspace built above:
 
 ```sh
-source /opt/ros/humble/setup.bash
-source /tmp/kinova-ros2-ws/install/setup.bash
-cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver          # for models/
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf
-# expect: "kinova_gen3_node up (sim); action: /execute_joint_trajectory"
+cd ~/ros2_ws
+source install/setup.bash
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true
+# or just the node, without TF:
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+# expect: "kinova_gen3_node up (sim); ..."
 ```
 
-Real arm (attended only — follow `docs/on-robot-runbook.md`):
+Real arm (attended only — follow `docs/on-robot-runbook.md`; needs the KORTEX build):
 
 ```sh
-ros2 run kinova_gen3_ros2 kinova_gen3_node --ip 192.168.1.10 --urdf models/gen3_7dof_2f85.urdf
+ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10
 ```
 
 Send a goal with the test client. It **seeds waypoint 0 from the live measured
@@ -535,7 +563,7 @@ deltas — so on a real arm at any pose it commands a small *local* move, never 
 jump to zero:
 
 ```sh
-python3 <ws>/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+python3 ~/ros2_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
   --joint 6 --mode position --delta 0.10 --dur 1.2 --path-tol 0.2 --expect 0
 
 # coordinated multi-joint: comma-lists, one delta per joint
@@ -548,25 +576,39 @@ length), `--mode position|impedance`, `--dur` seconds, `--path-tol` (`<0`
 disables), `--expect <error_code>` (required; the process exits non-zero if the
 result code doesn't match, which is what makes it usable as a test).
 
-Killing the node: `ros2 run` forks the real binary as a child of a Python
-wrapper, so killing the wrapper's PID orphans the RT node. Reap the wrapper, then
-`pkill -TERM -f .../kinova_gen3_node` — see `scripts/abra_e2e_sim.sh`.
+Killing the node: Ctrl-C in its terminal is a clean stop. If you background it from
+a script, note that `ros2 run` forks the real binary as a child of a Python wrapper,
+so killing the wrapper's PID orphans the RT node — follow up with
+`pkill -TERM -f lib/kinova_gen3_ros2/kinova_gen3_node`.
 
 ## Test
 
-Unit (`colcon test`): `message_mapping_test` covers goal→`TrajectoryGoal`
-mapping for position and impedance modes, tolerance mapping (empty ⇒ disabled),
-the short/long `positions` safety net (zero-fill / take-first-seven), and result
-mapping.
-
-Sim end-to-end — run **on abra**, launches the node, sends two goals, asserts
-both, and cleans up:
+Unit and integration tests, no robot:
 
 ```sh
-bash scripts/abra_e2e_sim.sh
-# success case: small position-mode move          -> error_code 0
-# divergence case: big move, tight path tolerance -> error_code -4 (PATH_TOLERANCE_VIOLATED)
+cd ~/ros2_ws
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args -DBUILD_TESTING=ON
+colcon test --packages-select kinova_gen3_ros2 kinova_gen3_description
+colcon test-result --verbose
 ```
+
+Sim end-to-end — start the node in sim in one terminal, then send two goals from
+another and check both result codes:
+
+```sh
+# terminal 1
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+
+# terminal 2
+source ~/ros2_ws/install/setup.bash
+python3 src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+  --mode position --delta 0.05 --dur 0.4 --expect 0     # small move -> error_code 0
+python3 src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+  --delta 0.5 --dur 2.0 --path-tol 0.2 --expect -4      # tight tolerance -> -4 (PATH_TOLERANCE_VIOLATED)
+```
+
+Each command exits non-zero if the result code does not match. `make e2e` runs the
+same two goals against the container.
 
 This exercises the whole pipe: client → action server → `CommandSink` →
 Supervisor → sampler → `SimTransport` → driven ports → result.

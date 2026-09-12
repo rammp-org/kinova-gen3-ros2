@@ -4,7 +4,8 @@
 # rammp_common_interfaces arrive compiled into rammp-base, so listing it here
 # would build a second copy in /module_ws on top of the base's -- and a colcon
 # workspace holds exactly one version of a package. The interface pin is the
-# base image tag in the Dockerfile, not a line in this file.
+# base image tag in the Dockerfile, not a line in this file. A native build
+# clones rammp-interfaces-ros2 itself -- see the README's Build section.
 #
 # BOTH repositories below are pinned to a TAG, never a branch. A tagged image
 # that builds from a moving branch is not reproducible: rebuild v1.0.0 next
@@ -13,11 +14,6 @@
 #
 # CORE_REF stays as a general escape hatch (see the Makefile) for the next time
 # this repo needs a core change that has not reached a core release.
-#
-# NOTE (2026-08): the CONTAINER build (docker/Dockerfile) does vcs-import this.
-# The bare-metal dev loop does not — abra has no GitHub key, so scripts/abra_colcon.sh
-# rsyncs a local core working tree in instead, which also picks up uncommitted
-# core changes -- so the bare-metal loop does NOT honour the pins below.
 repositories:
   # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
   # holds one version of a package, so this pin is what decides whether this
@@ -39,5 +35,5 @@ repositories:
     # reproducibility without changing the contract this module compiles against.
     version: v1.0.0
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
-    # The bare-metal loop rsyncs just that sub-package; container builds must scope
-    # colcon with --packages-up-to kinova_gen3_ros2 so the GPU packages are skipped.
+    # Builds must scope colcon with --packages-up-to kinova_gen3_ros2 so the GPU
+    # packages are skipped.

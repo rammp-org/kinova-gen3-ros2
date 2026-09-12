@@ -8,8 +8,8 @@
 #include <atomic>
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "kinova_gen3_interfaces/msg/ee_state.hpp"
-#include "kinova_gen3_interfaces/action/execute_joint_trajectory.hpp"
+#include "rammp_arm_interfaces/msg/ee_state.hpp"
+#include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
@@ -17,7 +17,7 @@ namespace kinova_gen3_ros2 {
 class Ros2Backend : public kinova::interface::ActionServerPort,
                     public kinova::interface::StreamPort {
 public:
-  using Action = kinova_gen3_interfaces::action::ExecuteJointTrajectory;
+  using Action = rammp_arm_interfaces::action::ExecuteJointTrajectory;
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
   explicit Ros2Backend(rclcpp::Node::SharedPtr node);
@@ -49,7 +49,7 @@ private:
   // /ee_state: the Cartesian sibling of /joint_states. Core hands us ee_pose
   // and ee_twist on every ArmState and we used to drop both, so a client
   // streaming EE poses had no way to read where the tool actually was.
-  rclcpp::Publisher<kinova_gen3_interfaces::msg::EeState>::SharedPtr ee_pub_;
+  rclcpp::Publisher<rammp_arm_interfaces::msg::EeState>::SharedPtr ee_pub_;
 
   // REP 107 hardware health. ArmState carries the arm's fault flag and we
   // dropped that too -- the arm could be faulted with nothing on the ROS

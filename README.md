@@ -14,13 +14,13 @@ Design docs: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.
 
 ## Packages
 
-| Package                  | Type                     | Contents                                                                                |
-| ------------------------ | ------------------------ | --------------------------------------------------------------------------------------- |
-| `kinova_gen3_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGains.msg`. Interface definitions only. |
-| `kinova_gen3_ros2`       | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.     |
+| Package                | Type                     | Contents                                                                                |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------- |
+| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGains.msg`. Interface definitions only. |
+| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.     |
 
 ```
-kinova_gen3_interfaces/
+rammp_arm_interfaces/
   action/ExecuteJointTrajectory.action
   msg/JointImpedanceGains.msg
 kinova_gen3_ros2/
@@ -62,12 +62,12 @@ Node name: **`kinova_gen3_node`**.
 
 ### Action servers
 
-| Name                       | Type                                                   |
-| -------------------------- | ------------------------------------------------------ |
-| `execute_joint_trajectory` | `kinova_gen3_interfaces/action/ExecuteJointTrajectory` |
-| `go_to_ee_pose`            | `kinova_gen3_interfaces/action/GoToEEPose`             |
-| `go_to_joint_config`       | `kinova_gen3_interfaces/action/GoToJointConfig`        |
-| `go_to_preset`             | `kinova_gen3_interfaces/action/GoToPreset`             |
+| Name                       | Type                                                 |
+| -------------------------- | ---------------------------------------------------- |
+| `execute_joint_trajectory` | `rammp_arm_interfaces/action/ExecuteJointTrajectory` |
+| `go_to_ee_pose`            | `rammp_arm_interfaces/action/GoToEEPose`             |
+| `go_to_joint_config`       | `rammp_arm_interfaces/action/GoToJointConfig`        |
+| `go_to_preset`             | `rammp_arm_interfaces/action/GoToPreset`             |
 
 Goal:
 
@@ -108,13 +108,13 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 
 ### Published topics
 
-| Topic            | Type                                   | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
-| ---------------- | -------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `joint_states`   | `sensor_msgs/JointState`               | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz.                                                                                                                                                                                                              |
-| `control_status` | `kinova_gen3_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
-| `ee_state`       | `kinova_gen3_interfaces/EeState`       | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
-| `stream_status`  | `kinova_gen3_interfaces/StreamStatus`  | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
-| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`      | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
+| Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
+| ---------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz.                                                                                                                                                                                                              |
+| `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
+| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
+| `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
+| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
 
 Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -141,15 +141,14 @@ report: the gripper's `force` is a current ceiling on the command side, and
 
 ### Subscribed topics
 
-| Topic                      | Type                                    | QoS                    | Notes                                                                                                                               |
-| -------------------------- | --------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `/estop`                   | `kinova_gen3_interfaces/EStop`          | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
-| `/setpoint/joint_position` | `kinova_gen3_interfaces/JointSetpoint`  | best-effort, depth 1   | Joint angles, **rad**.                                                                                                              |
-| `/setpoint/joint_velocity` | `kinova_gen3_interfaces/JointSetpoint`  | best-effort, depth 1   | Joint rates, **rad/s**.                                                                                                             |
-| `/setpoint/joint_torque`   | `kinova_gen3_interfaces/JointSetpoint`  | best-effort, depth 1   | Joint torques, **N·m**.                                                                                                             |
-| `/setpoint/pose`           | `kinova_gen3_interfaces/PoseSetpoint`   | best-effort, depth 1   | Target tool pose, base frame.                                                                                                       |
-| `/setpoint/twist`          | `kinova_gen3_interfaces/TwistSetpoint`  | best-effort, depth 1   | Target tool twist, base frame, `[linear; angular]`.                                                                                 |
-| `/setpoint/wrench`         | `kinova_gen3_interfaces/WrenchSetpoint` | best-effort, depth 1   | Target tool wrench. **No controller consumes this** — setpoints are dropped with a throttled warning.                               |
+| Topic                      | Type                                 | QoS                    | Notes                                                                                                                               |
+| -------------------------- | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
+| `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint angles, **rad**.                                                                                                              |
+| `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint rates, **rad/s**.                                                                                                             |
+| `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint torques, **N·m**.                                                                                                             |
+| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1   | Target tool pose, base frame.                                                                                                       |
+| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1   | Target tool twist, base frame, `[linear; angular]`.                                                                                 |
 
 The three `JointSetpoint` topics share one message shape and the **topic** carries the units.
 All six are subscribed unconditionally, but a setpoint is only applied while a matching
@@ -162,7 +161,7 @@ produce — requesting durability would make an operator's e-stop silently fail 
 connect. This works:
 
 ```bash
-ros2 topic pub --once /estop kinova_gen3_interfaces/msg/EStop \
+ros2 topic pub --once /estop rammp_common_interfaces/msg/EStop \
   "{engaged: true, source: 'cli', reason: 'testing'}"
 ```
 
@@ -182,7 +181,7 @@ stamp, what `ros2 topic pub` sends) is accepted with a warning.
 
 ```bash
 # acquire, then put the returned token on every goal
-ros2 service call /acquire_control kinova_gen3_interfaces/srv/AcquireControl \
+ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl \
   "{owner_id: 'orchestrator'}"
 ```
 
@@ -213,16 +212,16 @@ to publish on.
 | `open_stream`      | `OpenStream`      | `controller, timeout_s, token` → `accepted, channels[], error_code, message` |
 | `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                  |
 
-| Controller            | Channel                              | Available                                                                      |
-| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------ |
-| `joint_position`      | `/setpoint/joint_position`           | yes                                                                            |
-| `joint_impedance`     | `/setpoint/joint_position`           | yes                                                                            |
-| `ee_pose_impedance`   | `/setpoint/pose`                     | yes — compliant; in-loop IK via `JointImpedanceMode`                           |
-| `ee_pose_position`    | `/setpoint/pose`                     | yes — **stiff**; no compliance, full servo authority                           |
-| `joint_torque`        | `/setpoint/joint_torque`             | yes                                                                            |
-| `joint_velocity`      | `/setpoint/joint_velocity`           | yes — **stiff by contract**: tracks the rate, does not yield to contact        |
-| `ee_twist`            | `/setpoint/twist`                    | yes — damped least squares with null-space posture                             |
-| `cartesian_impedance` | `/setpoint/pose`, `/setpoint/wrench` | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
+| Controller            | Channel                               | Available                                                                      |
+| --------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
+| `joint_position`      | `/setpoint/joint_position`            | yes                                                                            |
+| `joint_impedance`     | `/setpoint/joint_position`            | yes                                                                            |
+| `ee_pose_impedance`   | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                           |
+| `ee_pose_position`    | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                           |
+| `joint_torque`        | `/setpoint/joint_torque`              | yes                                                                            |
+| `joint_velocity`      | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact        |
+| `ee_twist`            | `/setpoint/twist`                     | yes — damped least squares with null-space posture                             |
+| `cartesian_impedance` | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
 
 `available` is computed live from core's `pair_supported()`, so these rows light up
 when core grows the mode. That is not theoretical: `joint_velocity` and `ee_twist`
@@ -239,13 +238,13 @@ landing is still observable: they refresh the session deadline, so `/stream_stat
 `open` past `timeout_s` only while they are actually arriving.
 
 ```bash
-ros2 service call /acquire_control kinova_gen3_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
-ros2 service call /list_controllers kinova_gen3_interfaces/srv/ListControllers "{}"
+ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl "{owner_id: 'teleop'}"
+ros2 service call /list_controllers rammp_arm_interfaces/srv/ListControllers "{}"
 # create your publisher and let discovery settle BEFORE opening -- see below
-ros2 service call /open_stream kinova_gen3_interfaces/srv/OpenStream \
+ros2 service call /open_stream rammp_arm_interfaces/srv/OpenStream \
   "{controller: 'joint_impedance', timeout_s: 0.1, token: [...]}"
 # publish on the returned channel, faster than timeout_s
-ros2 service call /close_stream kinova_gen3_interfaces/srv/CloseStream "{token: [...]}"
+ros2 service call /close_stream rammp_arm_interfaces/srv/CloseStream "{token: [...]}"
 ```
 
 **Create your publisher before you open.** DDS discovery can take hundreds of
@@ -276,7 +275,7 @@ shows up immediately. Its `rejected_count` counts setpoints the **session** refu
 (wrong channel); token failures are counted by the Arbiter and appear on
 `/control_status` instead.
 
-`/setpoint/wrench` exists so the surface is complete, but no controller consumes it
+`WrenchSetpoint` is NOT in `rammp_arm_interfaces` v1.0.0 and `/setpoint/wrench` is not subscribed. No controller consumes a wrench
 yet; messages are dropped with a throttled warning.
 
 ### Launch files
@@ -403,30 +402,55 @@ with an error if launched without `--sim`.
 
 ## Build
 
-Both packages are colcon/ament; the core is vendored into the same workspace
-`src/` and found via `find_package(kinova_lowlevel CONFIG REQUIRED)` (the core
-exports `kinova_lowlevelConfig.cmake`). `kinova_gen3.repos` documents the intended
-source pin (core `main`) and is what the **container** build vcs-imports; the
-bare-metal dev loop rsyncs a local core working tree instead, because abra has no
-GitHub key (and that way it picks up uncommitted core changes).
-
-Everything builds **and runs on abra** (aarch64) — same host, so the absolute
-paths baked into the core's exported target stay valid.
+A standard colcon workspace on **ROS 2 Humble** (Ubuntu 22.04, x86-64 or aarch64).
+The core is built in the same workspace and found via
+`find_package(kinova_lowlevel CONFIG REQUIRED)`. `kinova_gen3.repos` pulls in the core
+and cuRobo's message definitions; the RAMMP interfaces are cloned separately, because
+the container gets them from its base image instead.
 
 ```sh
-# from muk — rsync core + this repo to abra, then colcon build there (sim by default)
-bash scripts/abra_colcon.sh
-bash scripts/abra_colcon.sh --packages-select kinova_gen3_ros2      # extra args pass through
+sudo apt install -y git python3-pip python3-vcstool python3-rosdep
+sudo rosdep init                          # first time on this machine only
+rosdep update --rosdistro humble
+
+mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
+git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
+vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
+git clone --branch v1.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
+
+# pinocchio comes from pinned pip wheels, NOT ros-humble-pinocchio (see Container below)
+pip install -r src/kinova_gen3_ros2/docker/requirements.txt
+
+source /opt/ros/humble/setup.bash
+rosdep install --ignore-src -y --skip-keys pinocchio --from-paths \
+  src/kinova_gen3_ros2 src/kinova-gen3-driver src/rammp-interfaces-ros2 \
+  src/RAMMP-CuRobo/rammp_curobo_interfaces
+
+export CMAKE_PREFIX_PATH="$(python3 -m cmeel cmake):${CMAKE_PREFIX_PATH:-}"
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+source install/setup.bash
 ```
 
-Real-arm (KORTEX-linked) build — **always pass the flag explicitly**, since the
-CMake cache persists `KINOVA_ENABLE_KORTEX` across rebuilds:
+Two things are narrower than the obvious version, on purpose: `--from-paths` lists
+packages rather than `src`, and `--packages-up-to` stops at the driver. The repos file
+brings in all of RAMMP-CuRobo, and its planner package needs a GPU stack this node
+never uses.
+
+Real-arm (KORTEX-linked) build. The SDK is linked statically, so it must be on disk at
+build time; Kinova publishes it without credentials. **Always pass the flag
+explicitly**, since the CMake cache persists `KINOVA_ENABLE_KORTEX` across rebuilds:
 
 ```sh
-bash scripts/abra_colcon.sh --cmake-args \
-  -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64
+# aarch64: linux_aarch64_gcc_7.4.zip   x86-64: linux_x86-64_gcc_5.4.zip
+curl -fsSL -o /tmp/kortex.zip \
+  https://artifactory.kinovaapps.com/artifactory/generic-public/kortex/API/2.8.0/linux_x86-64_gcc_5.4.zip
+mkdir -p ~/kortex_api && unzip -q /tmp/kortex.zip -d ~/kortex_api
+
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR="$HOME/kortex_api"
 # and back to sim-only when done on the arm:
-bash scripts/abra_colcon.sh --cmake-args -DKINOVA_ENABLE_KORTEX=OFF
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args -DKINOVA_ENABLE_KORTEX=OFF
 ```
 
 Sanity check for which mode got built: the KORTEX binary is ~9.7 MB (vs ~1.5 MB
@@ -463,7 +487,7 @@ make real IP=192.168.1.10  # KORTEX-enabled build, then run against the arm
 Three things about this image are load-bearing:
 
 - **pinocchio is pinned to `pip install pin==3.9.0`**, matching the version
-  validated on the Jetson, and lands at the same cmeel prefix the bare-metal
+  validated on the Jetson, and lands at the same cmeel prefix the native
   build uses. It is deliberately *not* `ros-humble-pinocchio`, which is 4.0.0 on
   Humble arm64 — a major version ahead of what the core is validated against.
   That is also why `rosdep install` runs with `--skip-keys pinocchio`: the core's
@@ -493,17 +517,19 @@ boundary, and `--cap-add SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1` so
 is not needed. Verify the RT part with `chrt -p 1` inside the container — it
 should report `SCHED_FIFO` priority 80.
 
-**Core pinning is a node argument, not a Docker flag.** abra boots
-`isolcpus=11 nohz_full=11 rcu_nocbs=11` and the core driver's `scripts/rt_setup.sh`
-defaults `RT_CORE=11`. `isolcpus` removes that core from the scheduler's load
-balancing, so a thread reaches it *only* via explicit affinity — and `enable_rt()`
-guards its `sched_setaffinity` on `cpu >= 0`, which `--cpu` is the only way to set.
-Omit `--cpu` and the 1 kHz loop runs on the general cores forever, even though
-`chrt` still cheerfully reports `SCHED_FIFO`/80. The Makefile passes
-`--cpu $(RT_CORE)` (default 11) on every run target. Verify with:
+**Core pinning is a node argument, not a Docker flag.** For real-time, boot the host
+with one core isolated, e.g. `isolcpus=11 nohz_full=11 rcu_nocbs=11` (the core
+driver's `scripts/rt_setup.sh` defaults `RT_CORE=11`). `isolcpus` removes that core
+from the scheduler's load balancing, so a thread reaches it *only* via explicit
+affinity — and `enable_rt()` guards its `sched_setaffinity` on `cpu >= 0`, which
+`--cpu` is the only way to set. Omit `--cpu` and the 1 kHz loop runs on the general
+cores forever, even though `chrt` still cheerfully reports `SCHED_FIFO`/80. The
+Makefile passes `--cpu $(RT_CORE)` (default 11) on every run target; set `RT_CORE`
+to your isolated core, or `RT_CORE=-1` to skip pinning on a machine without one.
+Verify with:
 
 ```sh
-docker exec <container> taskset -pc 1     # expect "current affinity list: 11"
+docker exec <container> taskset -pc 1     # expect "current affinity list: <RT_CORE>"
 ```
 
 Do **not** use Docker's `--cpuset-cpus` for this. That confines the entire
@@ -514,20 +540,21 @@ after `bringup_node` has already spawned the non-RT threads.
 
 ## Run
 
-Sim, on abra:
+Sim, from the workspace built above:
 
 ```sh
-source /opt/ros/humble/setup.bash
-source /tmp/kinova-ros2-ws/install/setup.bash
-cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver          # for models/
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf
-# expect: "kinova_gen3_node up (sim); action: /execute_joint_trajectory"
+cd ~/ros2_ws
+source install/setup.bash
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true
+# or just the node, without TF:
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+# expect: "kinova_gen3_node up (sim); ..."
 ```
 
-Real arm (attended only — follow `docs/on-robot-runbook.md`):
+Real arm (attended only — follow `docs/on-robot-runbook.md`; needs the KORTEX build):
 
 ```sh
-ros2 run kinova_gen3_ros2 kinova_gen3_node --ip 192.168.1.10 --urdf models/gen3_7dof_2f85.urdf
+ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10
 ```
 
 Send a goal with the test client. It **seeds waypoint 0 from the live measured
@@ -536,7 +563,7 @@ deltas — so on a real arm at any pose it commands a small *local* move, never 
 jump to zero:
 
 ```sh
-python3 <ws>/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+python3 ~/ros2_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
   --joint 6 --mode position --delta 0.10 --dur 1.2 --path-tol 0.2 --expect 0
 
 # coordinated multi-joint: comma-lists, one delta per joint
@@ -549,25 +576,39 @@ length), `--mode position|impedance`, `--dur` seconds, `--path-tol` (`<0`
 disables), `--expect <error_code>` (required; the process exits non-zero if the
 result code doesn't match, which is what makes it usable as a test).
 
-Killing the node: `ros2 run` forks the real binary as a child of a Python
-wrapper, so killing the wrapper's PID orphans the RT node. Reap the wrapper, then
-`pkill -TERM -f .../kinova_gen3_node` — see `scripts/abra_e2e_sim.sh`.
+Killing the node: Ctrl-C in its terminal is a clean stop. If you background it from
+a script, note that `ros2 run` forks the real binary as a child of a Python wrapper,
+so killing the wrapper's PID orphans the RT node — follow up with
+`pkill -TERM -f lib/kinova_gen3_ros2/kinova_gen3_node`.
 
 ## Test
 
-Unit (`colcon test`): `message_mapping_test` covers goal→`TrajectoryGoal`
-mapping for position and impedance modes, tolerance mapping (empty ⇒ disabled),
-the short/long `positions` safety net (zero-fill / take-first-seven), and result
-mapping.
-
-Sim end-to-end — run **on abra**, launches the node, sends two goals, asserts
-both, and cleans up:
+Unit and integration tests, no robot:
 
 ```sh
-bash scripts/abra_e2e_sim.sh
-# success case: small position-mode move          -> error_code 0
-# divergence case: big move, tight path tolerance -> error_code -4 (PATH_TOLERANCE_VIOLATED)
+cd ~/ros2_ws
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args -DBUILD_TESTING=ON
+colcon test --packages-select kinova_gen3_ros2 kinova_gen3_description
+colcon test-result --verbose
 ```
+
+Sim end-to-end — start the node in sim in one terminal, then send two goals from
+another and check both result codes:
+
+```sh
+# terminal 1
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+
+# terminal 2
+source ~/ros2_ws/install/setup.bash
+python3 src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+  --mode position --delta 0.05 --dur 0.4 --expect 0     # small move -> error_code 0
+python3 src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+  --delta 0.5 --dur 2.0 --path-tol 0.2 --expect -4      # tight tolerance -> -4 (PATH_TOLERANCE_VIOLATED)
+```
+
+Each command exits non-zero if the result code does not match. `make e2e` runs the
+same two goals against the container.
 
 This exercises the whole pipe: client → action server → `CommandSink` →
 Supervisor → sampler → `SimTransport` → driven ports → result.

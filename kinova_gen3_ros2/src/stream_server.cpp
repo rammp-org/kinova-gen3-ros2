@@ -36,8 +36,8 @@ kinova::Vector6 to_vector6(const geometry_msgs::msg::Twist &t) {
 }
 // Compare the PAYLOAD only -- the header stamp changes every poll, so including
 // it would make "on change" mean "at 10 Hz forever".
-bool same(const kinova_gen3_interfaces::msg::StreamStatus &a,
-          const kinova_gen3_interfaces::msg::StreamStatus &b) {
+bool same(const rammp_arm_interfaces::msg::StreamStatus &a,
+          const rammp_arm_interfaces::msg::StreamStatus &b) {
   return a.open == b.open && a.controller == b.controller &&
          a.channels == b.channels && a.timeout_s == b.timeout_s &&
          a.rejected_count == b.rejected_count;
@@ -85,6 +85,11 @@ const std::vector<StreamServer::ControllerRow> &StreamServer::registry() {
        SetpointKind::kEeTwist,
        ControlModeKind::kVelocity},
       {"cartesian_impedance",
+       // "wrench" names a channel with NO topic: rammp_arm_interfaces v1.0.0
+       // ships no WrenchSetpoint, because no controller consumes one. The
+       // channel stays listed because it is WHY this controller is
+       // unavailable -- core has no kEeWrench. Both arrive together or not
+       // at all.
        {"pose", "wrench"},
        false,
        SetpointKind::kEePose,
@@ -147,9 +152,6 @@ StreamServer::StreamServer(rclcpp::Node::SharedPtr node, StreamSink &sink)
   twist_sub_ = node_->create_subscription<TwistSetpointMsg>(
       "/setpoint/twist", sp_qos, std::bind(&StreamServer::on_twist, this, _1),
       sp_opts);
-  wrench_sub_ = node_->create_subscription<WrenchSetpointMsg>(
-      "/setpoint/wrench", sp_qos, std::bind(&StreamServer::on_wrench, this, _1),
-      sp_opts);
 
   status_timer_ = node_->create_wall_timer(
       std::chrono::milliseconds(100), [this] { publish_status_if_changed(); });
@@ -159,7 +161,7 @@ StreamServer::StreamServer(rclcpp::Node::SharedPtr node, StreamSink &sink)
 void StreamServer::on_list(const std::shared_ptr<ListControllers::Request>,
                            std::shared_ptr<ListControllers::Response> resp) {
   for (const auto &r : registry()) {
-    kinova_gen3_interfaces::msg::ControllerCapability c;
+    rammp_arm_interfaces::msg::ControllerCapability c;
     c.name = r.name;
     c.channels = r.channels;
     c.available = available(r);
@@ -258,15 +260,6 @@ void StreamServer::on_twist(const TwistSetpointMsg::SharedPtr m) {
   s.twist = to_vector6(m->twist);
   s.token = m->token;
   sink_.on_setpoint_twist(s);
-}
-void StreamServer::on_wrench(const WrenchSetpointMsg::SharedPtr) {
-  // Core has no SetpointKind::kEeWrench and no on_setpoint_wrench, so there is
-  // nothing to delegate to. Throttled because a client streaming wrench will
-  // send at rate.
-  RCLCPP_WARN_THROTTLE(
-      node_->get_logger(), *node_->get_clock(), 5000,
-      "/setpoint/wrench: no controller in this driver version consumes "
-      "wrench setpoints; dropping");
 }
 
 void StreamServer::publish_status_if_changed() {

@@ -4,18 +4,19 @@
 driver's Plan-1 on-robot step: small / slow / distal, e-stop in hand.
 
 Prereqs: arm powered, homed to a safe pose, workspace clear, e-stop within reach,
-arm IP reachable (`ping 192.168.1.10`). Build + run happen on abra (aarch64).
+arm IP reachable (`ping 192.168.1.10`). Build + run happen in the `~/ros2_ws`
+colcon workspace from the README's Build section, on the machine wired to the arm.
 
 ## 1. Build the KORTEX-enabled workspace (explicit flag)
 
 The CMake cache persists `KINOVA_ENABLE_KORTEX` across colcon rebuilds, so ALWAYS
 pass the flag explicitly — never rely on a bare `colcon build` to be in the mode
-you expect.
+you expect. `~/kortex_api` is the unzipped KORTEX SDK (download link in the README).
 
 ```sh
-# from muk:
-bash scripts/abra_colcon.sh --cmake-args \
-  -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64
+cd ~/ros2_ws
+colcon build --packages-up-to kinova_gen3_ros2 --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR="$HOME/kortex_api"
 ```
 
 Confirm the node linked KORTEX (not the sim binary): the `kinova_gen3_node` binary
@@ -23,7 +24,7 @@ is ~9.7MB (vs ~1.5MB sim) and `strings` on it shows `KortexTransport::connect`.
 
 **When done on the arm, rebuild sim-only explicitly** so the installed workspace
 isn't left KORTEX-linked:
-`bash scripts/abra_colcon.sh --cmake-args -DKINOVA_ENABLE_KORTEX=OFF`
+`colcon build --packages-up-to kinova_gen3_ros2 --cmake-args -DKINOVA_ENABLE_KORTEX=OFF`
 
 ## 2. Dry-run / read-only (no motion) — and confirm measured pose
 
@@ -32,13 +33,13 @@ the action, and — critically — that `/joint_states` reports the arm's REAL c
 pose (the client seeds the trajectory from this, so it must be correct).
 
 ```sh
-# on abra (terminal A):
-source /opt/ros/humble/setup.bash && source /tmp/kinova-ros2-ws/install/setup.bash
-cd /tmp/kinova-ros2-ws/src/kinova-gen3-driver
-ros2 run kinova_gen3_ros2 kinova_gen3_node --ip 192.168.1.10 --urdf models/gen3_7dof_2f85.urdf
+# terminal A:
+cd ~/ros2_ws && source install/setup.bash
+ros2 run kinova_gen3_ros2 kinova_gen3_node --ip 192.168.1.10 \
+  --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 # expect: "kinova_gen3_node up (real); action: /execute_joint_trajectory"
 
-# on abra (terminal B) — note: /joint_states is best-effort QoS:
+# terminal B (source ~/ros2_ws/install/setup.bash first) — note: /joint_states is best-effort QoS:
 ros2 action list                                             # expect /execute_joint_trajectory
 ros2 topic echo --once --qos-reliability best_effort /joint_states   # expect the arm's REAL joint angles
 ```
@@ -57,7 +58,7 @@ conservative goal from terminal B: joint 6 (most distal), 0.10 rad (~5.7°), 1.2
 position mode, live path tolerance 0.2:
 
 ```sh
-python3 /tmp/kinova-ros2-ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
+python3 ~/ros2_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py \
   --joint 6 --mode position --delta 0.10 --dur 1.2 --path-tol 0.2 --expect 0
 ```
 
@@ -96,7 +97,7 @@ drain. Stop on anything unexpected — e-stop, then investigate.
 - **2026-09-01 (attended, e-stop):** First **containerized** real-arm run, and the first time
   the conformance suite pointed at hardware rather than sim. Image built with
   `make build-real CORE_REF=integration/velocity-and-stream-status` (core `6c741d0`) — the
-  container path was chosen deliberately over `scripts/abra_colcon.sh`, because the local core
+  container path was chosen deliberately over a native workspace build, because the local core
   working tree sits on the unpushed `feat/gripper-tier-spec`, which is ahead of anything the
   ROS surface can build against. Node run with `arbitration_mode:=enforced`.
   **28/28 passed, 0 failed, 0 skipped.** No faults, dropped samples, or major page faults in the

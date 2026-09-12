@@ -16,7 +16,7 @@ Two of these have never been exercised end to end and are the reason this file e
 import time
 
 from builtin_interfaces.msg import Duration as DurationMsg
-from kinova_gen3_interfaces.action import ExecuteJointTrajectory
+from rammp_arm_interfaces.action import ExecuteJointTrajectory
 from rclpy.action import ActionClient
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 

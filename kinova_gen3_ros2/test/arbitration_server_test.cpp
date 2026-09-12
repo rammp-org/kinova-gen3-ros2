@@ -78,9 +78,9 @@ protected:
   // handle it.
   void publish_estop(bool engaged, const rclcpp::Time &stamp,
                      const std::string &src) {
-    auto pub = node_->create_publisher<kinova_gen3_interfaces::msg::EStop>(
+    auto pub = node_->create_publisher<rammp_common_interfaces::msg::EStop>(
         "/estop", rclcpp::QoS(10).reliable());
-    kinova_gen3_interfaces::msg::EStop m;
+    rammp_common_interfaces::msg::EStop m;
     m.header.stamp = stamp;
     m.engaged = engaged;
     m.source = src;
@@ -95,15 +95,15 @@ protected:
 
   // Collects /control_status messages. transient_local matches the publisher,
   // so a subscriber created after the fact still receives the latest state.
-  std::vector<kinova_gen3_interfaces::msg::ControlStatus>
+  std::vector<rammp_common_interfaces::msg::ControlStatus>
   collect_status(std::chrono::milliseconds dwell) {
-    std::vector<kinova_gen3_interfaces::msg::ControlStatus> got;
+    std::vector<rammp_common_interfaces::msg::ControlStatus> got;
     std::mutex gm;
     auto sub =
-        node_->create_subscription<kinova_gen3_interfaces::msg::ControlStatus>(
+        node_->create_subscription<rammp_common_interfaces::msg::ControlStatus>(
             "control_status", rclcpp::QoS(10).reliable().transient_local(),
             [&got,
-             &gm](kinova_gen3_interfaces::msg::ControlStatus::SharedPtr m) {
+             &gm](rammp_common_interfaces::msg::ControlStatus::SharedPtr m) {
               std::lock_guard<std::mutex> l(gm);
               got.push_back(*m);
             });
@@ -126,7 +126,7 @@ protected:
 // services
 
 TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
-  using Srv = kinova_gen3_interfaces::srv::AcquireControl;
+  using Srv = rammp_common_interfaces::srv::AcquireControl;
   auto req = std::make_shared<Srv::Request>();
   req->owner_id = "orchestrator";
   auto resp = call<Srv>("acquire_control", req);
@@ -138,12 +138,12 @@ TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
 }
 
 TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
 
-  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
+  using Rel = rammp_common_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0xAB);
   auto resp = call<Rel>("release_control", rreq);
@@ -156,12 +156,12 @@ TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {
 // checks against the one it minted. A stranger's token must not release someone
 // else's arm.
 TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
 
-  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
+  using Rel = rammp_common_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0x99); // not the minted one
   auto resp = call<Rel>("release_control", rreq);
@@ -172,7 +172,7 @@ TEST_F(ArbitrationServerTest, ReleaseWithWrongTokenIsRefusedAndDoesNotRevoke) {
 }
 
 TEST_F(ArbitrationServerTest, RevokeNeedsNoTokenAndAlwaysRevokes) {
-  using Srv = kinova_gen3_interfaces::srv::RevokeControl;
+  using Srv = rammp_common_interfaces::srv::RevokeControl;
   auto req = std::make_shared<Srv::Request>();
   req->reason = "client hung";
   auto resp = call<Srv>("revoke_control", req);
@@ -230,13 +230,13 @@ TEST_F(ArbitrationServerTest, UnstampedEstopClearIsAccepted) {
 // Engaging the e-stop clears ownership inside the Arbiter, so the token we
 // retained is dead and a later release must not be honoured.
 TEST_F(ArbitrationServerTest, EstopForgetsTheRetainedToken) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
   publish_estop(true, node_->now(), "operator");
 
-  using Rel = kinova_gen3_interfaces::srv::ReleaseControl;
+  using Rel = rammp_common_interfaces::srv::ReleaseControl;
   auto rreq = std::make_shared<Rel::Request>();
   rreq->token = mktoken(0xAB);
   auto resp = call<Rel>("release_control", rreq);
@@ -256,7 +256,7 @@ TEST_F(ArbitrationServerTest, StatusIsNotRepublishedWhileUnchanged) {
 }
 
 TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
@@ -271,7 +271,7 @@ TEST_F(ArbitrationServerTest, StatusPublishesOnOwnershipChange) {
 // -- this is what /control_status being latched buys, and what lets a
 // reconnecting client discover it was dispossessed.
 TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
   auto areq = std::make_shared<Acq::Request>();
   areq->owner_id = "orchestrator";
   ASSERT_NE(call<Acq>("acquire_control", areq), nullptr);
@@ -285,7 +285,7 @@ TEST_F(ArbitrationServerTest, LateSubscriberReceivesLatchedStatus) {
 // incumbent is dispossessed, and generation bumps. Asserted so the behaviour is
 // a decision rather than a surprise.
 TEST_F(ArbitrationServerTest, AcquireSeizesFromAnIncumbent) {
-  using Acq = kinova_gen3_interfaces::srv::AcquireControl;
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
   auto first = std::make_shared<Acq::Request>();
   first->owner_id = "teleop";
   ASSERT_NE(call<Acq>("acquire_control", first), nullptr);

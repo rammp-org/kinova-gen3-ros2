@@ -32,7 +32,7 @@ try:
     import rclpy
     from rclpy.action import ActionClient
     from rclpy.node import Node
-    from kinova_gen3_interfaces.action import GoToEEPose
+    from rammp_arm_interfaces.action import GoToEEPose
 
     _HAVE_ROS = True
 except ImportError:
@@ -184,7 +184,7 @@ def main():
 
     if not _HAVE_ROS:
         print(
-            "\n--go needs a ROS2 environment (rclpy + kinova_gen3_interfaces); none found."
+            "\n--go needs a ROS2 environment (rclpy + rammp_arm_interfaces); none found."
         )
         return 1
 

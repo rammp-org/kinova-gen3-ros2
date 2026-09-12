@@ -116,4 +116,5 @@ The planned trajectory runs at **full planner speed**, and cuRobo plans to the
 arm's real velocity limits. Read
 [`on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and keep the e-stop in hand before
 the first real-arm run of any of these actions. Real-arm runs must pin the RT
-loop to the isolated core (`--cpu 11`); `make sim` / `make real` do this.
+loop to the host's isolated core (`--cpu <n>`); `make sim` / `make real` do this
+via `RT_CORE` (default 11).

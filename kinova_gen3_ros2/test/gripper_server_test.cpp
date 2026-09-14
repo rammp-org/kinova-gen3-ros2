@@ -5,8 +5,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_gen3_ros2/gripper_server.h"
 #include "kinova_gen3_ros2/ros2_backend.h"
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -36,11 +36,11 @@ TEST_F(GripperServerTest, ASetpointReachesTheSinkWithAllThreeFields) {
   kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
 
   auto pub =
-      node_->create_publisher<kinova_gen3_interfaces::msg::GripperSetpoint>(
+      node_->create_publisher<rammp_arm_interfaces::msg::GripperSetpoint>(
           "/setpoint/gripper", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort());
   spin_for(200ms); // let discovery settle
 
-  kinova_gen3_interfaces::msg::GripperSetpoint m;
+  rammp_arm_interfaces::msg::GripperSetpoint m;
   m.position = 0.6f;
   m.speed = 0.4f;
   m.force = 0.2f;
@@ -65,12 +65,12 @@ TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
   sink.state.present = true;
   kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true);
 
-  kinova_gen3_interfaces::msg::GripperState got;
+  rammp_arm_interfaces::msg::GripperState got;
   bool seen = false;
   auto sub =
-      node_->create_subscription<kinova_gen3_interfaces::msg::GripperState>(
+      node_->create_subscription<rammp_arm_interfaces::msg::GripperState>(
           "/gripper_state", rclcpp::SensorDataQoS(),
-          [&](kinova_gen3_interfaces::msg::GripperState::SharedPtr msg) {
+          [&](rammp_arm_interfaces::msg::GripperState::SharedPtr msg) {
             got = *msg;
             seen = true;
           });

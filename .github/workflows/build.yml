@@ -10,7 +10,20 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+# arm64 only, and natively: the module builds FROM rammp-base, which publishes
+# arm64 alone. GitHub's ubuntu-22.04-arm runners are free for public repos, so
+# nothing here emulates -- a cross build under QEMU works but translates every
+# instruction of a full colcon build and costs tens of minutes.
+#
+# This was a two-architecture matrix on ros:humble, and amd64 mattered: the
+# driver reaches the arm over IP, so an x86-64 image let a laptop drive the
+# robot without a Jetson. It comes back when rammp-org/RAMMP-docker#10 publishes
+# a multi-arch base -- add the amd64 leg back to both matrices and the
+# push-by-digest plumbing below already handles the rest.
+#
+# The matrix keeps its shape for that reason: `platforms:` must agree with
+# `runner`, or the build fails outright rather than silently emulating.
 
 jobs:
   fragment:
@@ -31,30 +44,135 @@ jobs:
       - name: Validate the fragments
         run: python3 scripts/check_fragments.py rammp-alternative*.yaml
 
+  # The SIM image on both architectures: it builds, it publishes, it exits on
+  # SIGTERM. Hardware-free by design -- no runner has an arm, and the fragment
+  # declaring the real one does not change what CI can run.
+  #
+  # Both arches actually RUN here rather than merely compiling, which is the
+  # payoff of native runners: under emulation, starting the arm64 image to watch
+  # for a banner was slow enough not to be worth it.
   smoke:
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
-      # The SIM image: smoke is the hardware-free path by design, and the
-      # runner has no arm. The fragment declaring the real arm does not change
-      # what CI can run.
       - name: Build the sim image
         run: docker build -t kinova-gen3-ros2:ci .
 
       - name: Publishes, and exits on SIGTERM
         run: SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:ci
 
-  publish:
+  # The image that actually drives a robot. The sim image cannot, so without
+  # this job a change that broke only the KORTEX path would reach the arm
+  # uncaught.
+  #
+  # Kinova publishes a per-arch SDK and the Dockerfile picks by TARGETARCH:
+  # aarch64_gcc_7.4 for arm64, x86-64_gcc_5.4 for amd64. The amd64 SDK spans the
+  # gcc 5.4 -> 11 C++11 ABI change, which makes linking the part worth guarding:
+  # the binary has to carry the real KortexTransport, not the sim fallback.
+  #
+  # amd64 matters beyond coverage: the driver reaches the arm over IP, so an
+  # x86-64 KORTEX image lets a laptop drive the robot without a Jetson.
+  #
+  # No smoke test here -- compiling and LINKING is what breaks on this path, and
+  # startup is already covered by the sim smoke on both arches.
+  #
+  # On a v* tag each arch pushes BY DIGEST, untagged; kortex-manifest below is
+  # what turns those digests into a pullable tag. Branch and PR builds export
+  # nothing (type=cacheonly), so they compile without touching the registry.
+  # fragment and smoke gate it: a tag must not publish an image whose validation
+  # failed.
+  kortex:
     needs: [fragment, smoke]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # ghcr rejects an uppercase path, and the org name is mixed case.
+      - id: image
+        name: Compute lowercase image name
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr
+        if: github.ref_type == 'tag'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: build
+        name: Build the KORTEX image (native, fetches the SDK)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            KINOVA_ENABLE_KORTEX=ON
+          outputs: ${{ github.ref_type == 'tag' && format('type=image,name=ghcr.io/{0},push-by-digest=true,name-canonical=true,push=true', steps.image.outputs.name) || 'type=cacheonly' }}
+
+      # The digest is all the manifest job needs; the filename carries it, so
+      # the file itself is empty.
+      - name: Export the digest
+        if: github.ref_type == 'tag'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload the digest
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Ties the two per-arch digests into one manifest list, so a single tag serves
+  # both. `docker pull ghcr.io/rammp-org/kinova-gen3-ros2:1.0.0` then resolves to
+  # arm64 on a Jetson and amd64 on a laptop, and neither pulls the other's
+  # layers.
+  #
+  # Semver tags only: an image is a release artifact, so branch and sha tags
+  # would just accumulate. `latest` follows the newest non-prerelease tag, which
+  # is metadata-action's default and what a bare `docker pull` gets.
+  kortex-manifest:
+    if: github.ref_type == 'tag'
+    needs: [kortex]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
+
+      - id: image
+        name: Compute lowercase image name
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
         with:
@@ -62,31 +180,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: image
-        name: Compute lowercase image name
-        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
-            type=sha,format=long
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
-      # Both arches. amd64 was verified 2026-09-03: the image builds (cmeel
-      # ships manylinux_2_28_x86_64 wheels), the node starts, and conformance
-      # passes 32/32 -- the same numbers as arm64. arm64 is what the robot
-      # needs and is the QEMU-emulated long pole here either way, so amd64
-      # costs little on top.
-      #
-      # This publishes the SIM image only. The KORTEX build links a proprietary
-      # SDK and is never pushed.
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/arm64,linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      # Each uploaded digest is an EMPTY file whose NAME is the digest, so the
+      # refs come from the filenames. Built as arrays rather than one
+      # word-split string: the tags come from metadata-action and the digests
+      # from the filesystem, and neither should be at the mercy of $IFS.
+      - name: Create the manifest list and push it
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ghcr.io/${{ steps.image.outputs.name }}
+        run: |
+          refs=()
+          for d in *; do refs+=("${IMAGE}@sha256:${d}"); done
+          tags=()
+          while IFS= read -r t; do tags+=(-t "$t"); done \
+            < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+
+      # Prints the platforms the tag now resolves to, so a release that somehow
+      # published one architecture is visible in the log rather than only on
+      # the machine that later fails to pull it.
+      - name: Show what was published
+        env:
+          IMAGE: ghcr.io/${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"

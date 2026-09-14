@@ -8,7 +8,7 @@ plumbing is under test and the arm is not.
 
 import time
 
-from kinova_gen3_interfaces.msg import JointSetpoint, PoseSetpoint
+from rammp_arm_interfaces.msg import JointSetpoint, PoseSetpoint
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from harness import FAIL, PASS, REGISTRY, Result, tok

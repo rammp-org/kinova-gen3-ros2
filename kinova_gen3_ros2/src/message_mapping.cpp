@@ -127,7 +127,7 @@ double gripper_to_knuckle_rad(float normalized) {
 }
 
 kinova::interface::GripperSetpoint
-to_gripper_setpoint(const kinova_gen3_interfaces::msg::GripperSetpoint &m) {
+to_gripper_setpoint(const rammp_arm_interfaces::msg::GripperSetpoint &m) {
   kinova::interface::GripperSetpoint s;
   // No `active`: the ROS message has none, and set_target arms stamping
   // regardless. Clamping is core's job -- set_target is the ONE place the [0,1]
@@ -140,9 +140,9 @@ to_gripper_setpoint(const kinova_gen3_interfaces::msg::GripperSetpoint &m) {
   return s;
 }
 
-kinova_gen3_interfaces::msg::GripperState
+rammp_arm_interfaces::msg::GripperState
 to_gripper_state_msg(const kinova::interface::GripperState &g) {
-  kinova_gen3_interfaces::msg::GripperState m;
+  rammp_arm_interfaces::msg::GripperState m;
   // g.stamp_s is deliberately NOT used: it is QUERY time (when
   // on_query_gripper() was called), not sample time. The caller supplies the
   // stamp instead -- GripperServer publishes /gripper_state alone from its own

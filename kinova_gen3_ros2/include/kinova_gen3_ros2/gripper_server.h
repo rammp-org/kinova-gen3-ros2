@@ -3,8 +3,8 @@
 #include <memory>
 #include "rclcpp/rclcpp.hpp"
 #include "builtin_interfaces/msg/time.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
@@ -20,8 +20,8 @@ namespace kinova_gen3_ros2 {
 // physical machine one holder.
 class GripperServer {
 public:
-  using GripperSetpointMsg = kinova_gen3_interfaces::msg::GripperSetpoint;
-  using GripperStateMsg = kinova_gen3_interfaces::msg::GripperState;
+  using GripperSetpointMsg = rammp_arm_interfaces::msg::GripperSetpoint;
+  using GripperStateMsg = rammp_arm_interfaces::msg::GripperState;
 
   // expect_gripper: "expected" cannot be inferred from the node's own model --
   // it loads the FROZEN 7-DOF URDF, where the Robotiq joints are type="fixed",

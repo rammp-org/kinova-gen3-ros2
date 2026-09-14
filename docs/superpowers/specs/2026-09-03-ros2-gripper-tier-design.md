@@ -49,7 +49,7 @@ Four facts from core drive every decision below.
 ## Command path
 
 ```
-/setpoint/gripper  kinova_gen3_interfaces/GripperSetpoint   (best-effort, depth 1)
+/setpoint/gripper  rammp_arm_interfaces/GripperSetpoint   (best-effort, depth 1)
   float32   position    # 0 open .. 1 closed
   float32   speed       # fraction of max closing speed
   float32   force       # CURRENT CEILING, not a force setpoint
@@ -148,7 +148,7 @@ the mechanism this section originally planned.
 ### `/gripper_state`
 
 ```
-/gripper_state   kinova_gen3_interfaces/GripperState   (best-effort, sensor QoS)
+/gripper_state   rammp_arm_interfaces/GripperState   (best-effort, sensor QoS)
   std_msgs/Header header
   float32 position    # 0 open .. 1 closed, normalized
   float32 effort      # 0..1 fraction of kGripperMaxCurrentA (1.0 A), NOT Newtons

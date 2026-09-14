@@ -5,7 +5,7 @@
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_gen3_interfaces/action/go_to_joint_config.hpp"
+#include "rammp_arm_interfaces/action/go_to_joint_config.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_joint_config_server.h"
@@ -14,7 +14,7 @@
 #include "planned_move_test_fixture.h"
 using namespace std::chrono_literals;
 using namespace kinova::interface;
-using GoToJointConfig = kinova_gen3_interfaces::action::GoToJointConfig;
+using GoToJointConfig = rammp_arm_interfaces::action::GoToJointConfig;
 
 namespace {
 const std::array<double, 7> kTarget = {0.0, 0.262, 3.142, -2.269,

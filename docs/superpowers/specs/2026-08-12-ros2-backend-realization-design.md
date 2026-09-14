@@ -41,7 +41,7 @@ kinova_gen3_ros2/                       (this repo)
   kinova_gen3.repos            vcs source list: vendors kinova-gen3-driver (the core)
                               into the colcon workspace src/. Pinned to the core
                               branch until Plan 2 merges (then main).
-  kinova_gen3_interfaces/      ament_cmake — interface definitions ONLY
+  rammp_arm_interfaces/      ament_cmake — interface definitions ONLY
     package.xml               <build_type>ament_cmake</build_type>; member_of_group
                               rosidl_interface_packages; depends trajectory_msgs,
                               control_msgs, builtin_interfaces, action_msgs, std_msgs
@@ -49,7 +49,7 @@ kinova_gen3_ros2/                       (this repo)
     action/ExecuteJointTrajectory.action
     msg/JointImpedanceGains.msg
   kinova_gen3_ros2/            ament_cmake — the backend + bring-up node
-    package.xml               depends rclcpp, rclcpp_action, kinova_gen3_interfaces,
+    package.xml               depends rclcpp, rclcpp_action, rammp_arm_interfaces,
                               kinova_lowlevel, sensor_msgs (stream is later; dep is fine)
     CMakeLists.txt            find_package(kinova_lowlevel CONFIG REQUIRED) + rclcpp*
     include/kinova_gen3_ros2/ros2_backend.h
@@ -118,15 +118,15 @@ Supervisor's existing lock-free seams. Nothing new runs on the RT thread.
 
 ## The combined KORTEX+ROS2 build (the one genuinely new build wrinkle)
 
-Everything builds **and runs on abra** (aarch64), so absolute paths baked into
+Everything builds **and runs on the same host**, so absolute paths baked into
 the core's exported target are valid — no cross-machine relocation problem.
 
 - **Sim build:** `colcon build` — core built without the KORTEX flag; the node
   links `SimTransport`. This is the CI/default path and Milestone A.
-- **Real-arm build:** `colcon build --cmake-args -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=/home/abra/kortex_api_2.8.0_aarch64` — colcon passes these to
+- **Real-arm build:** `colcon build --cmake-args -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR=<path-to-kortex-sdk>` — colcon passes these to
   the core's cmake package, so `KortexTransport` is compiled and the static core
   carries the KORTEX link requirement transitively into the node. Because the
-  build+run host is abra, the KORTEX absolute path in the exported target resolves
+  build and run host are the same, the KORTEX absolute path in the exported target resolves
   correctly. RT privileges (SCHED_FIFO etc.) come from the core's `rt_system` at
   node startup, exactly as `trajectory_run` does.
 
@@ -139,7 +139,7 @@ the core's exported target are valid — no cross-machine relocation problem.
   `PATH_TOLERANCE_VIOLATED`. This validates the whole pipe:
   client → action server → CommandSink → Supervisor → sampler → SimTransport →
   driven ports → result.
-- **B — combined KORTEX+ROS2 build** green on abra (`--cmake-args` KORTEX path).
+- **B — combined KORTEX+ROS2 build** green (`--cmake-args` KORTEX path).
 - **C — attended real-arm run:** bring-up node against `KortexTransport`; the user
   sends a small / slow / single-joint trajectory from the Python client, e-stop in
   hand (same posture and safeguards as the Plan 1 on-robot step — mode leash, slow
@@ -151,7 +151,7 @@ the core's exported target are valid — no cross-machine relocation problem.
   and the messages are importable from `rclpy`/`rclcpp`.
 - **Sim integration** (A): the Python action client is the test harness; it
   asserts feedback arrival, `fraction_complete` progression, and terminal result
-  codes for both the success and forced-divergence cases. Runs headless on abra.
+  codes for both the success and forced-divergence cases. Runs headless.
 - **RT-safety:** the core's `RtSafety` supervisor-in-the-loop gate already covers
   the sampler+pump against `SimTransport`; the node adds only non-RT rclcpp work,
   so no new RT gate is required for the sim path. The real-arm run (C) reports

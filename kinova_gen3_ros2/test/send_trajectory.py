@@ -11,7 +11,7 @@ from builtin_interfaces.msg import Duration
 from control_msgs.msg import JointTolerance
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectoryPoint
-from kinova_gen3_interfaces.action import ExecuteJointTrajectory
+from rammp_arm_interfaces.action import ExecuteJointTrajectory
 
 
 class C(Node):

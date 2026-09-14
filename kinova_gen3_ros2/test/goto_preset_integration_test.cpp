@@ -4,7 +4,7 @@
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "kinova_gen3_interfaces/action/go_to_preset.hpp"
+#include "rammp_arm_interfaces/action/go_to_preset.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_preset_server.h"
@@ -13,7 +13,7 @@
 #include "planned_move_test_fixture.h"
 using namespace std::chrono_literals;
 using namespace kinova::interface;
-using GoToPreset = kinova_gen3_interfaces::action::GoToPreset;
+using GoToPreset = rammp_arm_interfaces::action::GoToPreset;
 
 namespace {
 kinova_gen3_ros2::GoToPresetServer::Registry test_registry() {

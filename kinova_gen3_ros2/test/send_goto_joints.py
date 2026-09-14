@@ -19,7 +19,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 
-from kinova_gen3_interfaces.action import GoToJointConfig, GoToPreset
+from rammp_arm_interfaces.action import GoToJointConfig, GoToPreset
 
 RESULT_CODES = {
     0: "SUCCESSFUL",

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "kinova_gen3_ros2/message_mapping.h"
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 using namespace kinova_gen3_ros2;
 using kinova::interface::ControlModeKind;
 using kinova::interface::Preemption;
@@ -16,7 +16,7 @@ static trajectory_msgs::msg::JointTrajectoryPoint pt(double v, double t) {
 }
 
 TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {pt(0.0, 0.0), pt(0.5, 2.0)};
   g.control_mode = 0; // POSITION
   g.preemption = 1;   // LATEST_WINS
@@ -32,7 +32,7 @@ TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
 }
 
 TEST(MessageMapping, GoalImpedanceGainsAndPathTol) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {pt(0.0, 0.0), pt(0.1, 1.0)};
   g.control_mode = 1; // IMPEDANCE
   for (int i = 0; i < 7; ++i)
@@ -51,7 +51,7 @@ TEST(MessageMapping, GoalImpedanceGainsAndPathTol) {
 }
 
 TEST(MessageMapping, GoalWithFewerThanSevenPositionsZeroFillsRemainder) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   trajectory_msgs::msg::JointTrajectoryPoint p;
   p.positions = {0.1, 0.2, 0.3, 0.4, 0.5}; // 5 < 7
   p.time_from_start.sec = 1;
@@ -69,7 +69,7 @@ TEST(MessageMapping, GoalWithFewerThanSevenPositionsZeroFillsRemainder) {
 }
 
 TEST(MessageMapping, GoalWithMoreThanSevenPositionsTakesFirstSeven) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   trajectory_msgs::msg::JointTrajectoryPoint p;
   p.positions = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0}; // 9 > 7
   p.time_from_start.sec = 1;
@@ -194,7 +194,7 @@ TEST(MessageMapping, PartialOrMissizedProfileIsTreatedAsAbsent) {
 }
 
 TEST(MessageMapping, ExecuteJointTrajectoryGoalAlsoCarriesTheProfile) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {prof_pt(0.0, 0.0, 7, 7), prof_pt(0.5, 2.0, 7, 7)};
   g.control_mode = 0;
   auto tg = to_trajectory_goal(g);
@@ -206,7 +206,7 @@ TEST(MessageMapping, ExecuteJointTrajectoryGoalAlsoCarriesTheProfile) {
 // The token must survive the mapping, or every goal arrives at the Arbiter
 // unauthenticated and is refused under kEnforced.
 TEST(MessageMapping, CarriesTheArbitrationToken) {
-  kinova_gen3_interfaces::action::ExecuteJointTrajectory::Goal g;
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {pt(0.0, 0.0)};
   g.token.fill(0);
   g.token[0] = 0xAB;
@@ -226,7 +226,7 @@ TEST(GripperMapping, NormalizedMapsOntoTheKnuckleLimits) {
 // leave it alone rather than inventing a value -- set_target discards it either
 // way, but a caller reading the struct should not see a fabricated flag.
 TEST(GripperMapping, SetpointCarriesAllThreeFieldsAndTheToken) {
-  kinova_gen3_interfaces::msg::GripperSetpoint m;
+  rammp_arm_interfaces::msg::GripperSetpoint m;
   m.position = 0.25f;
   m.speed = 0.5f;
   m.force = 0.75f;

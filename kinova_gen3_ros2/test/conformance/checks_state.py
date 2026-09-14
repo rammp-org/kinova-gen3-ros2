@@ -3,7 +3,7 @@
 import math
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
-from kinova_gen3_interfaces.msg import EeState
+from rammp_arm_interfaces.msg import EeState
 
 from harness import FAIL, PASS, REGISTRY, SENSOR_QOS, Result
 

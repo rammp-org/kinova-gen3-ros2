@@ -32,5 +32,4 @@ subscribes:
   - /setpoint/joint_torque
   - /setpoint/pose
   - /setpoint/twist
-  - /setpoint/wrench
   - /setpoint/gripper

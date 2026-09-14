@@ -1,4 +1,0 @@
-uint8[16] token
----
-bool   closed
-string message

@@ -37,13 +37,17 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 ## Building and testing
 
-Builds happen on the arm64 machine, not locally. The container is the unit of work:
+Build in a standard ROS 2 Humble colcon workspace (`~/ros2_ws`), as described in the
+README's Build section, and run the tests from there:
 
 ```bash
-uv run ~/.claude/skills/hardware-loop/scripts/hil.py sync
-uv run ~/.claude/skills/hardware-loop/scripts/hil.py exec -- bash -lc \
-  'cd /home/abra/kinova_gen3_ros2 && make build'
+cd ~/ros2_ws
+colcon build --packages-up-to kinova_gen3_ros2 kinova_gen3_description --cmake-args -DBUILD_TESTING=ON
+colcon test --packages-select kinova_gen3_ros2 kinova_gen3_description && colcon test-result --verbose
 ```
+
+The deployable unit is the container. `make build` builds it; the base image is
+published for arm64 only, so run that on an arm64 host.
 
 Two gates, and the second is the one that matters:
 
@@ -53,10 +57,6 @@ Two gates, and the second is the one that matters:
   `32 passed, 0 failed, 0 skipped (mode=enforced)` is the bar.
 
 A change that moves either number has done something, whether or not it meant to.
-
-The remote `/tmp/kinova-ros2-ws` is a stale bare-metal workspace and is **not** kept
-in sync. Never verify against it; a green result from a stale install is worse than a
-red one, because nobody investigates a pass.
 
 ## The standard's gates
 

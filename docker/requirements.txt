@@ -1,5 +1,5 @@
 # The pinocchio (cmeel) stack, pinned to EXACTLY what is installed and validated
-# on the Jetson (`pip3 list` on abra). Regenerate from that host if it moves.
+# on the Jetson deployment host (`pip3 list`). Regenerate from there if it moves.
 #
 # Pinning `pin` alone is NOT enough. pin 3.9.0's deps are loose ranges, so a
 # fresh resolve pulls the newest compatible cmeel packages — but the
@@ -8,7 +8,7 @@
 # image that builds fine and then dies at startup with:
 #   error while loading shared libraries: liburdfdom_sensor.so.4.0
 #
-# numpy is deliberately NOT pinned. abra has 1.26.4, but cmeel-boost 1.89.0
+# numpy is deliberately NOT pinned. That host has 1.26.4, but cmeel-boost 1.89.0
 # declares numpy>=2.2,<2.3 — the host env predates that constraint and violates
 # it, so pip cannot legally reproduce it (ResolutionImpossible). Nothing here
 # uses the boost-python/numpy bindings: the node is C++, and the test client only

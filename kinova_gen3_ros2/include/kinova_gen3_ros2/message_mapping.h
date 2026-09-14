@@ -1,14 +1,14 @@
 #pragma once
-#include "kinova_gen3_interfaces/action/execute_joint_trajectory.hpp"
-#include "kinova_gen3_interfaces/action/go_to_ee_pose.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_setpoint.hpp"
-#include "kinova_gen3_interfaces/msg/gripper_state.hpp"
+#include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
+#include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
+#include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
+#include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "kinova_lowlevel/interface/value_types.h"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 namespace kinova_gen3_ros2 {
 using ExecuteJointTrajectory =
-    kinova_gen3_interfaces::action::ExecuteJointTrajectory;
-using GoToEEPose = kinova_gen3_interfaces::action::GoToEEPose;
+    rammp_arm_interfaces::action::ExecuteJointTrajectory;
+using GoToEEPose = rammp_arm_interfaces::action::GoToEEPose;
 kinova::interface::TrajectoryGoal
 to_trajectory_goal(const ExecuteJointTrajectory::Goal &g);
 ExecuteJointTrajectory::Feedback
@@ -33,7 +33,7 @@ inline constexpr double kKnuckleUpperRad = 0.8;
 double gripper_to_knuckle_rad(float normalized);
 
 kinova::interface::GripperSetpoint
-to_gripper_setpoint(const kinova_gen3_interfaces::msg::GripperSetpoint &m);
-kinova_gen3_interfaces::msg::GripperState
+to_gripper_setpoint(const rammp_arm_interfaces::msg::GripperSetpoint &m);
+rammp_arm_interfaces::msg::GripperState
 to_gripper_state_msg(const kinova::interface::GripperState &g);
 } // namespace kinova_gen3_ros2

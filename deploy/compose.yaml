@@ -28,11 +28,11 @@ services:
       rtprio: 99                   # measured: --privileged does NOT raise
       memlock: -1                  # RLIMIT_RTPRIO. Capabilities != rlimits.
     command:
-      - /ros2_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
+      - /module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
       - --ip
       - ${KINOVA_ARM_IP:-192.168.1.10}
       - --urdf
-      - /ros2_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+      - /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
       - --cpu
       - ${KINOVA_RT_CORE:-11}
 

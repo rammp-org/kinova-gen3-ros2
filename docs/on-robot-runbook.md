@@ -138,13 +138,17 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   length. Conclusion: the actuator's own velocity servo is not rejecting the shoulder's
   gravity load at a zero command. Not a software fault in this driver. Raised with Kinova.
 
-  Consequence for clients: **velocity mode is not a hold.** Zero velocity means "stop
-  driving", not "stay put". Do not park an arm in `joint_velocity` or `ee_twist` and stream
-  zeros. `ee_pose_position` holds; use it for hand-flying.
+  Consequence for clients at the time: velocity mode was not a hold.
 
-  Note the guide's "**Stiff by contract.** It does not yield to contact and makes no attempt
-  to" reads as a hold guarantee and should be qualified — the arm does not hold its own
-  weight at the shoulder.
+  **Resolved in core 1.1.1 (2026-09-22).** `JointVelocityMode` now integrates the
+  commanded velocity into a position reference and runs the actuators in position
+  mode, leashed to 0.1 rad of the measured position. Re-measured on this arm with
+  the node built natively on that core: 0.1 mrad of shoulder drift over 60 s of
+  streamed zeros, a stream cut mid-jog stops within the watchdog window, wrist
+  jogs track at 100% up to 1.0 rad/s, `ee_twist` hand-flying with `rammp-teleop`
+  sits still at zero twist, and the conformance suite passed 32/32 in enforced
+  mode. Details in the core's
+  [procedure page](https://github.com/rammp-org/kinova-gen3-driver/blob/v1.1.1/docs/integration/velocity_hold_check.md).
 
   **2. An external servoing-mode change kills the node.** Jogging the arm from the Kinova
   web app while the driver was connected took it out of low-level servoing; the driver's

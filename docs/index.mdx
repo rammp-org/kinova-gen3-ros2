@@ -40,10 +40,11 @@ Four control tiers, in increasing order of how directly you drive the arm:
 actions. Run the driver alone and three of the four action servers accept goals that
 can never succeed. `deploy/compose.yaml` declares both.
 
-**Velocity mode is not a hold.** Zero velocity means "stop driving", not "stay put" —
-and on this hardware the shoulder creeps under gravity at a zero command
-([#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34)). Use
-`ee_pose_position` to hold a pose.
+**A zero velocity holds** (since core 1.1.1). `joint_velocity` and `ee_twist`
+integrate the command into a position reference that the arm's position servo
+holds, so streaming zeros parks the arm; earlier cores let the shoulder creep
+under gravity ([#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34)).
+The reference may lead the measured position by at most 0.1 rad per joint.
 
 Something looks broken? **[Troubleshooting](troubleshooting)** collects the
 failures people actually hit — starting with the one where `ros2 topic echo` prints

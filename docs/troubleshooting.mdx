@@ -100,14 +100,15 @@ from "no load".
 
 ## The arm drifts on its own
 
-**Velocity mode is not a hold.** Zero velocity means "stop driving", not "stay put".
+With core **1.1.1 or later** it should not: `joint_velocity` and `ee_twist`
+integrate into a held position reference, and a streamed zero parks the arm
+(measured on the arm: 0.1 mrad of shoulder drift over 60 s).
 
-On this hardware the shoulder additionally creeps under a zero velocity command —
-about 0.038 rad/s, tracked as
-[kinova-gen3-driver#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34).
-If you park the arm in `joint_velocity` or `ee_twist` and stream zeros, it will sag.
-
-Use `ee_pose_position` to hold a pose. It commands a target and holds it.
+If the arm sags under a zero velocity command, the node is running an older
+core: before 1.1.1 the actuator's own velocity servo let the shoulder creep at
+about 0.038 rad/s
+([kinova-gen3-driver#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34)).
+Check the image tag, or the core version a native build found.
 
 ## Safety, briefly
 

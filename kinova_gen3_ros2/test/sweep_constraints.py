@@ -33,11 +33,17 @@ actually move, attended, e-stop in hand, per docs/on-robot-runbook.md. With --go
 this executes 2 goals per case, so the default 8-case matrix is 16 moves. Tune
 START/TARGET for your cell before the first --go.
 
+With --go it STEPS: before each case it prints what is about to happen and what
+you should see, and waits for Enter (or `s` to skip, `q` to stop). After the case
+it prints the outcome and, for a speed case, the measured ratio against
+baseline-full. Pass --no-pause for an unattended run.
+
 Examples:
     python3 sweep_constraints.py                  # dry run: print the matrix
     python3 sweep_constraints.py --only speed     # just the speed_scale rows
     python3 sweep_constraints.py --list           # case names, one per line
-    python3 sweep_constraints.py --go             # MOVES THE ARM (16 moves)
+    python3 sweep_constraints.py --go             # MOVES THE ARM, one Enter at a time
+    python3 sweep_constraints.py --go --no-pause  # MOVES THE ARM, no prompts
 """
 
 import argparse
@@ -62,11 +68,14 @@ TOOL_DOWN = [1.0, 0.0, 0.0, 0.0]
 START = {"name": "start", "pos": [0.45, -0.25, 0.25], "quat": list(TOOL_DOWN)}
 # The wide leg: travels in y AND z at constant x and constant orientation.
 TARGET = {"name": "target", "pos": [0.45, 0.25, 0.50], "quat": list(TOOL_DOWN)}
-# The descent leg: travels ONLY in z. An approach along z holds the other five
-# components, and this is the pose pair where that hold is actually satisfiable —
-# it is the "come down onto the object from above" move.
+# The z-only leg: travels ONLY in z (upward here, 0.25 -> 0.50). An approach
+# along z holds the other five components, and this is the pose pair where that
+# hold is actually satisfiable. NOTE it rises rather than descends; the constraint
+# maths is direction-agnostic, but if you want the realistic "come down onto the
+# object" demo, lower TARGET_Z below START instead (the table top is at z=-0.07,
+# so there is room).
 TARGET_Z = {"name": "target_z", "pos": [0.45, -0.25, 0.50], "quat": list(TOOL_DOWN)}
-_TARGETS = {"wide": TARGET, "descent": TARGET_Z}
+_TARGETS = {"wide": TARGET, "z_only": TARGET_Z}
 
 _AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 _FRAMES = {"base": 0, "goal": 1}
@@ -84,7 +93,7 @@ _CODES = {
 # group, name, target, speed_scale, locks, approach (distance, axis, fraction), expectation
 #
 # The expectation follows one rule: a held component must already match between
-# START and the target. "wide" travels in y and z; "descent" travels only in z.
+# START and the target. "wide" travels in y and z; "z_only" travels only in z.
 CASES = [
     ("speed", "baseline-full", "wide", 1.0, [], None, "move"),
     ("speed", "half", "wide", 0.5, [], None, "move"),
@@ -94,14 +103,14 @@ CASES = [
     ("lock", "lock-x-constant-axis", "wide", 1.0, ["x"], None, "move"),
     # y is travelled on this leg, so holding it cannot be satisfied from START.
     ("lock", "lock-y-travelled-axis", "wide", 1.0, ["y"], None, "refuse"),
-    # An approach holds the OTHER FIVE components. On the descent leg only z
+    # An approach holds the OTHER FIVE components. On the z-only leg only z
     # changes, so those five already match and the approach is satisfiable.
-    ("approach", "approach-z-descent", "descent", 1.0, [], (0.10, "z", 0.8), "move"),
+    ("approach", "approach-z-zonly", "z_only", 1.0, [], (0.10, "z", 0.8), "move"),
     # Same approach on the wide leg: y is held at the goal value but START's y
     # differs, so the pre-check refuses it and names the axis.
     ("approach", "approach-z-wide-leg", "wide", 1.0, [], (0.10, "z", 0.8), "refuse"),
-    # Slow descent with the approach — the pairing a real grasp actually uses.
-    ("approach", "approach-z-slow", "descent", 0.25, [], (0.10, "z", 0.8), "move"),
+    # Slow z-only move with the approach — the pairing a real grasp uses.
+    ("approach", "approach-z-slow", "z_only", 0.25, [], (0.10, "z", 0.8), "move"),
 ]
 
 
@@ -175,7 +184,7 @@ def describe(case):
 def print_matrix(cases):
     print(f"\n  START    {START['pos']}")
     print(f"  wide     {TARGET['pos']}   travels in y and z")
-    print(f"  descent  {TARGET_Z['pos']}   travels in z only")
+    print(f"  z_only   {TARGET_Z['pos']}   travels in z only")
     print("  x and tool orientation are constant everywhere\n")
     head = (
         f"  {'case':<22} {'leg':<8} {'speed':>6}  {'locks':<14} "
@@ -192,29 +201,151 @@ def print_matrix(cases):
     print()
 
 
-def print_results(rows):
-    print("\n  ==== results ====\n")
-    head = (
-        f"  {'case':<24} {'expect':<7} {'got':<18} {'wall':>7}  {'ok':<3}"
+_ROTATIONAL = {"roll", "pitch", "yaw"}
+
+
+def leg_shape(target_key):
+    """Describe the motion from the actual coordinates, not from the leg's name."""
+    tgt = _TARGETS[target_key]
+    dz = tgt["pos"][2] - START["pos"][2]
+    if target_key == "wide":
+        return "a long diagonal in y and z"
+    return f"straight {'up' if dz > 0 else 'down'} in z"
+
+
+def baseline_for(case, baselines):
+    """The full-speed reference for THIS case's leg, or None.
+
+    A wall time is only comparable against a run that differs ONLY in speed, so
+    the key is the whole configuration -- leg, locks and approach. Dividing a
+    z-only time by the wide leg's would mix a change of speed with a change of
+    distance; dividing a constrained run by an unconstrained one would mix in a
+    different path. A case with no exact counterpart gets no ratio at all.
+    """
+    ref = baselines.get(config_key(case))
+    if ref is None or ref[1] == case[3]:
+        return None
+    return ref
+
+
+def config_key(case):
+    """Everything about a case except its speed."""
+    _group, _name, target_key, _speed, locks, approach, _expect = case
+    return (target_key, tuple(locks), approach)
+
+
+def what_to_watch(case, ref):
+    """One line telling the operator what they should SEE, before it happens."""
+    _group, _name, target_key, speed, locks, approach, expect = case
+    leg = leg_shape(target_key)
+    if expect == "refuse":
+        held = "the other five pose components" if approach else ", ".join(locks)
+        return f"nothing should move — holding {held} is impossible from START"
+    if ref:
+        return f"{leg}, at {ref[1] / speed:.0f}x the wall time of the same leg at {ref[1]}"
+    if locks:
+        # A position lock and an orientation lock look completely different on
+        # the arm; telling someone to "watch it not rotate" for a held x is how
+        # you get a false confirmation.
+        if set(locks) <= _ROTATIONAL:
+            cue = "watch the tool keep its orientation"
+        elif set(locks).isdisjoint(_ROTATIONAL):
+            cue = f"watch the tool stay in the same {'/'.join(sorted(locks))} plane"
+        else:
+            cue = "watch both the orientation and the held position axis"
+        return f"{leg}, with {'+'.join(locks)} held — {cue}"
+    if approach:
+        return f"{leg}, easing into the goal over the last {round((1 - approach[2]) * 100)}%"
+    return f"{leg}, unconstrained at full speed — this is the reference time"
+
+
+def print_case_banner(i, total, case, baselines):
+    _group, name, target_key, speed, locks, approach, expect = case
+    tgt = _TARGETS[target_key]
+    ref = baseline_for(case, baselines)
+    print("\n" + "  " + "─" * 68)
+    print(f"  CASE {i}/{total}   {name}")
+    print(f"    leg        {target_key:<8} {START['pos']} -> {tgt['pos']}")
+    print(f"    speed      {speed}")
+    print(f"    locks      {'+'.join(locks) if locks else '(none)'}")
+    print(
+        f"    approach   {f'{approach[0]}m along {approach[1]} at {approach[2]}' if approach else '(none)'}"
     )
+    print(f"    expect     {expect.upper()}")
+    print(f"    watch      {what_to_watch(case, ref)}")
+    if ref:
+        print(
+            f"    predict    ~{ref[0] * ref[1] / speed:.1f}s "
+            f"(same leg at {ref[1]} took {ref[0]:.2f}s)"
+        )
+
+
+def report_case(case, code, wall, baselines):
+    """Print the comparison for ONE case, right after it runs."""
+    _group, _name, _target, speed, _locks, approach, expect = case
+    ref = baseline_for(case, baselines)
+    got = _CODES.get(code, str(code))
+    moved = code == 0
+    agreed = moved == (expect == "move")
+    verdict = "AS EXPECTED" if agreed else "*** DISAGREES WITH EXPECTATION ***"
+    print(f"\n    result     {got} in {wall:.2f}s  —  {verdict}")
+    if moved and ref:
+        ratio = wall / ref[0]
+        ideal = ref[1] / speed
+        print(
+            f"    compare    {wall:.2f}s / {ref[0]:.2f}s (same leg at {ref[1]}) "
+            f"= {ratio:.2f}x, ideal {ideal:.2f}x"
+        )
+        print(
+            "               below ideal is expected: planning and the action "
+            "round-trip are fixed cost and do not scale."
+        )
+    elif not agreed and expect == "refuse":
+        print(
+            "               it MOVED when the constraint should have been "
+            "unsatisfiable from START — the expectation may be wrong, not the driver."
+        )
+    return agreed
+
+
+def print_results(rows):
+    """rows: (name, expect, code, wall, status) where status is ran|inconclusive."""
+    print("\n  ==== results ====\n")
+    head = f"  {'case':<24} {'expect':<7} {'got':<18} {'wall':>7}  {'ok':<12}"
     print(head)
     print("  " + "-" * (len(head) - 2))
     bad = 0
-    for name, expect, code, wall in rows:
+    incon = 0
+    for name, expect, code, wall, status in rows:
+        if status == "inconclusive":
+            # NOT a pass and NOT a failure. The setup broke, so this case was
+            # never tested -- scoring it against the expectation would have let
+            # a broken re-home masquerade as a passing refusal.
+            incon += 1
+            print(
+                f"  {name:<24} {expect:<7} {'(re-home failed)':<18} {'--':>7}  "
+                f"{'INCONCLUSIVE':<12}"
+            )
+            continue
         got = _CODES.get(code, str(code))
-        moved = code == 0
-        agreed = moved == (expect == "move")
+        agreed = (code == 0) == (expect == "move")
         if not agreed:
             bad += 1
         print(
-            f"  {name:<24} {expect:<7} {got:<18} {wall:>6.2f}s  {'yes' if agreed else 'NO':<3}"
+            f"  {name:<24} {expect:<7} {got:<18} {wall:>6.2f}s  "
+            f"{'yes' if agreed else 'NO':<12}"
         )
     print()
+    if incon:
+        print(
+            f"  {incon} case(s) INCONCLUSIVE — the re-home failed, so they never ran.\n"
+            "  Fix the re-home before reading anything into the rest.\n"
+        )
     if bad:
         print(f"  {bad} case(s) disagreed with their expectation\n")
-    else:
+    elif not incon:
         print("  every case matched its expectation\n")
-    return bad
+    return bad, incon
 
 
 def main():
@@ -231,6 +362,11 @@ def main():
     ap.add_argument("--sender-id", default="sweep_constraints")
     ap.add_argument(
         "--go", action="store_true", help="ACTUALLY MOVE THE ARM. Without this, dry run."
+    )
+    ap.add_argument(
+        "--no-pause",
+        action="store_true",
+        help="do not wait for Enter between cases (unattended runs)",
     )
     args = ap.parse_args()
 
@@ -261,30 +397,57 @@ def main():
         rclpy.shutdown()
         return 1
 
+    # Full-speed reference per CONFIGURATION: (leg, locks, approach) ->
+    # (wall_seconds, speed). A case is only ever divided by a run that differs
+    # from it in speed alone; anything else gets no ratio rather than a
+    # misleading one.
+    baselines = {}
+
     rows = []
-    for _group, name, target_key, speed, locks, approach, expect in cases:
-        node.get_logger().info(f"=== {name} ({target_key} leg)")
-        # Re-home unconstrained and at full speed so the timed leg below always
-        # starts from the same place. A failure here invalidates the case.
-        home_code, _ = _send(
+    for i, case in enumerate(cases, 1):
+        _group, name, target_key, speed, locks, approach, expect = case
+        print_case_banner(i, len(cases), case, baselines)
+
+        if not args.no_pause:
+            try:
+                ans = input("\n    [Enter] run   [s] skip   [q] quit: ").strip().lower()
+            except EOFError:      # piped stdin: fall through and just run
+                ans = ""
+            if ans == "q":
+                print("\n  stopped at the operator's request.\n")
+                break
+            if ans == "s":
+                rows.append((name, expect, None, float("nan"), "inconclusive"))
+                print("    skipped.")
+                continue
+
+        # Re-home unconstrained and at full speed so the timed leg always starts
+        # from the same place. A failure here means the case never ran -- it is
+        # INCONCLUSIVE, never a pass, however its code happens to compare.
+        print("    re-homing...", end=" ", flush=True)
+        home_code, home_wall = _send(
             node, client, _build_goal(START, args.sender_id, frame=args.frame), quiet=True
         )
         if home_code != 0:
-            node.get_logger().error(
-                f"  could not re-home before '{name}' (code={home_code}); skipping it"
-            )
-            rows.append((name, expect, home_code, float("nan")))
+            print(f"FAILED (code={home_code}) — case NOT run, recorded INCONCLUSIVE")
+            rows.append((name, expect, home_code, float("nan"), "inconclusive"))
             continue
+        print(f"ok ({home_wall:.2f}s)")
+
+        print("    running...", end=" ", flush=True)
         goal = _build_goal(
             _TARGETS[target_key], args.sender_id, speed, locks, approach, args.frame
         )
-        code, wall = _send(node, client, goal)
-        node.get_logger().info(f"  {_CODES.get(code, code)} in {wall:.2f}s")
-        rows.append((name, expect, code, wall))
+        code, wall = _send(node, client, goal, quiet=True)
+        print("done")
+        report_case(case, code, wall, baselines)
+        if code == 0 and speed == 1.0:
+            baselines.setdefault(config_key(case), (wall, speed))
+        rows.append((name, expect, code, wall, "ran"))
 
     rclpy.shutdown()
-    bad = print_results(rows)
-    return 0 if bad == 0 else 3
+    bad, incon = print_results(rows)
+    return 0 if (bad == 0 and incon == 0) else 3
 
 
 if __name__ == "__main__":

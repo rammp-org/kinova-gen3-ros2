@@ -73,22 +73,25 @@ except ImportError:
 # cuRobo could not solve: 3 of 25 probed poses feasible, against 16 of 20 here.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 
-# A MULTI-AXIS move: x, y and z all differ, which is the only geometry where a
-# via has a bend to add (see the module docstring).
+# Sized for a DRAMATIC difference, which constrains the geometry more than it
+# first appears. The via point is NOT free: cuRobo places it at
+# B - offset * toolZ, so it always shares B's y and z and differs only along the
+# tool axis (base +X at this orientation). The only way to make the detour large
+# is to put A far off that line and make the offset long.
 #
-# B sits FURTHER FORWARD than the via point, on purpose. The via's axis is the
-# tool's Z, which points along base +X at this orientation, so the pregrasp lands
-# at B minus the offset in x. Pushing the offset out from a nearer goal put that
-# pregrasp at x ~= 0.27, outside the reachable set, and the plan failed. Moving
-# the GOAL forward instead leaves the pregrasp exactly on a pose already known
-# to plan.
-POSE_A = {"name": "A", "pos": [0.55, 0.00, 0.50], "quat": list(GRIPPER_LEVEL)}
-POSE_B = {"name": "B", "pos": [0.68, 0.20, 0.35], "quat": list(GRIPPER_LEVEL)}
+# A high and to one side, B far forward, low and to the other:
+#   direct   A -> B        ~0.50 m
+#   dog-leg  A -> via -> B ~0.70 m
+# a 40% longer path, which is the thing that should be visible from across the
+# room. Earlier attempts kept A, B and the via nearly collinear, so the "detour"
+# was a few centimetres and no amount of staring at it would have helped.
+POSE_A = {"name": "A", "pos": [0.50, -0.20, 0.55], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.65, 0.20, 0.30], "quat": list(GRIPPER_LEVEL)}
 
-# Where the approach should pass through: the old goal, confirmed feasible by
-# probe_reachable.py. The default --offset is DERIVED from it rather than typed,
-# so editing B cannot silently leave the via somewhere unreachable.
-APPROACH_VIA = [0.45, 0.20, 0.35]
+# How far back along the tool axis the approach starts. The via POSITION is
+# derived from this below rather than written down, because a hand-written via
+# can disagree with B and there is no way for cuRobo to honour it if it does.
+APPROACH_OFFSET_M = 0.22
 
 _CODES = {
     0: "SUCCESSFUL",
@@ -99,6 +102,28 @@ _CODES = {
     -8: "NOT_AUTHORIZED",
     -9: "HALTED",
 }
+
+
+def tool_axis(q_xyzw, axis=2):
+    """The tool's local axis `axis` (0=x,1=y,2=z) in the base frame."""
+    x, y, z, w = q_xyzw
+    cols = (
+        (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y)),
+        (2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x)),
+        (2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y)),
+    )
+    return cols[axis]
+
+
+def via_position(goal_pos, quat, offset):
+    """Where cuRobo's pregrasp actually sits: back along the TOOL's z axis.
+
+    Derived, never written down. The via is not a free waypoint -- it is fixed
+    by the goal, the offset and the goal's own orientation -- so a hand-written
+    coordinate can only ever agree with it by luck.
+    """
+    ax = tool_axis(quat, 2)
+    return [goal_pos[i] - offset * ax[i] for i in range(3)]
 
 
 # ---------------------------------------------------------------- measurement
@@ -258,23 +283,23 @@ def main():
     if not 0.01 <= args.speed <= 1.0:
         ap.error(f"--speed must be in [0.01, 1.0]; got {args.speed}")
     if args.offset is None:
-        # Derived, not typed: the gap between the goal and the via point.
-        args.offset = round(math.dist(POSE_B["pos"], APPROACH_VIA), 4)
+        args.offset = APPROACH_OFFSET_M
     if args.offset <= 0.0:
         ap.error("--offset must be > 0")
+    via = via_position(POSE_B["pos"], POSE_B["quat"], args.offset)
     if args.at_fraction is None:
         # Where the via really sits along A -> via -> B. Pinning the hold at 0.8
         # while the via sits at half the path told the arm to cover 20% of the
         # distance in 80% of the time and then sprint -- geometry and schedule
         # have to agree or the request is self-contradictory.
-        legs = math.dist(POSE_A["pos"], APPROACH_VIA)
+        legs = math.dist(POSE_A["pos"], via)
         args.at_fraction = round(legs / (legs + args.offset), 3)
     if not 0.0 < args.at_fraction < 1.0:
         ap.error("--at-fraction must be strictly inside (0, 1)")
     span = math.dist(POSE_A["pos"], POSE_B["pos"])
     # Compared against the DOG-LEG length, not the direct span: the whole point
     # of a forward goal is that the offset may exceed the straight-line distance.
-    dogleg = math.dist(POSE_A["pos"], APPROACH_VIA) + args.offset
+    dogleg = math.dist(POSE_A["pos"], via) + args.offset
     if args.offset >= dogleg:
         ap.error(f"--offset {args.offset} must be less than the {dogleg:.2f} m path")
 
@@ -282,9 +307,11 @@ def main():
     print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
     print(f"  a {span:.2f} m move with x, y and z all differing — the only geometry")
     print("  where a via has a bend available to add")
-    print(f"  via point  {APPROACH_VIA}   (B minus {args.offset} m along the tool Z axis)")
-    print("  that pose is itself known-feasible, which is the point of putting B")
-    print("  further forward rather than pushing the offset backward\n")
+    print(f"  via point  [{via[0]:.3f}, {via[1]:.3f}, {via[2]:.3f}]"
+          f"   (B minus {args.offset} m along the tool Z axis — derived, not chosen)")
+    print(f"  direct A -> B      {span:.2f} m")
+    print(f"  dog-leg A -> via -> B  {dogleg:.2f} m"
+          f"   ({dogleg / span - 1.0:+.0%} longer — this is what should be visible)\n")
     print(f"  run 1   direct     A -> B at speed_scale {args.speed}")
     print(
         f"  run 2   approach   A -> B at speed_scale {args.speed}, "

@@ -18,6 +18,14 @@
 > tests passed there. The code is tested, not merely untried, but it is only
 > reproducible from those branches, not from the pins.
 
+> **`approach_offset` is NOT VALIDATED — do not demonstrate or build on it.**
+> The field is plumbed end to end and reaches cuRobo (an oversized offset makes
+> a plan infeasible, which an ignored field could not do), but what it does to a
+> trajectory is not understood, and on-arm runs produced motion the operator
+> described as "very strange". Excluded from the v1.2 demo by decision, not by
+> omission. `speed_scale` and `axis_lock` are unaffected and both behave as
+> documented. See kinova-gen3-ros2 #40 for everything measured.
+
 ### Added
 
 - `GoToEEPose` accepts `axis_lock` (a `ToolAxisLock`), `approach_offset` (an

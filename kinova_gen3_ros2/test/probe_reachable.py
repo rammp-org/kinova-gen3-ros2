@@ -170,16 +170,35 @@ def main():
         rclpy.shutdown()
 
     print(f"\n  {len(ok_list)}/{len(poses)} feasible.")
-    if ok_list:
-        zs = sorted({p[2] for p in ok_list})
-        print(f"  feasible z values at x={args.x[0]}: {zs}")
-        if len(zs) >= 2:
-            print(f"  a usable descent pair: A z={zs[-1]}  ->  B z={zs[0]}"
-                  f"  ({zs[-1] - zs[0]:.2f} m)")
-    else:
+    if not ok_list:
         print("  none — try a different --quat, or pull --x in toward the base.")
+        print()
+        return 3
+
+    # Grouped by COLUMN. Reporting a bare list of feasible z values across
+    # different x was worse than useless: it once printed "feasible z values at
+    # x=0.25" when x=0.25 had no feasible pose at all, and proposed a descent
+    # pair whose ends were at different x.
+    columns = {}
+    for x, y, z in ok_list:
+        columns.setdefault((x, y), []).append(z)
+    best = None
+    for (x, y), zs in sorted(columns.items()):
+        zs = sorted(zs)
+        print(f"  x={x:.3f} y={y:.3f}:  feasible z {zs}")
+        if len(zs) >= 2 and (best is None or zs[-1] - zs[0] > best[2]):
+            best = (x, y, zs[-1] - zs[0], zs[-1], zs[0])
+    if best:
+        x, y, drop, hi, lo = best
+        print(
+            f"\n  widest descent in one column: x={x:.3f} y={y:.3f}, "
+            f"A z={hi} -> B z={lo}  ({drop:.2f} m)"
+        )
+    else:
+        print("\n  no column has two feasible heights, so there is no descent")
+        print("  pair at this orientation — a carry needs two poses, not one.")
     print()
-    return 0 if ok_list else 3
+    return 0
 
 
 if __name__ == "__main__":

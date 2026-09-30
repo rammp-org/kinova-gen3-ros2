@@ -80,7 +80,23 @@ public:
     return last_start_joints_;
   }
 
+  // What the caller asked us to constrain the plan by. Default-constructed
+  // (no locks, zero offset) until a pose goal arrives.
+  rammp_curobo_interfaces::msg::PoseAxisLock last_axis_lock() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return last_axis_lock_;
+  }
+  rammp_curobo_interfaces::msg::ApproachVia last_approach_via() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return last_approach_via_;
+  }
+
 private:
+  void record_constraints(const PlanToPose::Goal &g) {
+    last_axis_lock_ = g.axis_lock;
+    last_approach_via_ = g.approach_via;
+  }
+  void record_constraints(const PlanToJoints::Goal &) {}
   // Shared by both tiers; only the Result type differs. PlanToJoints::Result
   // additionally carries goal_mismatch_rad, which stays at its 0.0 default -
   // the canned plan is treated as reaching the requested joints exactly.
@@ -91,6 +107,7 @@ private:
     {
       std::lock_guard<std::mutex> l(seen_m_);
       last_start_joints_ = gh->get_goal()->start_joints;
+      record_constraints(*gh->get_goal());
     }
     if (started_)
       started_->set_value();
@@ -131,5 +148,7 @@ private:
   bool bad_width_;
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
+  rammp_curobo_interfaces::msg::PoseAxisLock last_axis_lock_;
+  rammp_curobo_interfaces::msg::ApproachVia last_approach_via_;
 };
 } // namespace kinova_gen3_ros2::test

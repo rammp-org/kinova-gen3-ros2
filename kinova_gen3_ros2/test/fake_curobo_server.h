@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -48,6 +49,7 @@ public:
         node_, "/rammp_curobo/plan_to_pose",
         [this](const rclcpp_action::GoalUUID &,
                std::shared_ptr<const PlanToPose::Goal>) {
+          ++pose_goals_received_;
           return reject_ ? rclcpp_action::GoalResponse::REJECT
                          : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
         },
@@ -90,6 +92,10 @@ public:
     std::lock_guard<std::mutex> l(seen_m_);
     return last_approach_via_;
   }
+
+  // Pose goals that reached this server at all, accepted or not. Lets a test
+  // prove a plan() call was refused client-side rather than dispatched.
+  int pose_goals_received() const { return pose_goals_received_; }
 
 private:
   void record_constraints(const PlanToPose::Goal &g) {
@@ -146,6 +152,7 @@ private:
   std::shared_ptr<std::promise<void>> started_;
   bool reject_cancel_;
   bool bad_width_;
+  std::atomic<int> pose_goals_received_{0};
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
   rammp_curobo_interfaces::msg::PoseAxisLock last_axis_lock_;

@@ -257,7 +257,8 @@ TEST_F(CuroboClientTest, TranslatesTheArmLockOntoThePlannerLock) {
   lock.lock_z = true;
   lock.reference_frame = rammp_arm_interfaces::msg::ToolAxisLock::FRAME_BASE;
   const auto seen = run_plan("lock_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock, rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
+    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock,
+           rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
   });
   EXPECT_TRUE(seen.lock.lock_roll);
   EXPECT_FALSE(seen.lock.lock_pitch);
@@ -275,7 +276,8 @@ TEST_F(CuroboClientTest, TranslatesTheGoalFrame) {
   lock.lock_x = true;
   lock.reference_frame = rammp_arm_interfaces::msg::ToolAxisLock::FRAME_GOAL;
   const auto seen = run_plan("frame_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock, rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
+    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock,
+           rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
   });
   EXPECT_FALSE(seen.lock.lock_roll);
   EXPECT_TRUE(seen.lock.lock_pitch);
@@ -293,33 +295,75 @@ TEST_F(CuroboClientTest, TranslatesTheApproachOffset) {
   off.axis = rammp_arm_interfaces::msg::ApproachOffset::AXIS_Y;
   off.at_fraction = 0.7;
   const auto seen = run_plan("via_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, rammp_arm_interfaces::msg::ToolAxisLock{}, off, nullptr, done);
+    c.plan(geometry_msgs::msg::Pose{}, kStartJoints,
+           rammp_arm_interfaces::msg::ToolAxisLock{}, off, nullptr, done);
   });
   EXPECT_DOUBLE_EQ(seen.via.offset, 0.10);
   EXPECT_EQ(seen.via.axis, rammp_curobo_interfaces::msg::ApproachVia::AXIS_Y);
   EXPECT_DOUBLE_EQ(seen.via.at_fraction, 0.7);
 }
 
+namespace {
+// Plans with a malformed lock/offset against a live fake and returns the
+// outcome plus how many goals the fake received (must be zero).
+template <typename PlanFn>
+std::pair<CuroboPlanClient::Outcome, int> run_refused(const char *name,
+                                                      PlanFn call) {
+  auto node = std::make_shared<rclcpp::Node>(name);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  EXPECT_EQ(f.wait_for(5s), std::future_status::ready);
+  // Give a wrongly dispatched goal time to reach the server.
+  std::this_thread::sleep_for(300ms);
+  return {f.get(), fake.pose_goals_received()};
+}
+} // namespace
+
 TEST_F(CuroboClientTest, AnUnknownFrameFailsLoudInsteadOfPlanning) {
   rammp_arm_interfaces::msg::ToolAxisLock lock;
   lock.reference_frame = 9;
-  auto node = std::make_shared<rclcpp::Node>("bad_frame_test");
-  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
-  CuroboPlanClient client(node, grp);
-  std::promise<CuroboPlanClient::Outcome> p;
-  auto f = p.get_future();
-  client.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock, rammp_arm_interfaces::msg::ApproachOffset{}, nullptr,
-              [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
-  ASSERT_EQ(f.wait_for(1s), std::future_status::ready);
-  EXPECT_FALSE(f.get().ok);
+  const auto [o, received] =
+      run_refused("bad_frame_test", [&](CuroboPlanClient &c, auto done) {
+        c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock,
+               rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
+      });
+  EXPECT_FALSE(o.ok);
+  EXPECT_NE(o.message.find("9"), std::string::npos);
+  EXPECT_EQ(received, 0);
+}
+
+TEST_F(CuroboClientTest, AnUnknownAxisFailsLoudInsteadOfPlanning) {
+  rammp_arm_interfaces::msg::ApproachOffset off;
+  off.distance = 0.1;
+  off.axis = 7;
+  const auto [o, received] =
+      run_refused("bad_axis_test", [&](CuroboPlanClient &c, auto done) {
+        c.plan(geometry_msgs::msg::Pose{}, kStartJoints,
+               rammp_arm_interfaces::msg::ToolAxisLock{}, off, nullptr, done);
+      });
+  EXPECT_FALSE(o.ok);
+  EXPECT_NE(o.message.find("7"), std::string::npos);
+  EXPECT_EQ(received, 0);
 }
 
 TEST_F(CuroboClientTest, TheFourArgumentPlanSendsNothingExtra) {
-  const auto seen = run_plan("four_arg_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr, done);
-  });
+  const auto seen =
+      run_plan("four_arg_test", [&](CuroboPlanClient &c, auto done) {
+        c.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr, done);
+      });
   EXPECT_FALSE(seen.lock.lock_roll || seen.lock.lock_pitch ||
                seen.lock.lock_yaw || seen.lock.lock_x || seen.lock.lock_y ||
                seen.lock.lock_z);
   EXPECT_DOUBLE_EQ(seen.via.offset, 0.0);
+  EXPECT_EQ(seen.lock.reference_frame,
+            rammp_curobo_interfaces::msg::PoseAxisLock::FRAME_BASE);
+  EXPECT_EQ(seen.via.axis, rammp_curobo_interfaces::msg::ApproachVia::AXIS_Z);
+  EXPECT_DOUBLE_EQ(seen.via.at_fraction, 0.8);
 }

@@ -48,6 +48,11 @@ public:
   void plan(const geometry_msgs::msg::Pose &target,
             const std::vector<double> &start_joints, FeedbackCb on_fb,
             DoneCb on_done);
+  // THREADING: on_done is normally invoked from the rclcpp executor, but if
+  // the lock or approach carries an unknown frame/axis, plan() invokes on_done
+  // (ok=false) SYNCHRONOUSLY on the caller's thread and dispatches nothing.
+  // A caller must not hold a lock across plan() that on_done also takes.
+  //
   // As above, constrained by the arm's own lock and approach types. They are
   // translated into the planner's equivalents here and nowhere else, so
   // replacing cuRobo never changes what an arm client sends. A default lock

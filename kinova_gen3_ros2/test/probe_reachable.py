@@ -33,6 +33,7 @@ try:
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
     from rammp_curobo_interfaces.action import PlanToPose
+    from rammp_curobo_interfaces.msg import ApproachVia, PoseAxisLock
     from sensor_msgs.msg import JointState
 
     _HAVE_ROS = True
@@ -78,8 +79,15 @@ if _HAVE_ROS:
                 rclpy.spin_once(self, timeout_sec=0.05)
             return self.joints is not None
 
-        def feasible(self, pos, quat, timeout=20.0):
-            """(ok, message, seconds). Planning only -- the arm does not move."""
+        def feasible(self, pos, quat, timeout=20.0, approach=None, locks=()):
+            """(ok, message, seconds). Planning only -- the arm does not move.
+
+            `approach`/`locks` go straight to the PLANNER, skipping the arm node.
+            That is the point: if a via sent from here changes nothing and is
+            never refused, the planner is ignoring it; if it behaves here but not
+            through GoToEEPose, the arm node is dropping it. Same question, two
+            halves, and only a direct probe separates them.
+            """
             g = PlanToPose.Goal()
             g.target.position.x, g.target.position.y, g.target.position.z = pos
             (
@@ -91,6 +99,15 @@ if _HAVE_ROS:
             # REQUIRED -- an empty list is refused ("7 joint positions expected,
             # got 0"). Every probe plans from where the arm is right now.
             g.start_joints = list(self.joints)
+            g.axis_lock = PoseAxisLock()
+            g.axis_lock.reference_frame = PoseAxisLock.FRAME_BASE
+            for name in locks:
+                setattr(g.axis_lock, f"lock_{name}", True)
+            g.approach_via = ApproachVia()
+            if approach:
+                g.approach_via.offset = approach[0]
+                g.approach_via.axis = {"x": 0, "y": 1, "z": 2}[approach[1]]
+                g.approach_via.at_fraction = approach[2]
             t0 = time.monotonic()
             fut = self.client.send_goal_async(g)
             rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
@@ -115,6 +132,20 @@ def main():
         "--z", type=float, nargs="+", default=[0.45, 0.40, 0.35, 0.30, 0.25, 0.20]
     )
     ap.add_argument(
+        "--approach",
+        nargs=3,
+        metavar=("OFFSET", "AXIS", "AT_FRACTION"),
+        help="send an ApproachVia straight to the planner, e.g. --approach 0.1 z 0.8",
+    )
+    ap.add_argument(
+        "--lock",
+        nargs="*",
+        default=[],
+        choices=["roll", "pitch", "yaw", "x", "y", "z"],
+        metavar="AXIS",
+        help="send a PoseAxisLock straight to the planner",
+    )
+    ap.add_argument(
         "--quat",
         type=float,
         nargs=4,
@@ -125,9 +156,18 @@ def main():
     args = ap.parse_args()
 
     quat = _normalize(args.quat)
+    approach = None
+    if args.approach:
+        approach = (float(args.approach[0]), args.approach[1].lower(), float(args.approach[2]))
+        if approach[1] not in ("x", "y", "z"):
+            ap.error("--approach AXIS must be x, y or z")
     poses = [(x, y, z) for x in args.x for y in args.y for z in args.z]
     print(f"\n  probing {len(poses)} pose(s), quat xyzw = "
           f"[{', '.join(f'{c:.4f}' for c in quat)}]")
+    if approach:
+        print(f"  approach_via: {approach[0]} m along {approach[1]} at {approach[2]}")
+    if args.lock:
+        print(f"  axis_lock: {'+'.join(args.lock)} (base frame)")
     print("  PLANNING ONLY — the arm does not move.\n")
 
     if not _HAVE_ROS:
@@ -154,7 +194,7 @@ def main():
     ok_list = []
     try:
         for pos in poses:
-            ok, msg, secs = n.feasible(pos, quat)
+            ok, msg, secs = n.feasible(pos, quat, approach=approach, locks=args.lock)
             if ok:
                 ok_list.append(pos)
             short = (msg or "").strip().replace("\n", " ")

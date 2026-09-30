@@ -31,11 +31,19 @@ try:
     import rclpy
     from rclpy.action import ActionClient
     from rclpy.node import Node
+    from rclpy.qos import qos_profile_sensor_data
     from rammp_curobo_interfaces.action import PlanToPose
+    from sensor_msgs.msg import JointState
 
     _HAVE_ROS = True
 except ImportError:
     _HAVE_ROS = False
+
+# /joint_states carries EIGHT entries -- the seven arm joints plus the gripper's
+# robotiq_85_left_knuckle_joint. The planner wants exactly the seven, so they are
+# picked BY NAME rather than by slicing the first seven, which only works by
+# luck of the current publish order.
+ARM_JOINTS = [f"joint_{i}" for i in range(1, 8)]
 
 # Gripper level, approach axis horizontal facing forward (+90 deg about Y).
 GRIPPER_LEVEL = [0.0, 0.7071067811865476, 0.0, 0.7071067811865476]
@@ -54,6 +62,21 @@ if _HAVE_ROS:
         def __init__(self):
             super().__init__("probe_reachable")
             self.client = ActionClient(self, PlanToPose, "/rammp_curobo/plan_to_pose")
+            self.joints = None
+            self.create_subscription(
+                JointState, "/joint_states", self._on_js, qos_profile_sensor_data
+            )
+
+        def _on_js(self, msg):
+            by_name = dict(zip(msg.name, msg.position))
+            if all(j in by_name for j in ARM_JOINTS):
+                self.joints = [by_name[j] for j in ARM_JOINTS]
+
+        def wait_for_joints(self, timeout=5.0):
+            end = time.monotonic() + timeout
+            while time.monotonic() < end and self.joints is None:
+                rclpy.spin_once(self, timeout_sec=0.05)
+            return self.joints is not None
 
         def feasible(self, pos, quat, timeout=20.0):
             """(ok, message, seconds). Planning only -- the arm does not move."""
@@ -65,7 +88,9 @@ if _HAVE_ROS:
                 g.target.orientation.z,
                 g.target.orientation.w,
             ) = quat
-            g.start_joints = []          # empty => cuRobo reads our /joint_states
+            # REQUIRED -- an empty list is refused ("7 joint positions expected,
+            # got 0"). Every probe plans from where the arm is right now.
+            g.start_joints = list(self.joints)
             t0 = time.monotonic()
             fut = self.client.send_goal_async(g)
             rclpy.spin_until_future_complete(self, fut, timeout_sec=timeout)
@@ -116,6 +141,12 @@ def main():
         print("  and is CYCLONEDDS_URI exported in this shell?\n")
         rclpy.shutdown()
         return 1
+    if not n.wait_for_joints():
+        print("  no /joint_states — the planner needs a start state and refuses")
+        print("  an empty one. Is the arm node up?\n")
+        rclpy.shutdown()
+        return 1
+    print("  start state: " + ", ".join(f"{q:+.3f}" for q in n.joints) + "\n")
 
     head = f"  {'x':>6} {'y':>6} {'z':>6}  {'ok':<4} {'s':>5}  reason"
     print(head)

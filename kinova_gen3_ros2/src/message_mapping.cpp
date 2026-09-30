@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_gen3_ros2/joint_point.h" // shared vec_to_point
 namespace kinova_gen3_ros2 {
@@ -74,6 +75,7 @@ TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal &g) {
   tg.sender_id = g.sender_id;
   // uint8[16] generates as std::array<uint8_t,16>, which IS interface::Token.
   tg.token = g.token;
+  tg.speed_scale = g.speed_scale;
   return tg;
 }
 
@@ -96,14 +98,26 @@ ExecuteJointTrajectory::Result to_result_msg(const TrajectoryResult &r) {
 }
 
 TrajectoryGoal
-to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj) {
+to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
+                   double speed_scale) {
   TrajectoryGoal tg;
   fill_trajectory(traj.points,
                   tg.trajectory); // cuRobo emits qd/qdd — keep them
   tg.control_mode = ControlModeKind::kPosition;
   tg.preemption = Preemption::kLatestWins;
+  tg.speed_scale = speed_scale;
   // path_tolerance / sender_id are set by the caller (GoToEEPoseServer).
   return tg;
+}
+
+std::optional<std::string> speed_scale_rejection(double s) {
+  if (!std::isfinite(s)) return std::string("speed_scale must be finite");
+  // Same range the driver enforces; the floor is the driver's own constant.
+  const double lo = kinova::interface::kMinSpeedScale;
+  if (s < lo || s > 1.0)
+    return "speed_scale must be in [" + std::to_string(lo) +
+           ", 1]; got " + std::to_string(s);
+  return std::nullopt;
 }
 
 GoToEEPose::Feedback to_goto_feedback_msg(const TrajectoryFeedback &fb) {

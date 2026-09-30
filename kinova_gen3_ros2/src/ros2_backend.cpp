@@ -50,6 +50,12 @@ Ros2Backend::handle_goal(const rclcpp_action::GoalUUID &,
       return rclcpp_action::GoalResponse::REJECT;
     }
   }
+  // The driver's Supervisor refuses a bad speed_scale silently; refuse it here
+  // instead so the reason reaches the node log, as for the GoTo* actions.
+  if (auto why = speed_scale_rejection(goal->speed_scale)) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
   const GoalResponse r = sink_->on_trajectory_goal(to_trajectory_goal(*goal));
   return (r == GoalResponse::kAccept)
              ? rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE

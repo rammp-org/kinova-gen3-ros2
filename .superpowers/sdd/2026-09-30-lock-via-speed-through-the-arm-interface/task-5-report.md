@@ -10,6 +10,6 @@ Versioning comment (kinova_gen3.repos): replaced the restated (inverted) rule wi
 
 Deviations/concerns:
 - CHANGELOG.md is new, not modified.
-- Speed range stated as "driver's minimum up to 1.0" (floor is kMinSpeedScale), while the .action comment says (0, 1].
-- Interface minor bump stated as 1.2.0 per the lockvia package.xml; confirm the release number.
+- Speed range stated as "driver's minimum up to 1.0" (floor is kMinSpeedScale), while the .action comment says (0, 1]. RESOLVED: wording reconciled.
+- Interface minor bump stated as 1.2.0 per the lockvia package.xml; confirm the release number. RESOLVED: 1.2.0 confirmed.
 - Pointer comment sits above the kinova-gen3-driver entry (pre-existing placement).

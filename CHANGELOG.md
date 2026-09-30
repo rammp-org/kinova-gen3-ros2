@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+> **BLOCKER: this branch does not build from its own declared sources.**
+> It needs three dependency releases that do not exist yet. Until they are cut
+> and the pins below move, a clean `vcs import` + `docker build` of this commit
+> fails to compile `message_mapping.cpp` and `curobo_plan_client.cpp`.
+>
+> | Dependency | Pinned today | Required | Branch carrying the work |
+> |---|---|---|---|
+> | `kinova-gen3-driver` (`kinova_gen3.repos`) | `v1.1.1` (no `TrajectoryGoal::speed_scale`, no `kMinSpeedScale`) | the release containing `speed_scale` | `feature/69-trajectory-speed-scale` |
+> | `RAMMP-CuRobo` (`kinova_gen3.repos`) | `v1.0.0` (`PlanToPose.action` lacks `axis_lock`/`approach_via`) | the release containing pose constraints | `feature/16-pose-constraints-and-via-point` |
+> | `rammp-interfaces-ros2` (base image `rammp-base:1.0.0-jp6` in `Dockerfile`) | 1.1.0 | 1.2.0 | `feature/38-lock-via-speed` |
+>
+> How it *was* verified: a four-source colcon workspace (this node plus the
+> three branches above) built inside the released node image on the Jetson; the
+> tests passed there. The code is tested, not merely untried, but it is only
+> reproducible from those branches, not from the pins.
+
 ### Added
 
 - `GoToEEPose` accepts `axis_lock` (a `ToolAxisLock`), `approach_offset` (an

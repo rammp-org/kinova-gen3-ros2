@@ -31,6 +31,10 @@ repositories:
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
+    # BLOCKER (see CHANGELOG Unreleased): v1.1.1 has no TrajectoryGoal::speed_scale
+    # or kMinSpeedScale, so this branch does not compile against it. Needs the
+    # release cut from kinova-gen3-driver feature/69-trajectory-speed-scale; move
+    # this pin when it exists. Verified only via a four-source workspace.
     version: v1.1.1
   RAMMP-CuRobo:
     type: git
@@ -38,6 +42,12 @@ repositories:
     # v1.0.0 and main carry an IDENTICAL IDL -- only rammp_curobo_interfaces'
     # package.xml <version> differs between them -- so this pin buys
     # reproducibility without changing the contract this module compiles against.
+    # BLOCKER (see CHANGELOG Unreleased): v1.0.0's PlanToPose.action has no
+    # axis_lock/approach_via, so this branch does not compile against it. Needs
+    # the release cut from RAMMP-CuRobo feature/16-pose-constraints-and-via-point;
+    # move this pin when it exists. (The "identical IDL" note above no longer
+    # holds for that release.) Also needs rammp-interfaces-ros2 1.2.0
+    # (feature/38-lock-via-speed) in the rammp-base image -- see the Dockerfile.
     version: v1.0.0
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # Builds must scope colcon with --packages-up-to kinova_gen3_ros2 so the GPU

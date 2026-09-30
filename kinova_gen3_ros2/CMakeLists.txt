@@ -111,6 +111,12 @@ if(BUILD_TESTING)
   ament_target_dependencies(gripper_server_test
     rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
 
+  ament_add_gtest(ros2_backend_test test/ros2_backend_test.cpp)
+  target_include_directories(ros2_backend_test PRIVATE test)
+  target_link_libraries(ros2_backend_test ros2_backend)
+  ament_target_dependencies(ros2_backend_test
+    rclcpp rclcpp_action rammp_arm_interfaces trajectory_msgs)
+
   ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
   target_include_directories(arbitration_server_test PRIVATE test)
   target_link_libraries(arbitration_server_test arbitration_server)

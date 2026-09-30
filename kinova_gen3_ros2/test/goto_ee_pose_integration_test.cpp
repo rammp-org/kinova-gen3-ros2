@@ -534,7 +534,8 @@ TEST_F(GotoServerTest, AnApproachOffsetReachesThePlanner) {
   EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
   const auto a = r.fake.last_approach_via();
   EXPECT_DOUBLE_EQ(a.offset, 0.10);
-  EXPECT_EQ(a.axis, rammp_arm_interfaces::msg::ApproachOffset::AXIS_Z);
+  // Axis mapping is not asserted here: AXIS_Z is the default on both sides, so
+  // it could not fail. Non-default axes are covered in curobo_plan_client_test.
 }
 
 TEST_F(GotoServerTest, SpeedScaleReachesTheTrajectoryGoal) {

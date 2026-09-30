@@ -134,12 +134,14 @@ trajectory. Two things callers meet as surprises:
 The node translates the arm's lock and approach into the planner's own types
 (inside `CuroboPlanClient`), so callers never see the planner's message types.
 
-**A refused goal tells the client nothing today.** When `validate()` rejects a
-goal (bad `speed_scale`, negative approach `distance`, `at_fraction` outside
-(0, 1), and so on) the client receives a bare ROS action rejection with no
-payload; the reason is logged on the server only. Check the node log when a goal
-is rejected. Returning the reason to the client is tracked as
-`kinova-gen3-ros2#39`.
+**Two kinds of refusal.** `validate()` rejects a bad `speed_scale` or a
+contradictory lock/approach; the client receives a bare ROS action rejection
+with no payload, and the reason is logged on the server only (tracked as
+`kinova-gen3-ros2#39`). A negative approach `distance` or an `at_fraction`
+outside (0, 1) is *not* checked by `validate()`: it reaches the planner, whose
+validation refuses it, and the goal is accepted and then settles
+`PLANNING_FAILED (-7)` with the planner's reason in `error_string`. That reason
+is in the client's result; no need to check the node log.
 
 ## Safety
 

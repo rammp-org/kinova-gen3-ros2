@@ -1,34 +1,44 @@
 #!/usr/bin/env python3
-"""One scenario, run twice: descend A -> B direct, then with an approach_offset.
+"""One scenario, run twice: travel A -> B direct, then with an approach_offset.
 
 The companion to scenario_carry_level.py, for the other constraint.
 
     run 1   direct     A -> B
     run 2   approach   A -> B, easing in along base Z from `offset` metres back
 
-WHY A PURE VERTICAL DESCENT. An approach holds the five pose components other
-than its own axis (see ApproachOffset.msg), so it is only satisfiable when the
-start already matches the goal on all five -- which means the motion travels
-along the approach axis ALONE. A and B therefore differ only in z.
+WHY A MULTI-AXIS MOVE, AFTER GETTING THIS WRONG ONCE. A lock and a via do NOT
+share a rule, and conflating them made the first version of this scenario
+incapable of showing anything:
 
-WHAT THAT IMPLIES, AND WHY THIS SCRIPT MEASURES RATHER THAN CLAIMS. On a
-single-axis move the direct path is already a straight line down that axis, so
-the approach cannot change the path's SHAPE -- there is no bend left to add. If
-it does anything observable, it is to the TIMING: the goal is reached via a
-blended intermediate target `offset` metres back, engaged at `at_fraction` of
-the motion. Whether that reads as a slow creep into the goal or a fast final
-segment depends on how cuRobo blends the via cost, which has not been measured
-on hardware here. So this prints both profiles and the numbers, and does not tell
-you in advance which way it should go. Read the output, not the docstring.
+    axis lock   hold_vec_weight, active the WHOLE trajectory
+                => the start must already match the goal on every held axis
+    via         grasp_approach_metric with tstep_fraction, active only over the
+                FINAL fraction => the start does not have to match anything
+
+Measured on the arm, same start and goal: a lock on a travelled axis is refused
+(INVALID_PARTIAL_POSE_COST_METRIC in 0.02 s); an identical goal carrying a via
+plans normally. So the earlier claim here -- that an approach implies holding the
+other five and therefore needs a single-axis move -- was wrong, inherited from
+the lock's semantics and never tested.
+
+It also destroyed the demonstration. Forced onto a pure vertical descent, the via
+had nothing to do: the direct path was ALREADY a straight line down the approach
+axis, and the two runs came out 2.05 s vs 2.06 s with 19 mm vs 20 mm of drift.
+A and B now differ in x, y AND z, which is the only geometry where a via has a
+bend available to add.
+
+WHAT TO WATCH. The lateral number is now the primary signal, not a control. The
+direct run should track close to the straight A->B line; the approach run should
+leave it, coming into B along base Z over the final stretch. If both stay equally
+straight, the via is reaching cuRobo and changing nothing -- which would be the
+real finding, and is exactly what this cannot currently distinguish on a
+single-axis move.
 
 Recorded per run, from /ee_state:
   * total wall time
   * the fraction of that time spent covering the final `offset` metres
-  * the maximum lateral deviation from the straight A->B line
-
-The lateral number is a control: on a pure descent it should stay near zero for
-both runs. If the approach run bows out noticeably, the via is moving the path
-and not just the schedule -- which would be worth knowing.
+  * the maximum lateral deviation from the straight line between the run's
+    own measured endpoints
 
 SAFETY: DRY RUN by default. --go moves the arm: 4 motions (to A, run 1, back to
 A, run 2), stepping with Enter between each. Attended, e-stop in hand.
@@ -63,12 +73,11 @@ except ImportError:
 # cuRobo could not solve: 3 of 25 probed poses feasible, against 16 of 20 here.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 
-# Pure vertical descent: only z differs, which is what makes a base-Z approach
-# satisfiable at all. x and the z range are the widest single feasible column
-# probe_reachable.py found at this orientation, not a guess -- the previous
-# values were unreachable and cost three failed runs to discover.
-POSE_A = {"name": "A", "pos": [0.55, 0.0, 0.50], "quat": list(GRIPPER_LEVEL)}
-POSE_B = {"name": "B", "pos": [0.55, 0.0, 0.30], "quat": list(GRIPPER_LEVEL)}
+# A MULTI-AXIS move: x, y and z all differ, which is the only geometry where a
+# via has a bend to add (see the module docstring). Both ends were confirmed
+# feasible by probe_reachable.py at this orientation, not guessed.
+POSE_A = {"name": "A", "pos": [0.55, 0.00, 0.50], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.45, 0.20, 0.35], "quat": list(GRIPPER_LEVEL)}
 
 _CODES = {
     0: "SUCCESSFUL",
@@ -228,14 +237,14 @@ def main():
         ap.error("--offset must be > 0")
     if not 0.0 < args.at_fraction < 1.0:
         ap.error("--at-fraction must be strictly inside (0, 1)")
-    drop = POSE_A["pos"][2] - POSE_B["pos"][2]
-    if args.offset >= drop:
-        ap.error(f"--offset {args.offset} must be less than the {drop:.2f} m descent")
+    span = math.dist(POSE_A["pos"], POSE_B["pos"])
+    if args.offset >= span:
+        ap.error(f"--offset {args.offset} must be less than the {span:.2f} m move")
 
     print(f"\n  A  {POSE_A['pos']}   gripper level, facing forward")
     print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
-    print(f"  a {drop:.2f} m vertical descent — only z differs, which is what makes")
-    print("  a base-Z approach satisfiable at all\n")
+    print(f"  a {span:.2f} m move with x, y and z all differing — the only geometry")
+    print("  where a via has a bend available to add\n")
     print(f"  run 1   direct     A -> B at speed_scale {args.speed}")
     print(
         f"  run 2   approach   A -> B at speed_scale {args.speed}, "
@@ -283,7 +292,7 @@ def main():
                 return 3
             print(f"    at A ({wall:.2f}s)")
 
-            print(f"\n  ── run: {label}   descend A -> B at {args.speed}")
+            print(f"\n  ── run: {label}   travel A -> B at {args.speed}")
             if not pause(f"run {label}"):
                 break
             code, wall, samples = n.send(

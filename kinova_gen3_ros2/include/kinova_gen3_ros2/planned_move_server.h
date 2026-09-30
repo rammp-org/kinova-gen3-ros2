@@ -245,7 +245,7 @@ private:
     }
 
     kinova::interface::TrajectoryGoal tg =
-        to_trajectory_goal(outcome.trajectory);
+        to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale);
     tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
     tg.sender_id = gh->get_goal()->sender_id;
     tg.token = gh->get_goal()->token; // the plan inherits the goal's authority

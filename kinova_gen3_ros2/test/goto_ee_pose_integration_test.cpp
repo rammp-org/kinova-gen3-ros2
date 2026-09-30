@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <future>
+#include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -451,4 +453,145 @@ TEST_F(GotoServerTest, CancelDuringPlanningThenPlanSucceedsSettlesPreempted) {
 
   ex.cancel();
   spin.join();
+}
+
+namespace {
+// Everything the Task-4 tests need from one goal: the code (or 904 if the
+// server refused it), plus what reached the planner and the supervisor.
+constexpr int kRefused = 904;
+int send_goal(rclcpp::Node::SharedPtr node, const GoToEEPose::Goal &goal) {
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
+  if (!client->wait_for_action_server(5s))
+    return 999;
+  std::promise<int> code;
+  auto fut = code.get_future();
+  rclcpp_action::Client<GoToEEPose>::SendGoalOptions opts;
+  opts.result_callback =
+      [&](const rclcpp_action::ClientGoalHandle<GoToEEPose>::WrappedResult
+              &wr) {
+        code.set_value(wr.result ? wr.result->error_code : -12345);
+      };
+  auto gh = client->async_send_goal(goal, opts);
+  if (gh.wait_for(5s) != std::future_status::ready)
+    return 888;
+  if (gh.get() == nullptr)
+    return kRefused;
+  if (fut.wait_for(8s) != std::future_status::ready)
+    return 888;
+  return fut.get();
+}
+
+GoToEEPose::Goal base_goal() {
+  GoToEEPose::Goal g;
+  g.target.header.frame_id = "base_link";
+  return g;
+}
+
+// Builds the standard rig; the test body only changes the goal.
+struct Rig {
+  rclcpp::Node::SharedPtr node;
+  kinova_gen3_ros2::test::FakeCuroboServer fake;
+  rclcpp::CallbackGroup::SharedPtr grp;
+  kinova_gen3_ros2::CuroboPlanClient planner;
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router;
+  kinova_gen3_ros2::GoToEEPoseServer server;
+  FakeSupervisor sup;
+  rclcpp::executors::MultiThreadedExecutor ex;
+  std::unique_ptr<SpinThread> spin;
+  explicit Rig(const std::string &name)
+      : node(std::make_shared<rclcpp::Node>(name)), fake(node, true, 3),
+        grp(node->create_callback_group(
+            rclcpp::CallbackGroupType::Reentrant)),
+        planner(node, grp), router(dummy),
+        server(node, router, planner, grp), sup(router) {
+    server.set_command_sink(&sup);
+    ex.add_node(node);
+    spin = std::make_unique<SpinThread>(ex);
+  }
+};
+} // namespace
+
+TEST_F(GotoServerTest, ALockedGoalReachesThePlanner) {
+  Rig r("goto_it_lock");
+  auto goal = base_goal();
+  goal.axis_lock.lock_roll = true;
+  goal.axis_lock.lock_pitch = true;
+  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+  const auto l = r.fake.last_axis_lock();
+  EXPECT_TRUE(l.lock_roll);
+  EXPECT_TRUE(l.lock_pitch);
+  EXPECT_FALSE(l.lock_yaw);
+  EXPECT_FALSE(l.lock_x);
+  EXPECT_FALSE(l.lock_y);
+  EXPECT_FALSE(l.lock_z);
+}
+
+TEST_F(GotoServerTest, AnApproachOffsetReachesThePlanner) {
+  Rig r("goto_it_approach");
+  auto goal = base_goal();
+  goal.approach_offset.distance = 0.10;
+  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+  const auto a = r.fake.last_approach_via();
+  EXPECT_DOUBLE_EQ(a.offset, 0.10);
+  EXPECT_EQ(a.axis, rammp_arm_interfaces::msg::ApproachOffset::AXIS_Z);
+}
+
+TEST_F(GotoServerTest, SpeedScaleReachesTheTrajectoryGoal) {
+  Rig r("goto_it_speed");
+  auto goal = base_goal();
+  goal.speed_scale = 0.5;
+  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+  EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 0.5);
+}
+
+// The whole "nothing changed for existing clients" claim in one place: a goal
+// that sets none of the new fields plans with no lock and no offset, and runs
+// at full speed.
+TEST_F(GotoServerTest, AGoalUsingNoNewFieldsBehavesAsBefore) {
+  Rig r("goto_it_legacy");
+  EXPECT_EQ(send_goal(r.node, base_goal()), result_code::kSuccessful);
+  const auto l = r.fake.last_axis_lock();
+  EXPECT_FALSE(l.lock_roll || l.lock_pitch || l.lock_yaw || l.lock_x ||
+               l.lock_y || l.lock_z)
+      << "an unlocked goal reached the planner locked";
+  EXPECT_DOUBLE_EQ(r.fake.last_approach_via().offset, 0.0);
+  EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 1.0);
+}
+
+TEST_F(GotoServerTest, LockingTheApproachAxisIsRefused) {
+  Rig r("goto_it_contradict");
+  auto goal = base_goal();
+  goal.approach_offset.distance = 0.10;
+  goal.approach_offset.axis = rammp_arm_interfaces::msg::ApproachOffset::AXIS_Y;
+  goal.axis_lock.lock_y = true;
+  EXPECT_EQ(send_goal(r.node, goal), kRefused);
+  EXPECT_FALSE(r.sup.got_goal);
+}
+
+TEST_F(GotoServerTest, LockingAnotherAxisThanTheApproachIsAccepted) {
+  Rig r("goto_it_noncontradict");
+  auto goal = base_goal();
+  goal.approach_offset.distance = 0.10; // AXIS_Z default
+  goal.axis_lock.lock_x = true;
+  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+}
+
+// distance 0.0 means no approach is active, so its axis (default Z) must not
+// collide with a lock_z.
+TEST_F(GotoServerTest, AZeroDistanceApproachDoesNotContradictALock) {
+  Rig r("goto_it_zerodist");
+  auto goal = base_goal();
+  goal.axis_lock.lock_z = true;
+  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+}
+
+TEST_F(GotoServerTest, AnUnusableSpeedScaleIsRefused) {
+  Rig r("goto_it_badspeed");
+  for (double bad : {0.0, 1.5, std::numeric_limits<double>::quiet_NaN()}) {
+    auto goal = base_goal();
+    goal.speed_scale = bad;
+    EXPECT_EQ(send_goal(r.node, goal), kRefused) << "speed_scale " << bad;
+  }
+  EXPECT_FALSE(r.sup.got_goal);
 }

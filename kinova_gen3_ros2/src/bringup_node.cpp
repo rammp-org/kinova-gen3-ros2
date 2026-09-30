@@ -29,6 +29,7 @@
 #include "kinova_lowlevel/rt_executor.h"
 #include "kinova_lowlevel/sim_transport.h"
 #include "kinova_lowlevel/telemetry.h"
+#include "kinova_lowlevel/telemetry_consumers.h"
 #include "kinova_lowlevel/transport.h"
 #ifndef KINOVA_NO_KORTEX
 #include "kinova_lowlevel/kortex_transport.h"
@@ -79,6 +80,10 @@ int main(int argc, char **argv) {
   int cpu = -1, prio = 80;
   double rate = 1000.0;
   double max_ref_speed = 0.0; // <=0 => seed from the URDF velocity limits
+  // Per-cycle RT samples to a CSV. Empty => summary line only. The samples are
+  // measured either way; before this they were drained and discarded, which left
+  // the node unable to answer whether a stutter was ITS fault or the plan's.
+  std::string rt_csv;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
     auto nxt = [&] { return std::string(argv[++i]); };
@@ -92,6 +97,8 @@ int main(int argc, char **argv) {
       cpu = std::stoi(nxt());
     else if (a == "--ee-frame")
       ee_frame = nxt();
+    else if (a == "--rt-csv")
+      rt_csv = nxt();
     else if (a == "--rt-priority")
       prio = std::stoi(nxt());
     else if (a == "--rate")
@@ -271,15 +278,31 @@ int main(int argc, char **argv) {
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
   std::thread ros_spin([&] { ex.spin(); });
+  // Drain thread. It used to pop samples and discard them, so the node measured
+  // its own 1 kHz timing and then threw the measurement away -- the one thing
+  // you need when someone reports a stutter. All formatting and file I/O happens
+  // HERE, off the RT thread, which is the whole point of the ring.
   std::thread drain([&] {
+    TelemetrySink sink(rt_csv);
     CycleSample s;
+    auto last = std::chrono::steady_clock::now();
     while (!g_stop.load()) {
-      while (ring.pop(s)) {
+      while (ring.pop(s)) sink.consume(s);
+      const auto now = std::chrono::steady_clock::now();
+      if (now - last >= std::chrono::seconds(5)) {
+        // Percentiles are cumulative since startup, not per interval; the CSV
+        // is the one to read for a rolling view of a specific run.
+        RCLCPP_INFO(node->get_logger(), "rt: %s dropped=%llu",
+                    sink.console_line().c_str(),
+                    static_cast<unsigned long long>(ring.dropped()));
+        last = now;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    while (ring.pop(s)) {
-    }
+    while (ring.pop(s)) sink.consume(s);
+    RCLCPP_INFO(node->get_logger(), "rt final: %s dropped=%llu",
+                sink.console_line().c_str(),
+                static_cast<unsigned long long>(ring.dropped()));
   });
 
   RCLCPP_INFO(

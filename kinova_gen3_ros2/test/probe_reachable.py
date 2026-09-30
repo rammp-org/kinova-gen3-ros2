@@ -64,6 +64,7 @@ if _HAVE_ROS:
             super().__init__("probe_reachable")
             self.client = ActionClient(self, PlanToPose, "/rammp_curobo/plan_to_pose")
             self.joints = None
+            self.last_traj = None
             self.create_subscription(
                 JointState, "/joint_states", self._on_js, qos_profile_sensor_data
             )
@@ -119,7 +120,43 @@ if _HAVE_ROS:
             if not rf.done():
                 return False, "planner never answered", time.monotonic() - t0
             res = rf.result().result
+            self.last_traj = res.trajectory
             return res.success, res.message, time.monotonic() - t0
+
+
+def describe_traj(traj):
+    """Report what the driver will actually be able to do with this plan.
+
+    The interface gate is all-or-nothing: message_mapping sets has_velocities
+    only if EVERY point carries a full-width velocity vector, and without it
+    TrajectoryExecutor::sample falls back to linear interpolation between the
+    20 ms waypoints -- piecewise-constant velocity, a 50 Hz staircase.
+    """
+    pts = traj.points
+    n = len(pts)
+    if n == 0:
+        print("    trajectory: EMPTY")
+        return
+    width = len(traj.joint_names) or len(pts[0].positions)
+    with_v = sum(1 for p in pts if len(p.velocities) == width)
+    with_a = sum(1 for p in pts if len(p.accelerations) == width)
+    ts = [p.time_from_start.sec + p.time_from_start.nanosec * 1e-9 for p in pts]
+    dts = [b - a for a, b in zip(ts, ts[1:])] or [0.0]
+    print(
+        "    trajectory: %d points over %.2fs, dt min=%.1f max=%.1f ms"
+        % (n, ts[-1], min(dts) * 1000, max(dts) * 1000)
+    )
+    gate = "CUBIC HERMITE" if with_v == n else "LINEAR (a 50 Hz velocity staircase)"
+    print(
+        "    velocities on %d/%d points, accelerations on %d/%d  ->  driver "
+        "interpolates: %s" % (with_v, n, with_a, n, gate)
+    )
+    if with_v not in (0, n):
+        print(
+            "    NOTE only %d of %d carry velocities — one short point silently"
+            % (with_v, n)
+        )
+        print("    drops the WHOLE trajectory to linear.")
 
 
 def main():
@@ -130,6 +167,14 @@ def main():
     ap.add_argument("--y", type=float, nargs="+", default=[0.0])
     ap.add_argument(
         "--z", type=float, nargs="+", default=[0.45, 0.40, 0.35, 0.30, 0.25, 0.20]
+    )
+    ap.add_argument(
+        "--inspect-traj",
+        action="store_true",
+        help="report the returned trajectory's point count, dt spacing and "
+        "whether EVERY point carries velocities -- the driver falls back to "
+        "LINEAR interpolation unless all of them do, which is a 50 Hz velocity "
+        "staircase and feels like stutter",
     )
     ap.add_argument(
         "--approach",
@@ -197,6 +242,8 @@ def main():
             ok, msg, secs = n.feasible(pos, quat, approach=approach, locks=args.lock)
             if ok:
                 ok_list.append(pos)
+            if args.inspect_traj and ok and n.last_traj is not None:
+                describe_traj(n.last_traj)
             short = (msg or "").strip().replace("\n", " ")
             # The planner's IK_FAIL text is long and the same every time; the
             # status prefix is the part that differs.

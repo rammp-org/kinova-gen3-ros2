@@ -41,11 +41,12 @@ protected:
           (goal.approach_offset.axis == Approach::AXIS_Z &&
            goal.axis_lock.lock_z);
       if (locked)
-        return "GoToEEPose: approach_offset.axis travels along an axis that "
-               "axis_lock locks (approach_offset.axis = " +
-               std::to_string(goal.approach_offset.axis) +
-               "); an approach frees its own axis, so drop the lock or "
-               "the approach";
+        return std::string("GoToEEPose: approach_offset.axis (") +
+               "XYZ"[goal.approach_offset.axis] +
+               ") travels along an axis that axis_lock.lock_" +
+               "xyz"[goal.approach_offset.axis] +
+               " locks; an approach frees its own axis, so drop the lock "
+               "or the approach";
     }
     return std::nullopt;
   }

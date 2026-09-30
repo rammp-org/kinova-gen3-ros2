@@ -556,17 +556,26 @@ TEST_F(GotoServerTest, AGoalUsingNoNewFieldsBehavesAsBefore) {
                l.lock_y || l.lock_z)
       << "an unlocked goal reached the planner locked";
   EXPECT_DOUBLE_EQ(r.fake.last_approach_via().offset, 0.0);
+  EXPECT_EQ(r.fake.last_approach_via().axis,
+            rammp_arm_interfaces::msg::ApproachOffset::AXIS_Z);
   EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 1.0);
 }
 
 TEST_F(GotoServerTest, LockingTheApproachAxisIsRefused) {
-  Rig r("goto_it_contradict");
-  auto goal = base_goal();
-  goal.approach_offset.distance = 0.10;
-  goal.approach_offset.axis = rammp_arm_interfaces::msg::ApproachOffset::AXIS_Y;
-  goal.axis_lock.lock_y = true;
-  EXPECT_EQ(send_goal(r.node, goal), kRefused);
-  EXPECT_FALSE(r.sup.got_goal);
+  using A = rammp_arm_interfaces::msg::ApproachOffset;
+  // Each axis paired with the lock that contradicts it, so a transposed index
+  // in the mapping fails here.
+  for (int axis : {A::AXIS_X, A::AXIS_Y, A::AXIS_Z}) {
+    Rig r("goto_it_contradict" + std::to_string(axis));
+    auto goal = base_goal();
+    goal.approach_offset.distance = 0.10;
+    goal.approach_offset.axis = axis;
+    goal.axis_lock.lock_x = axis == A::AXIS_X;
+    goal.axis_lock.lock_y = axis == A::AXIS_Y;
+    goal.axis_lock.lock_z = axis == A::AXIS_Z;
+    EXPECT_EQ(send_goal(r.node, goal), kRefused) << "axis " << axis;
+    EXPECT_EQ(r.fake.pose_goals_received(), 0) << "axis " << axis;
+  }
 }
 
 TEST_F(GotoServerTest, LockingAnotherAxisThanTheApproachIsAccepted) {
@@ -593,5 +602,7 @@ TEST_F(GotoServerTest, AnUnusableSpeedScaleIsRefused) {
     goal.speed_scale = bad;
     EXPECT_EQ(send_goal(r.node, goal), kRefused) << "speed_scale " << bad;
   }
+  EXPECT_EQ(r.fake.pose_goals_received(), 0)
+      << "a plan was dispatched: refusal did not happen at validate";
   EXPECT_FALSE(r.sup.got_goal);
 }

@@ -82,7 +82,8 @@ public:
   }
 
 protected:
-  // Everything action-specific. validate() returns a reason to reject, or
+  // Everything action-specific. validate() returns a reason to reject (logged
+  // server-side only; the client sees a bare rejection, see #39), or
   // The arm's measured configuration, for start_plan() to state in the plan
   // request. This node owns that state -- it is the same source /joint_states
   // is published from -- so the planner never has to source it itself.

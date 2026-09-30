@@ -25,7 +25,8 @@ to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
 
 // Why this speed_scale is unacceptable, or nullopt if it is fine. The driver
 // refuses the same range but its GoalResponse carries no message, so the
-// explanation has to come from here.
+// reason is produced here. Callers log it server-side: an action rejection has
+// no payload, so the client sees a bare rejection (see kinova-gen3-ros2#39).
 std::optional<std::string> speed_scale_rejection(double s);
 GoToEEPose::Feedback
 to_goto_feedback_msg(const kinova::interface::TrajectoryFeedback &fb);

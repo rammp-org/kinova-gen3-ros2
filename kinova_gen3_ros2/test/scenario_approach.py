@@ -74,10 +74,21 @@ except ImportError:
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 
 # A MULTI-AXIS move: x, y and z all differ, which is the only geometry where a
-# via has a bend to add (see the module docstring). Both ends were confirmed
-# feasible by probe_reachable.py at this orientation, not guessed.
+# via has a bend to add (see the module docstring).
+#
+# B sits FURTHER FORWARD than the via point, on purpose. The via's axis is the
+# tool's Z, which points along base +X at this orientation, so the pregrasp lands
+# at B minus the offset in x. Pushing the offset out from a nearer goal put that
+# pregrasp at x ~= 0.27, outside the reachable set, and the plan failed. Moving
+# the GOAL forward instead leaves the pregrasp exactly on a pose already known
+# to plan.
 POSE_A = {"name": "A", "pos": [0.55, 0.00, 0.50], "quat": list(GRIPPER_LEVEL)}
-POSE_B = {"name": "B", "pos": [0.45, 0.20, 0.35], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.58, 0.20, 0.35], "quat": list(GRIPPER_LEVEL)}
+
+# Where the approach should pass through: the old goal, confirmed feasible by
+# probe_reachable.py. The default --offset is DERIVED from it rather than typed,
+# so editing B cannot silently leave the via somewhere unreachable.
+APPROACH_VIA = [0.45, 0.20, 0.35]
 
 _CODES = {
     0: "SUCCESSFUL",
@@ -224,7 +235,13 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--speed", type=float, default=0.5, help="speed_scale for BOTH runs")
-    ap.add_argument("--offset", type=float, default=0.10, help="metres back along base Z")
+    ap.add_argument(
+        "--offset",
+        type=float,
+        default=None,
+        help="metres back along the tool Z axis; defaults to the distance from B "
+        "to APPROACH_VIA, so the pregrasp lands on that known-feasible pose",
+    )
     ap.add_argument("--at-fraction", type=float, default=0.8)
     ap.add_argument("--sender-id", default="scenario_approach")
     ap.add_argument("--no-pause", action="store_true")
@@ -233,6 +250,9 @@ def main():
 
     if not 0.01 <= args.speed <= 1.0:
         ap.error(f"--speed must be in [0.01, 1.0]; got {args.speed}")
+    if args.offset is None:
+        # Derived, not typed: the gap between the goal and the via point.
+        args.offset = round(math.dist(POSE_B["pos"], APPROACH_VIA), 4)
     if args.offset <= 0.0:
         ap.error("--offset must be > 0")
     if not 0.0 < args.at_fraction < 1.0:
@@ -244,7 +264,10 @@ def main():
     print(f"\n  A  {POSE_A['pos']}   gripper level, facing forward")
     print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
     print(f"  a {span:.2f} m move with x, y and z all differing — the only geometry")
-    print("  where a via has a bend available to add\n")
+    print("  where a via has a bend available to add")
+    print(f"  via point  {APPROACH_VIA}   (B minus {args.offset} m along the tool Z axis)")
+    print("  that pose is itself known-feasible, which is the point of putting B")
+    print("  further forward rather than pushing the offset backward\n")
     print(f"  run 1   direct     A -> B at speed_scale {args.speed}")
     print(
         f"  run 2   approach   A -> B at speed_scale {args.speed}, "

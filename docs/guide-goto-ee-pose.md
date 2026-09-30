@@ -63,6 +63,25 @@ Client flags: `--pos X Y Z` (metres, `base_link`), `--quat X Y Z W`
 `send_goto_pose`). The client prints feedback as it arrives and exits
 non-zero if the terminal `error_code` isn't `0`.
 
+It also carries the constraint fields, one move at a time: `--speed-scale S`,
+`--lock roll pitch …` (with `--frame base|goal`), and `--approach-distance D`
+with `--approach-axis` and `--at-fraction`. Bounds are checked client-side too,
+because a rejection carries no payload — the reason only reaches the node's log.
+
+### Demonstration scripts
+
+Two companions live beside it in `test/`, both **dry run by default** and needing
+an explicit `--go` to move anything:
+
+| Script | What it is for |
+| --- | --- |
+| `sweep_constraints.py` | Runs one fixed motion under every constraint combination and tables the outcomes, re-homing between cases so the wall times compare. Each case carries an expectation, so a disagreement is flagged rather than left to the eye. |
+| `send_goto_pose_tour.py` | A lap of large, widely-spaced waypoints, so a change in `speed_scale` or a held axis is visible across a room rather than needing a plot. |
+
+`sweep_constraints.py` is the one to reach for when asking "does this constraint
+actually do anything" — it includes cases that are *expected to be refused*,
+which is how the start-must-match-the-goal rule shows itself.
+
 ## Result codes
 
 | Code | Name                      | Meaning                                                                                                                                                                                            |

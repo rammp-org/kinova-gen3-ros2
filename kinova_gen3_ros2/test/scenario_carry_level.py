@@ -60,7 +60,7 @@ except ImportError:
 # one that decides whether it spills -- is the tool's local X, not its Z. That is
 # derived below rather than hardcoded, so changing this constant keeps the
 # measurement honest.
-GRIPPER_LEVEL = [0.0, 0.7071067811865476, 0.0, 0.7071067811865476]
+GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 # Same orientation at both ends -- see the module docstring for why that is the
 # whole point. Reuses the sweep's known-good pair for this cell.
 POSE_A = {"name": "A", "pos": [0.45, -0.25, 0.25], "quat": list(GRIPPER_LEVEL)}

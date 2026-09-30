@@ -55,14 +55,20 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
-# Gripper level, approach axis horizontal facing forward (+90 deg about Y) --
-# the same grasp pose scenario_carry_level.py uses.
-GRIPPER_LEVEL = [0.0, 0.7071067811865476, 0.0, 0.7071067811865476]
+# Gripper level: approach axis (tool Z) horizontal and facing forward, tool Y
+# straight UP -- and that last part is the cup's axis. READ OFF THE ARM at a
+# pose set by hand, not derived on paper. An earlier attempt computed a
+# quaternion that also put tool Z forward but rolled the gripper 90 deg about
+# it. That is the same "facing forward" in words and a wrist configuration
+# cuRobo could not solve: 3 of 25 probed poses feasible, against 16 of 20 here.
+GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 
 # Pure vertical descent: only z differs, which is what makes a base-Z approach
-# satisfiable at all. The table top sits at z = -0.07, so B clears it by 0.27 m.
-POSE_A = {"name": "A", "pos": [0.45, 0.0, 0.45], "quat": list(GRIPPER_LEVEL)}
-POSE_B = {"name": "B", "pos": [0.45, 0.0, 0.20], "quat": list(GRIPPER_LEVEL)}
+# satisfiable at all. x and the z range are the widest single feasible column
+# probe_reachable.py found at this orientation, not a guess -- the previous
+# values were unreachable and cost three failed runs to discover.
+POSE_A = {"name": "A", "pos": [0.55, 0.0, 0.50], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.55, 0.0, 0.30], "quat": list(GRIPPER_LEVEL)}
 
 _CODES = {
     0: "SUCCESSFUL",

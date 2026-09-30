@@ -18,9 +18,13 @@ repositories:
   # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
   # holds one version of a package, so this pin is what decides whether this
   # module can run alongside any other that speaks the same interfaces.
-  # See rammp-org/rammp-interfaces-ros2 for the versioning policy -- note that
-  # adding a field to an existing message is a MAJOR bump there, because Humble
-  # matches publishers to subscribers on type NAME and never checks content.
+  # The versioning rules for that contract -- which changes are MAJOR, MINOR or
+  # PATCH, and the Cyclone DDS condition they depend on -- live in ONE place:
+  # the README of rammp-org/rammp-interfaces-ros2. They are deliberately not
+  # restated here; a rule copied into several repos gets flipped in one of them
+  # (this comment once said the opposite). One warning is worth repeating:
+  # inserting a field anywhere but the end of a message is a silent-corruption
+  # MAJOR change, not a minor one.
   kinova-gen3-driver:
     type: git
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the

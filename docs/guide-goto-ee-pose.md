@@ -97,13 +97,58 @@ request arrives:
   Supervisor (the same path `ExecuteJointTrajectory` cancellation uses),
   which settles the goal `PREEMPTED` once the arm has stopped.
 
+## Speed, locks and approach
+
+`GoToEEPose` carries three optional fields. All default to off, so a goal that
+sets none of them behaves exactly as before.
+
+| field             | type             | default | meaning                                       |
+| ----------------- | ---------------- | ------- | --------------------------------------------- |
+| `speed_scale`     | `float64`        | `1.0`   | run the trajectory slower; `1.0` = as planned |
+| `axis_lock`       | `ToolAxisLock`   | none    | hold tool-pose components fixed throughout    |
+| `approach_offset` | `ApproachOffset` | `0.0`   | arrive along one axis, from a set distance    |
+
+**`speed_scale`** lowers the speed of the planned trajectory. The driver
+executes it slower by dilating its executor clock; the plan itself is unchanged.
+A value outside the driver's accepted range (its minimum up to `1.0`) or a
+non-finite one is **refused, not clamped**.
+
+**`axis_lock`** (`lock_roll`, `lock_pitch`, `lock_yaw`, `lock_x`, `lock_y`,
+`lock_z`, plus a `reference_frame`) holds those components fixed for the whole
+trajectory. Two things callers meet as surprises:
+
+- **"Locked" means unchanged, not level.** A locked component is held at the
+  *goal's* value, so the start pose must already match the goal on it. A tool at
+  45 degrees planning to a 45-degree goal stays at 45 the whole way. If the start
+  does not match, the planner refuses the goal.
+- **An approach is not independent of locking.** `approach_offset` (`distance`,
+  `axis`, `at_fraction`) makes the path pass near a point `distance` back from the
+  goal along one axis. The planner does this by holding the **other five** pose
+  components at the goal's values while travelling along the freed axis. Asking
+  for an approach therefore also asks for those five locks, and the start pose
+  must already match the goal on them, even if `axis_lock` is all false. The
+  approach is a preference, not a waypoint: the path passes near the offset
+  without stopping at it. `axis_lock.reference_frame` governs both the lock and
+  the approach axis.
+
+The node translates the arm's lock and approach into the planner's own types
+(inside `CuroboPlanClient`), so callers never see the planner's message types.
+
+**A refused goal tells the client nothing today.** When `validate()` rejects a
+goal (bad `speed_scale`, negative approach `distance`, `at_fraction` outside
+(0, 1), and so on) the client receives a bare ROS action rejection with no
+payload; the reason is logged on the server only. Check the node log when a goal
+is rejected. Returning the reason to the client is tracked as
+`kinova-gen3-ros2#39`.
+
 ## Safety
 
-**The planned trajectory executes at cuRobo's full planned speed — there is
-no `speed_scale` or retiming in v1.** The returned `time_from_start` values
-feed straight through to the Supervisor. This means the very first real-arm
-`GoToEEPose` goal will move at whatever speed cuRobo's plan calls for, not a
-conservative default.
+**Unless you set `speed_scale`, the trajectory runs at cuRobo's full planned
+speed.** The returned `time_from_start` values feed straight through to the
+Supervisor, so a goal that leaves `speed_scale` at its default of `1.0` moves
+at whatever speed cuRobo's plan calls for, not a conservative one. For a first
+real-arm goal, set `speed_scale` well below 1 (see
+[Speed, locks and approach](#speed-locks-and-approach)).
 
 Before running against the real arm:
 

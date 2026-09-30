@@ -110,10 +110,41 @@ the sim's zero configuration swings joint 3 through ~3.14 rad and correctly
 returns `-4`. That is the guard working, not a failure. Use a real arm (or a
 small delta) to exercise the success path.
 
+## Speed and constraints per action
+
+| action               | `speed_scale` | `axis_lock` | `approach_offset` |
+| -------------------- | :-----------: | :---------: | :---------------: |
+| `go_to_ee_pose`      | yes           | yes         | yes               |
+| `go_to_joint_config` | yes           | no          | no                |
+| `go_to_preset`       | yes           | no          | no                |
+| `execute_joint_trajectory` | yes     | no          | no                |
+
+`speed_scale` (default `1.0`, range: the driver's minimum up to `1.0`) runs the
+trajectory slower, by dilating the driver's executor clock. Out of range is
+refused, not clamped.
+
+**Joint-space goals carry speed only.** `GoToJointConfig` and `GoToPreset` plan
+in joint space, where a tool-pose lock has no meaning, so they have no
+`axis_lock` or `approach_offset`. The absence is deliberate.
+
+For `go_to_ee_pose`, all three fields default to off. Two rules a caller will
+otherwise meet as a confusing failure (full detail in the
+[`GoToEEPose` guide](../guide-goto-ee-pose#speed-locks-and-approach)):
+
+- **An approach also holds the other five pose components**, so the start pose
+  must already match the goal on them.
+- **"Locked" means unchanged, not level**: a 45-degree tool planning to a
+  45-degree goal stays at 45.
+
+**A refused goal tells the client nothing today.** Rejections are bare ROS
+action rejections with no payload; the reason is logged server-side only
+(tracked as `kinova-gen3-ros2#39`). This includes an out-of-range `speed_scale`.
+
 ## Safety
 
-The planned trajectory runs at **full planner speed**, and cuRobo plans to the
-arm's real velocity limits. Read
+Unless `speed_scale` is set, the planned trajectory runs at **full planner
+speed**, and cuRobo plans to the arm's real velocity limits. Set `speed_scale`
+below 1 for a first real-arm run. Read
 [`on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and keep the e-stop in hand before
 the first real-arm run of any of these actions. Real-arm runs must pin the RT
 loop to the host's isolated core (`--cpu <n>`); `make sim` / `make real` do this

@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""One scenario, run twice: descend A -> B direct, then with an approach_offset.
+
+The companion to scenario_carry_level.py, for the other constraint.
+
+    run 1   direct     A -> B
+    run 2   approach   A -> B, easing in along base Z from `offset` metres back
+
+WHY A PURE VERTICAL DESCENT. An approach holds the five pose components other
+than its own axis (see ApproachOffset.msg), so it is only satisfiable when the
+start already matches the goal on all five -- which means the motion travels
+along the approach axis ALONE. A and B therefore differ only in z.
+
+WHAT THAT IMPLIES, AND WHY THIS SCRIPT MEASURES RATHER THAN CLAIMS. On a
+single-axis move the direct path is already a straight line down that axis, so
+the approach cannot change the path's SHAPE -- there is no bend left to add. If
+it does anything observable, it is to the TIMING: the goal is reached via a
+blended intermediate target `offset` metres back, engaged at `at_fraction` of
+the motion. Whether that reads as a slow creep into the goal or a fast final
+segment depends on how cuRobo blends the via cost, which has not been measured
+on hardware here. So this prints both profiles and the numbers, and does not tell
+you in advance which way it should go. Read the output, not the docstring.
+
+Recorded per run, from /ee_state:
+  * total wall time
+  * the fraction of that time spent covering the final `offset` metres
+  * the maximum lateral deviation from the straight A->B line
+
+The lateral number is a control: on a pure descent it should stay near zero for
+both runs. If the approach run bows out noticeably, the via is moving the path
+and not just the schedule -- which would be worth knowing.
+
+SAFETY: DRY RUN by default. --go moves the arm: 4 motions (to A, run 1, back to
+A, run 2), stepping with Enter between each. Attended, e-stop in hand.
+
+Examples:
+    python3 scenario_approach.py                     # dry run
+    python3 scenario_approach.py --go                # run it
+    python3 scenario_approach.py --go --offset 0.15 --at-fraction 0.6
+"""
+
+import argparse
+import math
+import time
+
+try:
+    import rclpy
+    from rclpy.action import ActionClient
+    from rclpy.node import Node
+    from rclpy.qos import qos_profile_sensor_data
+    from rammp_arm_interfaces.action import GoToEEPose
+    from rammp_arm_interfaces.msg import ApproachOffset, EeState, ToolAxisLock
+
+    _HAVE_ROS = True
+except ImportError:
+    _HAVE_ROS = False
+
+# Gripper level, approach axis horizontal facing forward (+90 deg about Y) --
+# the same grasp pose scenario_carry_level.py uses.
+GRIPPER_LEVEL = [0.0, 0.7071067811865476, 0.0, 0.7071067811865476]
+
+# Pure vertical descent: only z differs, which is what makes a base-Z approach
+# satisfiable at all. The table top sits at z = -0.07, so B clears it by 0.27 m.
+POSE_A = {"name": "A", "pos": [0.45, 0.0, 0.45], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.45, 0.0, 0.20], "quat": list(GRIPPER_LEVEL)}
+
+_CODES = {
+    0: "SUCCESSFUL",
+    -1: "INVALID_GOAL",
+    -4: "PATH_TOLERANCE_VIOLATED",
+    -6: "PREEMPTED",
+    -7: "PLANNING_FAILED",
+    -8: "NOT_AUTHORIZED",
+    -9: "HALTED",
+}
+
+
+# ---------------------------------------------------------------- measurement
+# Module-level and ROS-free on purpose, so they can be checked without an arm.
+
+
+def lateral_deviation(p, a, b):
+    """Perpendicular distance from point p to the infinite line through a, b."""
+    ab = [b[i] - a[i] for i in range(3)]
+    ap = [p[i] - a[i] for i in range(3)]
+    ab_len = math.sqrt(sum(c * c for c in ab))
+    if ab_len < 1e-9:
+        return 0.0
+    cross = (
+        ap[1] * ab[2] - ap[2] * ab[1],
+        ap[2] * ab[0] - ap[0] * ab[2],
+        ap[0] * ab[1] - ap[1] * ab[0],
+    )
+    return math.sqrt(sum(c * c for c in cross)) / ab_len
+
+
+def final_stretch_fraction(samples, goal, offset):
+    """Fraction of the run's elapsed time spent within `offset` metres of goal.
+
+    samples: [(t_seconds, (x, y, z)), ...] in order. Returns None if the run
+    never got that close, which would mean it did not actually arrive.
+
+    Discretization biases this LOW by up to one sample interval, since it can
+    only report the first sample already inside the radius. At /ee_state's rate
+    over a motion of a second or more that is well under a percentage point --
+    which is why the comparison below refuses to call a difference under five.
+    """
+    if len(samples) < 2:
+        return None
+    t_start, t_end = samples[0][0], samples[-1][0]
+    span = t_end - t_start
+    if span <= 0:
+        return None
+    for t, p in samples:
+        if math.dist(p, goal) <= offset:
+            return (t_end - t) / span
+    return None
+
+
+def summarize(samples, a, b, offset):
+    """(wall_span, final_fraction, max_lateral) from a run's samples."""
+    if len(samples) < 2:
+        return None, None, None
+    span = samples[-1][0] - samples[0][0]
+    worst = max(lateral_deviation(p, a, b) for _t, p in samples)
+    return span, final_stretch_fraction(samples, b, offset), worst
+
+
+if _HAVE_ROS:
+
+    class Scenario(Node):
+        def __init__(self, sender_id):
+            super().__init__("scenario_approach")
+            self.sender_id = sender_id
+            self.client = ActionClient(self, GoToEEPose, "go_to_ee_pose")
+            self.samples = []
+            self.sampling = False
+            self.create_subscription(
+                EeState, "/ee_state", self._on_ee, qos_profile_sensor_data
+            )
+
+        def _on_ee(self, msg):
+            if not self.sampling:
+                return
+            p = msg.pose.position
+            self.samples.append((time.monotonic(), (p.x, p.y, p.z)))
+
+        def goal(self, pose, speed=1.0, approach=None, at_fraction=0.8):
+            g = GoToEEPose.Goal()
+            g.target.header.frame_id = "base_link"
+            (
+                g.target.pose.position.x,
+                g.target.pose.position.y,
+                g.target.pose.position.z,
+            ) = pose["pos"]
+            (
+                g.target.pose.orientation.x,
+                g.target.pose.orientation.y,
+                g.target.pose.orientation.z,
+                g.target.pose.orientation.w,
+            ) = pose["quat"]
+            g.sender_id = self.sender_id
+            g.speed_scale = speed
+            g.axis_lock = ToolAxisLock()
+            # Base frame: AXIS_Z is then the world vertical, i.e. from above.
+            g.axis_lock.reference_frame = ToolAxisLock.FRAME_BASE
+            g.approach_offset = ApproachOffset()
+            if approach:
+                g.approach_offset.distance = approach
+                g.approach_offset.axis = ApproachOffset.AXIS_Z
+                g.approach_offset.at_fraction = at_fraction
+            return g
+
+        def send(self, goal, measure=False):
+            """Returns (code, wall_seconds, samples)."""
+            self.samples = []
+            self.sampling = measure
+            t0 = time.monotonic()
+            fut = self.client.send_goal_async(goal)
+            rclpy.spin_until_future_complete(self, fut)
+            gh = fut.result()
+            if gh is None or not gh.accepted:
+                self.sampling = False
+                return -1, time.monotonic() - t0, []
+            rf = gh.get_result_async()
+            rclpy.spin_until_future_complete(self, rf)
+            self.sampling = False
+            return (
+                rf.result().result.error_code,
+                time.monotonic() - t0,
+                list(self.samples),
+            )
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--speed", type=float, default=0.5, help="speed_scale for BOTH runs")
+    ap.add_argument("--offset", type=float, default=0.10, help="metres back along base Z")
+    ap.add_argument("--at-fraction", type=float, default=0.8)
+    ap.add_argument("--sender-id", default="scenario_approach")
+    ap.add_argument("--no-pause", action="store_true")
+    ap.add_argument("--go", action="store_true", help="ACTUALLY MOVE THE ARM")
+    args = ap.parse_args()
+
+    if not 0.01 <= args.speed <= 1.0:
+        ap.error(f"--speed must be in [0.01, 1.0]; got {args.speed}")
+    if args.offset <= 0.0:
+        ap.error("--offset must be > 0")
+    if not 0.0 < args.at_fraction < 1.0:
+        ap.error("--at-fraction must be strictly inside (0, 1)")
+    drop = POSE_A["pos"][2] - POSE_B["pos"][2]
+    if args.offset >= drop:
+        ap.error(f"--offset {args.offset} must be less than the {drop:.2f} m descent")
+
+    print(f"\n  A  {POSE_A['pos']}   gripper level, facing forward")
+    print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
+    print(f"  a {drop:.2f} m vertical descent — only z differs, which is what makes")
+    print("  a base-Z approach satisfiable at all\n")
+    print(f"  run 1   direct     A -> B at speed_scale {args.speed}")
+    print(
+        f"  run 2   approach   A -> B at speed_scale {args.speed}, "
+        f"{args.offset} m back along Z, engaging at {args.at_fraction}\n"
+    )
+    print("  measured per run: wall time, the share of it spent inside the final")
+    print(f"  {args.offset} m, and the worst lateral drift off the straight A->B line.\n")
+
+    if not args.go:
+        print("  DRY RUN — nothing was sent. Pass --go to move the arm.\n")
+        return 0
+    if not _HAVE_ROS:
+        print("  --go needs rclpy + rammp_arm_interfaces on the path.\n")
+        return 2
+
+    def pause(what):
+        if args.no_pause:
+            return True
+        try:
+            return input(f"    [Enter] {what}   [q] quit: ").strip().lower() != "q"
+        except EOFError:
+            return True
+
+    rclpy.init()
+    n = Scenario(args.sender_id)
+    if not n.client.wait_for_server(timeout_sec=5.0):
+        n.get_logger().error("go_to_ee_pose action server not available")
+        rclpy.shutdown()
+        return 1
+
+    results = {}
+    try:
+        for label, approach in (("direct", None), ("approach", args.offset)):
+            print("\n  ── setting up: moving to A")
+            if not pause("move to A"):
+                break
+            code, wall, _ = n.send(n.goal(POSE_A))
+            if code != 0:
+                print(f"    could not reach A ({_CODES.get(code, code)}) — stopping.")
+                print("    if this is unreachable at the level gripper pose, pull")
+                print("    POSE_A/POSE_B's x in toward the base and retry.")
+                return 3
+            print(f"    at A ({wall:.2f}s)")
+
+            print(f"\n  ── run: {label}   descend A -> B at {args.speed}")
+            if not pause(f"run {label}"):
+                break
+            code, wall, samples = n.send(
+                n.goal(POSE_B, args.speed, approach, args.at_fraction), measure=True
+            )
+            span, frac, lat = summarize(
+                samples, POSE_A["pos"], POSE_B["pos"], args.offset
+            )
+            print(f"    {_CODES.get(code, code)} in {wall:.2f}s, {len(samples)} samples")
+            if frac is not None:
+                print(
+                    f"    final {args.offset} m took {frac * 100:.0f}% of the motion; "
+                    f"worst lateral drift {lat * 1000:.0f} mm"
+                )
+            results[label] = (code, wall, span, frac, lat, len(samples))
+    finally:
+        rclpy.shutdown()
+
+    print("\n  ==== comparison ====\n")
+    print(f"  {'run':<10} {'result':<14} {'wall':>7} {'final ' + str(args.offset) + 'm':>12} {'lateral':>9}")
+    print("  " + "-" * 58)
+    for label in ("direct", "approach"):
+        if label not in results:
+            print(f"  {label:<10} {'(not run)':<14} {'--':>7} {'--':>12} {'--':>9}")
+            continue
+        code, wall, _span, frac, lat, _n = results[label]
+        f_s = f"{frac * 100:.0f}%" if frac is not None else "n/a"
+        l_s = f"{lat * 1000:.0f} mm" if lat is not None else "n/a"
+        print(f"  {label:<10} {_CODES.get(code, code):<14} {wall:>6.2f}s {f_s:>12} {l_s:>9}")
+    print()
+
+    if len(results) == 2 and all(r[0] == 0 for r in results.values()):
+        fd, fa = results["direct"][3], results["approach"][3]
+        if fd is None or fa is None:
+            print("  not enough /ee_state samples inside the final stretch to compare.\n")
+        elif abs(fa - fd) < 0.05:
+            print(
+                "  the two schedules are within 5 percentage points — on this pose\n"
+                "  pair the approach changed the timing little or not at all. Try a\n"
+                "  larger --offset or a lower --at-fraction before concluding anything.\n"
+            )
+        else:
+            slower = "more" if fa > fd else "less"
+            print(
+                f"  the approach spent {slower} of the motion in the final "
+                f"{args.offset} m ({fa * 100:.0f}% vs {fd * 100:.0f}%).\n"
+            )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

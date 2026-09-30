@@ -98,6 +98,12 @@ def spill_axis(reference_q):
     return max("xyz", key=lambda a: abs(rotate_axis(reference_q, a)[2]))
 
 
+# Resolved once, at module level. It was an instance attribute and an edit
+# silently failed to set it, which py_compile and the dry run both pass -- the
+# dry run never builds the node. A module constant cannot go missing that way.
+SPILL_AXIS = spill_axis(GRIPPER_LEVEL)
+
+
 def tilt_from_level_deg(q_xyzw, reference_q=GRIPPER_LEVEL, axis=None):
     """Degrees the cup's axis has tipped away from where the reference puts it.
 
@@ -139,7 +145,7 @@ if _HAVE_ROS:
           if not self.sampling:
               return
           o = msg.pose.orientation
-          self.tilts.append(tilt_from_level_deg([o.x, o.y, o.z, o.w], axis=self.axis))
+          self.tilts.append(tilt_from_level_deg([o.x, o.y, o.z, o.w], axis=SPILL_AXIS))
 
       def goal(self, pose, speed=1.0, level=False):
           g = GoToEEPose.Goal()

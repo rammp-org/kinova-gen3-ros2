@@ -7,8 +7,9 @@ twice, and the only difference is whether roll and pitch are held:
     run 1   free     A -> B at speed_scale 0.5
     run 2   level    A -> B at speed_scale 0.5, roll+pitch held in the BASE frame
 
-A and B are at the SAME tool orientation (tool pointing down, a cup upright in
-the gripper) and differ only in position. That matters: a lock holds a component
+A and B are at the SAME tool orientation -- the gripper LEVEL, approach axis
+horizontal and facing forward, gripping a cup from the side with the cup's axis
+vertical -- and differ only in position. That matters: a lock holds a component
 AT THE GOAL'S VALUE, so roll/pitch can only be held if the start already matches
 the goal on them. It also means the difference to watch is in the MIDDLE of the
 motion -- unconstrained, cuRobo is free to tilt the tool on its way between two
@@ -18,7 +19,9 @@ level poses; constrained, it is not.
 it would be held relative to the goal's own frame, which is a different question.
 
 MEASURED, not eyeballed: /ee_state is sampled throughout each run and the script
-reports the worst tilt of the tool's approach axis away from vertical. Expect a
+reports the worst tilt of the CUP's axis away from vertical. Which tool axis that
+is depends on the grasp pose (it is the tool's local X here, not its Z), so it is
+derived from the reference orientation rather than assumed. Expect a
 few degrees or more on the free run and ~0 on the held one. If both come back
 near zero the planner simply chose a level path anyway -- that is not a
 demonstration of anything, so push A and B further apart and rerun.
@@ -49,12 +52,19 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
-# Tool pointing down: a cup held upright. xyzw.
-TOOL_DOWN = [1.0, 0.0, 0.0, 0.0]
+# Gripper LEVEL, approach axis horizontal and facing forward (+X): the cup is
+# gripped from the side with its axis vertical. xyzw; a +90 deg rotation about Y.
+#
+# In this pose the tool's local axes land as: Z -> +X (forward), Y -> +Y, and
+# X -> straight DOWN. So the axis that must stay vertical -- the cup's axis, the
+# one that decides whether it spills -- is the tool's local X, not its Z. That is
+# derived below rather than hardcoded, so changing this constant keeps the
+# measurement honest.
+GRIPPER_LEVEL = [0.0, 0.7071067811865476, 0.0, 0.7071067811865476]
 # Same orientation at both ends -- see the module docstring for why that is the
 # whole point. Reuses the sweep's known-good pair for this cell.
-POSE_A = {"name": "A", "pos": [0.45, -0.25, 0.25], "quat": list(TOOL_DOWN)}
-POSE_B = {"name": "B", "pos": [0.45, 0.25, 0.50], "quat": list(TOOL_DOWN)}
+POSE_A = {"name": "A", "pos": [0.45, -0.25, 0.25], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.45, 0.25, 0.50], "quat": list(GRIPPER_LEVEL)}
 
 _CODES = {
     0: "SUCCESSFUL",
@@ -67,27 +77,37 @@ _CODES = {
 }
 
 
-def rotate_z_axis(q_xyzw):
-    """The tool's local +Z expressed in the base frame, for quaternion q."""
+def rotate_axis(q_xyzw, axis):
+    """A local unit axis ('x'|'y'|'z') expressed in the base frame, for q."""
     x, y, z, w = q_xyzw
-    # Third column of the rotation matrix = R * (0,0,1).
-    return (
-        2.0 * (x * z + w * y),
-        2.0 * (y * z - w * x),
-        1.0 - 2.0 * (x * x + y * y),
-    )
+    if axis == "x":
+        return (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y))
+    if axis == "y":
+        return (2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x))
+    return (2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y))
 
 
-def tilt_from_level_deg(q_xyzw, reference_q=TOOL_DOWN):
-    """Angle between the tool's approach axis now and where 'level' puts it.
+def spill_axis(reference_q):
+    """Which LOCAL tool axis is vertical in the reference pose.
 
-    One number instead of separate roll and pitch: it is the total deviation of
-    the approach axis, and it ignores yaw about the vertical -- which is correct
-    here, because yaw is NOT locked and spinning the cup about its own axis does
-    not spill it.
+    That axis is the cup's axis, and its deviation from vertical is what decides
+    whether the cup spills. Derived from the reference orientation instead of
+    assumed, so a different grasp pose does not silently leave the measurement
+    tracking the wrong axis -- which is exactly the mistake this replaces.
     """
-    a = rotate_z_axis(q_xyzw)
-    b = rotate_z_axis(reference_q)
+    return max("xyz", key=lambda a: abs(rotate_axis(reference_q, a)[2]))
+
+
+def tilt_from_level_deg(q_xyzw, reference_q=GRIPPER_LEVEL, axis=None):
+    """Degrees the cup's axis has tipped away from where the reference puts it.
+
+    One number rather than separate roll and pitch, and rotation ABOUT the cup's
+    own axis contributes nothing -- correct, because spinning a cup on its axis
+    does not spill it and that rotation is not locked either.
+    """
+    axis = axis or spill_axis(reference_q)
+    a = rotate_axis(q_xyzw, axis)
+    b = rotate_axis(reference_q, axis)
     dot = sum(i * j for i, j in zip(a, b))
     return math.degrees(math.acos(max(-1.0, min(1.0, dot))))
 
@@ -119,7 +139,7 @@ if _HAVE_ROS:
           if not self.sampling:
               return
           o = msg.pose.orientation
-          self.tilts.append(tilt_from_level_deg([o.x, o.y, o.z, o.w]))
+          self.tilts.append(tilt_from_level_deg([o.x, o.y, o.z, o.w], axis=self.axis))
 
       def goal(self, pose, speed=1.0, level=False):
           g = GoToEEPose.Goal()
@@ -180,13 +200,14 @@ def main():
         ap.error(f"--speed must be in [0.01, 1.0]; got {args.speed}")
 
     dist = math.dist(POSE_A["pos"], POSE_B["pos"])
-    print(f"\n  A  {POSE_A['pos']}   tool down")
-    print(f"  B  {POSE_B['pos']}   tool down")
+    ax = spill_axis(GRIPPER_LEVEL).upper()
+    print(f"\n  A  {POSE_A['pos']}   gripper level, facing forward")
+    print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
     print(f"  {dist:.2f} m apart, same orientation at both ends\n")
     print(f"  run 1   free    A -> B at speed_scale {args.speed}")
     print(f"  run 2   level   A -> B at speed_scale {args.speed}, roll+pitch held (base frame)\n")
-    print("  measured: worst tilt of the tool's approach axis away from vertical,")
-    print("  sampled from /ee_state throughout each run.\n")
+    print(f"  measured: worst tilt of the cup's axis (tool {ax}, vertical in this")
+    print("  pose) away from vertical, sampled from /ee_state throughout each run.\n")
 
     if not args.go:
         print("  DRY RUN — nothing was sent. Pass --go to move the arm.\n")

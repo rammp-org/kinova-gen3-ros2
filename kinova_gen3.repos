@@ -7,6 +7,14 @@
 # base image tag in the Dockerfile, not a line in this file. A native build
 # clones rammp-interfaces-ros2 itself -- see the README's Build section.
 #
+# The versioning rules for the interfaces contract -- which changes are MAJOR, MINOR or
+# PATCH, and the Cyclone DDS condition they depend on -- live in ONE place:
+# the README of rammp-org/rammp-interfaces-ros2. They are deliberately not
+# restated here; a rule copied into several repos gets flipped in one of them
+# (this comment once said the opposite). One warning is worth repeating:
+# inserting a field anywhere but the end of a message is a silent-corruption
+# MAJOR change, not a minor one.
+#
 # BOTH repositories below are pinned to a TAG, never a branch. A tagged image
 # that builds from a moving branch is not reproducible: rebuild v1.0.0 next
 # month and you get whatever those branches have become, with nothing in this
@@ -18,13 +26,6 @@ repositories:
   # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
   # holds one version of a package, so this pin is what decides whether this
   # module can run alongside any other that speaks the same interfaces.
-  # The versioning rules for that contract -- which changes are MAJOR, MINOR or
-  # PATCH, and the Cyclone DDS condition they depend on -- live in ONE place:
-  # the README of rammp-org/rammp-interfaces-ros2. They are deliberately not
-  # restated here; a rule copied into several repos gets flipped in one of them
-  # (this comment once said the opposite). One warning is worth repeating:
-  # inserting a field anywhere but the end of a message is a silent-corruption
-  # MAJOR change, not a minor one.
   kinova-gen3-driver:
     type: git
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the

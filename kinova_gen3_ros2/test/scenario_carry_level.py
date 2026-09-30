@@ -98,10 +98,13 @@ def spill_axis(reference_q):
     return max("xyz", key=lambda a: abs(rotate_axis(reference_q, a)[2]))
 
 
-# Resolved once, at module level. It was an instance attribute and an edit
-# silently failed to set it, which py_compile and the dry run both pass -- the
-# dry run never builds the node. A module constant cannot go missing that way.
-SPILL_AXIS = spill_axis(GRIPPER_LEVEL)
+# The reference orientation is CALIBRATED from the arm at pose A, not taken from
+# GRIPPER_LEVEL. /ee_state reports `gen3_end_effector_link` out of our urdf while
+# the goal we send is cuRobo's `tool_frame` out of NVIDIA's bundled model --
+# different frames from different models, and the urdf chain to our flange
+# carries a 180 deg roll. Comparing a measured orientation against a commanded
+# one therefore mixes conventions and reports a tilt that is wrong by a fixed
+# rotation. Observing the arm at a known-level pose sidesteps every bit of that.
 
 
 def tilt_from_level_deg(q_xyzw, reference_q=GRIPPER_LEVEL, axis=None):
@@ -137,15 +140,37 @@ if _HAVE_ROS:
           self.client = ActionClient(self, GoToEEPose, "go_to_ee_pose")
           self.tilts = []
           self.sampling = False
+          self.ref_q = None       # calibrated at A; see the note by GRIPPER_LEVEL
+          self.ref_axis = None
+          self.latest_q = None
           self.create_subscription(
               EeState, "/ee_state", self._on_ee, qos_profile_sensor_data
           )
 
       def _on_ee(self, msg):
-          if not self.sampling:
-              return
           o = msg.pose.orientation
-          self.tilts.append(tilt_from_level_deg([o.x, o.y, o.z, o.w], axis=SPILL_AXIS))
+          self.latest_q = [o.x, o.y, o.z, o.w]
+          if not self.sampling or self.ref_q is None:
+              return
+          self.tilts.append(
+              tilt_from_level_deg(self.latest_q, self.ref_q, self.ref_axis)
+          )
+
+      def calibrate(self, settle=1.0):
+          """Adopt the arm's CURRENT orientation as level. Called at pose A.
+
+          This is what makes the measurement frame-agnostic: the reference comes
+          from the same topic, in the same convention, as everything compared
+          against it.
+          """
+          end = time.monotonic() + settle
+          while time.monotonic() < end and self.latest_q is None:
+              rclpy.spin_once(self, timeout_sec=0.05)
+          if self.latest_q is None:
+              return False
+          self.ref_q = list(self.latest_q)
+          self.ref_axis = spill_axis(self.ref_q)
+          return True
 
       def goal(self, pose, speed=1.0, level=False):
           g = GoToEEPose.Goal()
@@ -206,14 +231,15 @@ def main():
         ap.error(f"--speed must be in [0.01, 1.0]; got {args.speed}")
 
     dist = math.dist(POSE_A["pos"], POSE_B["pos"])
-    ax = spill_axis(GRIPPER_LEVEL).upper()
     print(f"\n  A  {POSE_A['pos']}   gripper level, facing forward")
     print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
     print(f"  {dist:.2f} m apart, same orientation at both ends\n")
     print(f"  run 1   free    A -> B at speed_scale {args.speed}")
     print(f"  run 2   level   A -> B at speed_scale {args.speed}, roll+pitch held (base frame)\n")
-    print(f"  measured: worst tilt of the cup's axis (tool {ax}, vertical in this")
-    print("  pose) away from vertical, sampled from /ee_state throughout each run.\n")
+    print("  measured: worst tilt of the cup's axis away from the reference the")
+    print("  arm itself reports at A, sampled from /ee_state throughout each run.")
+    print("  Calibrated, not assumed: the measured frame and the commanded frame")
+    print("  come from different robot models (see the note by GRIPPER_LEVEL).\n")
 
     if not args.go:
         print("  DRY RUN — nothing was sent. Pass --go to move the arm.\n")
@@ -247,7 +273,11 @@ def main():
             if code != 0:
                 print(f"    could not reach A ({_CODES.get(code, code)}) — stopping.")
                 return 3
-            print(f"    at A ({wall:.2f}s)")
+            if not n.calibrate():
+                print("    no /ee_state — cannot calibrate the level reference.")
+                return 3
+            print(f"    at A ({wall:.2f}s); level reference calibrated from the arm, "
+                  f"cup axis = tool {n.ref_axis.upper()}")
 
             print(f"\n  ── run: {label}   A -> B at {args.speed}"
                   + ("   roll+pitch HELD" if level else "   unconstrained"))

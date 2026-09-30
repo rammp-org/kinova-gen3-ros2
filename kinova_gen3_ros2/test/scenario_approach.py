@@ -117,11 +117,23 @@ def final_stretch_fraction(samples, goal, offset):
     return None
 
 
-def summarize(samples, a, b, offset):
-    """(wall_span, final_fraction, max_lateral) from a run's samples."""
+def summarize(samples, offset):
+    """(wall_span, final_fraction, max_lateral) from a run's own samples.
+
+    Endpoints come from the SAMPLES, not from the commanded coordinates. That is
+    deliberate. /ee_state reports `gen3_end_effector_link` out of our urdf, while
+    the goal we send is cuRobo's `tool_frame` out of NVIDIA's bundled model --
+    different frames from different models, about 12 cm apart along the tool
+    axis. Measuring the reported position against a commanded coordinate mixes
+    the two and produces a confident, meaningless number; the first version of
+    this script reported 120 mm of "lateral drift" on a run where the arm never
+    moved, which is exactly that error. Measuring a run against its own first and
+    last sample is frame-agnostic and needs no transform.
+    """
     if len(samples) < 2:
         return None, None, None
     span = samples[-1][0] - samples[0][0]
+    a, b = samples[0][1], samples[-1][1]
     worst = max(lateral_deviation(p, a, b) for _t, p in samples)
     return span, final_stretch_fraction(samples, b, offset), worst
 
@@ -224,7 +236,10 @@ def main():
         f"{args.offset} m back along Z, engaging at {args.at_fraction}\n"
     )
     print("  measured per run: wall time, the share of it spent inside the final")
-    print(f"  {args.offset} m, and the worst lateral drift off the straight A->B line.\n")
+    print(f"  {args.offset} m, and the worst lateral drift off the straight line")
+    print("  between the run's own measured endpoints. NOTE /ee_state reports a")
+    print("  frame ~12 cm behind the one we command (see summarize()), so every")
+    print("  number below is relative to the run itself, never to A and B.\n")
 
     if not args.go:
         print("  DRY RUN — nothing was sent. Pass --go to move the arm.\n")
@@ -268,9 +283,7 @@ def main():
             code, wall, samples = n.send(
                 n.goal(POSE_B, args.speed, approach, args.at_fraction), measure=True
             )
-            span, frac, lat = summarize(
-                samples, POSE_A["pos"], POSE_B["pos"], args.offset
-            )
+            span, frac, lat = summarize(samples, args.offset)
             print(f"    {_CODES.get(code, code)} in {wall:.2f}s, {len(samples)} samples")
             if frac is not None:
                 print(

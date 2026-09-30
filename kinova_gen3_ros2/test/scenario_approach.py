@@ -83,7 +83,7 @@ GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 # the GOAL forward instead leaves the pregrasp exactly on a pose already known
 # to plan.
 POSE_A = {"name": "A", "pos": [0.55, 0.00, 0.50], "quat": list(GRIPPER_LEVEL)}
-POSE_B = {"name": "B", "pos": [0.58, 0.20, 0.35], "quat": list(GRIPPER_LEVEL)}
+POSE_B = {"name": "B", "pos": [0.68, 0.20, 0.35], "quat": list(GRIPPER_LEVEL)}
 
 # Where the approach should pass through: the old goal, confirmed feasible by
 # probe_reachable.py. The default --offset is DERIVED from it rather than typed,
@@ -242,7 +242,14 @@ def main():
         help="metres back along the tool Z axis; defaults to the distance from B "
         "to APPROACH_VIA, so the pregrasp lands on that known-feasible pose",
     )
-    ap.add_argument("--at-fraction", type=float, default=0.8)
+    ap.add_argument(
+        "--at-fraction",
+        type=float,
+        default=None,
+        help="when the hold engages; defaults to where APPROACH_VIA actually "
+        "falls along A -> via -> B, because a fraction inconsistent with the "
+        "geometry asks the arm to idle and then rush",
+    )
     ap.add_argument("--sender-id", default="scenario_approach")
     ap.add_argument("--no-pause", action="store_true")
     ap.add_argument("--go", action="store_true", help="ACTUALLY MOVE THE ARM")
@@ -255,11 +262,21 @@ def main():
         args.offset = round(math.dist(POSE_B["pos"], APPROACH_VIA), 4)
     if args.offset <= 0.0:
         ap.error("--offset must be > 0")
+    if args.at_fraction is None:
+        # Where the via really sits along A -> via -> B. Pinning the hold at 0.8
+        # while the via sits at half the path told the arm to cover 20% of the
+        # distance in 80% of the time and then sprint -- geometry and schedule
+        # have to agree or the request is self-contradictory.
+        legs = math.dist(POSE_A["pos"], APPROACH_VIA)
+        args.at_fraction = round(legs / (legs + args.offset), 3)
     if not 0.0 < args.at_fraction < 1.0:
         ap.error("--at-fraction must be strictly inside (0, 1)")
     span = math.dist(POSE_A["pos"], POSE_B["pos"])
-    if args.offset >= span:
-        ap.error(f"--offset {args.offset} must be less than the {span:.2f} m move")
+    # Compared against the DOG-LEG length, not the direct span: the whole point
+    # of a forward goal is that the offset may exceed the straight-line distance.
+    dogleg = math.dist(POSE_A["pos"], APPROACH_VIA) + args.offset
+    if args.offset >= dogleg:
+        ap.error(f"--offset {args.offset} must be less than the {dogleg:.2f} m path")
 
     print(f"\n  A  {POSE_A['pos']}   gripper level, facing forward")
     print(f"  B  {POSE_B['pos']}   gripper level, facing forward")

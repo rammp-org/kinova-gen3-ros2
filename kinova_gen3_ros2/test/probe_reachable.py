@@ -146,6 +146,17 @@ def describe_traj(traj):
         "    trajectory: %d points over %.2fs, dt min=%.1f max=%.1f ms"
         % (n, ts[-1], min(dts) * 1000, max(dts) * 1000)
     )
+    # Peak planned speed per joint, against what the mode will actually allow.
+    # JointPositionMode rate-limits its reference at max_ref_speed*dt, so a plan
+    # faster than that is CLIPPED: the reference lags the trajectory and then
+    # catches up, which reads as stutter even with a perfectly clean RT loop.
+    if with_v == n:
+        peaks = [max(abs(p.velocities[j]) for p in pts) for j in range(width)]
+        print(
+            "    peak |qd| per joint: "
+            + " ".join("%.2f" % v for v in peaks)
+            + "  (max %.2f rad/s)" % max(peaks)
+        )
     gate = "CUBIC HERMITE" if with_v == n else "LINEAR (a 50 Hz velocity staircase)"
     print(
         "    velocities on %d/%d points, accelerations on %d/%d  ->  driver "
@@ -167,6 +178,15 @@ def main():
     ap.add_argument("--y", type=float, nargs="+", default=[0.0])
     ap.add_argument(
         "--z", type=float, nargs="+", default=[0.45, 0.40, 0.35, 0.30, 0.25, 0.20]
+    )
+    ap.add_argument(
+        "--start-joints",
+        type=float,
+        nargs=7,
+        metavar="Q",
+        help="plan from these 7 joint values instead of /joint_states. Lets the "
+        "planner be probed with NO arm node running, which also means nothing "
+        "can command the arm from here.",
     )
     ap.add_argument(
         "--inspect-traj",
@@ -226,7 +246,10 @@ def main():
         print("  and is CYCLONEDDS_URI exported in this shell?\n")
         rclpy.shutdown()
         return 1
-    if not n.wait_for_joints():
+    if args.start_joints:
+        n.joints = list(args.start_joints)
+        print("  start state: supplied on the command line (no arm node needed)")
+    elif not n.wait_for_joints():
         print("  no /joint_states — the planner needs a start state and refuses")
         print("  an empty one. Is the arm node up?\n")
         rclpy.shutdown()

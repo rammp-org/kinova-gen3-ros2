@@ -33,7 +33,7 @@ try:
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
     from rammp_curobo_interfaces.action import PlanToPose
-    from rammp_curobo_interfaces.msg import ApproachVia, PoseAxisLock
+    from rammp_curobo_interfaces.msg import ApproachVia, OrientationHold
     from sensor_msgs.msg import JointState
 
     _HAVE_ROS = True
@@ -46,8 +46,11 @@ except ImportError:
 # luck of the current publish order.
 ARM_JOINTS = [f"joint_{i}" for i in range(1, 8)]
 
-# Gripper level, approach axis horizontal facing forward (+90 deg about Y).
-GRIPPER_LEVEL = [0.0, 0.7071067811865476, 0.0, 0.7071067811865476]
+# Gripper level, approach axis horizontal facing forward. Read off the arm.
+GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
+# Values match OrientationHold's constants; spelled out so --help works with no
+# ROS on the path.
+_HOLDS = {"none": 0, "level": 1, "fixed": 2}
 
 
 def _normalize(q):
@@ -80,10 +83,10 @@ if _HAVE_ROS:
                 rclpy.spin_once(self, timeout_sec=0.05)
             return self.joints is not None
 
-        def feasible(self, pos, quat, timeout=20.0, approach=None, locks=()):
+        def feasible(self, pos, quat, timeout=20.0, approach=None, hold=0):
             """(ok, message, seconds). Planning only -- the arm does not move.
 
-            `approach`/`locks` go straight to the PLANNER, skipping the arm node.
+            `approach`/`hold` go straight to the PLANNER, skipping the arm node.
             That is the point: if a via sent from here changes nothing and is
             never refused, the planner is ignoring it; if it behaves here but not
             through GoToEEPose, the arm node is dropping it. Same question, two
@@ -100,10 +103,8 @@ if _HAVE_ROS:
             # REQUIRED -- an empty list is refused ("7 joint positions expected,
             # got 0"). Every probe plans from where the arm is right now.
             g.start_joints = list(self.joints)
-            g.axis_lock = PoseAxisLock()
-            g.axis_lock.reference_frame = PoseAxisLock.FRAME_BASE
-            for name in locks:
-                setattr(g.axis_lock, f"lock_{name}", True)
+            g.hold = OrientationHold()
+            g.hold.hold = hold
             g.approach_via = ApproachVia()
             if approach:
                 g.approach_via.offset = approach[0]
@@ -203,12 +204,10 @@ def main():
         help="send an ApproachVia straight to the planner, e.g. --approach 0.1 z 0.8",
     )
     ap.add_argument(
-        "--lock",
-        nargs="*",
-        default=[],
-        choices=["roll", "pitch", "yaw", "x", "y", "z"],
-        metavar="AXIS",
-        help="send a PoseAxisLock straight to the planner",
+        "--hold",
+        choices=["none", "level", "fixed"],
+        default="none",
+        help="send an OrientationHold straight to the planner",
     )
     ap.add_argument(
         "--quat",
@@ -231,8 +230,8 @@ def main():
           f"[{', '.join(f'{c:.4f}' for c in quat)}]")
     if approach:
         print(f"  approach_via: {approach[0]} m along {approach[1]} at {approach[2]}")
-    if args.lock:
-        print(f"  axis_lock: {'+'.join(args.lock)} (base frame)")
+    if args.hold != "none":
+        print(f"  orientation hold: {args.hold}")
     print("  PLANNING ONLY — the arm does not move.\n")
 
     if not _HAVE_ROS:
@@ -262,7 +261,9 @@ def main():
     ok_list = []
     try:
         for pos in poses:
-            ok, msg, secs = n.feasible(pos, quat, approach=approach, locks=args.lock)
+            ok, msg, secs = n.feasible(
+                pos, quat, approach=approach, hold=_HOLDS[args.hold]
+            )
             if ok:
                 ok_list.append(pos)
             if args.inspect_traj and ok and n.last_traj is not None:

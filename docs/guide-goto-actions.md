@@ -112,29 +112,32 @@ small delta) to exercise the success path.
 
 ## Speed and constraints per action
 
-| action               | `speed_scale` | `axis_lock` | `approach_offset` |
-| -------------------- | :-----------: | :---------: | :---------------: |
-| `go_to_ee_pose`      | yes           | yes         | yes               |
-| `go_to_joint_config` | yes           | no          | no                |
-| `go_to_preset`       | yes           | no          | no                |
-| `execute_joint_trajectory` | yes     | no          | no                |
+| action                     | `speed_scale` | `orientation_hold` |
+| -------------------------- | :-----------: | :----------------: |
+| `go_to_ee_pose`            | yes           | yes                |
+| `go_to_joint_config`       | yes           | no                 |
+| `go_to_preset`             | yes           | no                 |
+| `execute_joint_trajectory` | yes           | no                 |
 
 `speed_scale` (default `1.0`, range: the driver's minimum up to `1.0`) runs the
 trajectory slower, by dilating the driver's executor clock. Out of range is
 refused, not clamped.
 
 **Joint-space goals carry speed only.** `GoToJointConfig` and `GoToPreset` plan
-in joint space, where a tool-pose lock has no meaning, so they have no
-`axis_lock` or `approach_offset`. The absence is deliberate.
+in joint space, where holding a tool orientation has no meaning, so they have no
+`orientation_hold`. The absence is deliberate.
 
-For `go_to_ee_pose`, all three fields default to off. Two rules a caller will
+For `go_to_ee_pose`, both fields default to off. Three rules a caller will
 otherwise meet as a confusing failure (full detail in the
-[`GoToEEPose` guide](../guide-goto-ee-pose#speed-locks-and-approach)):
+[`GoToEEPose` guide](../guide-goto-ee-pose)):
 
-- **An approach also holds the other five pose components**, so the start pose
-  must already match the goal on them.
-- **"Locked" means unchanged, not level**: a 45-degree tool planning to a
-  45-degree goal stays at 45.
+- **`HOLD_LEVEL` preserves tilt, it does not create level**: a 45-degree tool
+  stays at 45 the whole way.
+- **A goal orientation disagreeing with the current one is refused**, not
+  re-aimed — a hold keeps the orientation at the goal's value, so that asks for
+  two orientations at once.
+- **A spoon needs `HOLD_FIXED`**: `HOLD_LEVEL` leaves the spin about vertical
+  free, which is fine for a cup and tips a spoon out.
 
 **A refused goal tells the client nothing today.** Rejections are bare ROS
 action rejections with no payload; the reason is logged server-side only

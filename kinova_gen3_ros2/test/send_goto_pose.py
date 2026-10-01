@@ -8,13 +8,14 @@ Optional constraints, one at a time — this is the single-shot companion to
 sweep_constraints.py (which runs the whole matrix) and send_goto_pose_tour.py
 (which runs a lap):
 
-    --speed-scale S        pace the execution; same path, longer clock
-    --lock roll pitch      hold tool-pose components for the whole move
-    --approach-distance D  come in along --approach-axis over the last stretch
+    --speed-scale S   pace the execution; same path, longer clock
+    --hold level      keep the tool's tilt, leave yaw free
+    --hold fixed      keep the orientation entirely
 
-A lock holds a component AT THE GOAL'S VALUE, so the current pose must already
-match the target on it, and an approach implies holding the other five — so both
-can be refused before planning starts, with the reason in the node's log.
+A hold keeps the orientation AT THE GOAL'S VALUE, so a --quat that disagrees
+with where the arm is on the held components is REFUSED rather than re-aimed:
+it asks for two orientations at once. Pass the current orientation, or get
+there with an unconstrained move first.
 """
 
 import argparse
@@ -22,11 +23,13 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rammp_arm_interfaces.action import GoToEEPose
-from rammp_arm_interfaces.msg import ApproachOffset, ToolAxisLock
+from rammp_arm_interfaces.msg import OrientationHold
 
-_LOCKABLE = ["roll", "pitch", "yaw", "x", "y", "z"]
-_AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
-_FRAMES = {"base": 0, "goal": 1}
+_HOLDS = {
+    "none": OrientationHold.HOLD_NONE,
+    "level": OrientationHold.HOLD_LEVEL,
+    "fixed": OrientationHold.HOLD_FIXED,
+}
 
 
 def main():
@@ -55,37 +58,19 @@ def main():
         help="execution pace; 1.0 = as planned. Refused outside [0.01, 1.0].",
     )
     ap.add_argument(
-        "--lock",
-        nargs="*",
-        default=[],
-        choices=_LOCKABLE,
-        metavar="AXIS",
-        help=f"tool-pose components to hold: {' '.join(_LOCKABLE)}",
+        "--hold",
+        choices=sorted(_HOLDS),
+        default="none",
+        help="keep the tool's orientation while it travels: none, level "
+        "(tilt held, yaw free) or fixed (all three held)",
     )
-    ap.add_argument(
-        "--frame",
-        choices=sorted(_FRAMES),
-        default="base",
-        help="frame the locks and the approach are measured in (default base)",
-    )
-    ap.add_argument(
-        "--approach-distance",
-        type=float,
-        default=0.0,
-        help="metres back from the goal to approach from; 0 = no approach",
-    )
-    ap.add_argument("--approach-axis", choices=sorted(_AXIS_INDEX), default="z")
-    ap.add_argument("--at-fraction", type=float, default=0.8)
     args = ap.parse_args()
 
     # Same bounds the node enforces, refused rather than clamped — catching it
     # here saves a round trip and gives a reason, which a rejection cannot carry.
     if not 0.01 <= args.speed_scale <= 1.0:
         ap.error(f"--speed-scale must be in [0.01, 1.0]; got {args.speed_scale}")
-    if args.approach_distance < 0.0:
-        ap.error("--approach-distance must be >= 0")
-    if args.approach_distance and not 0.0 < args.at_fraction < 1.0:
-        ap.error("--at-fraction must be strictly inside (0, 1)")
+
 
     rclpy.init()
     node = Node("send_goto_pose")
@@ -110,16 +95,8 @@ def main():
     goal.sender_id = args.sender_id
     goal.speed_scale = args.speed_scale
 
-    goal.axis_lock = ToolAxisLock()
-    goal.axis_lock.reference_frame = _FRAMES[args.frame]
-    for name in args.lock:
-        setattr(goal.axis_lock, f"lock_{name}", True)
-
-    goal.approach_offset = ApproachOffset()
-    if args.approach_distance:
-        goal.approach_offset.distance = args.approach_distance
-        goal.approach_offset.axis = _AXIS_INDEX[args.approach_axis]
-        goal.approach_offset.at_fraction = args.at_fraction
+    goal.orientation_hold = OrientationHold()
+    goal.orientation_hold.hold = _HOLDS[args.hold]
 
     def on_fb(fb):
         f = fb.feedback

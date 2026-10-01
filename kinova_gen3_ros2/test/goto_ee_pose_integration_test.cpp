@@ -512,30 +512,31 @@ struct Rig {
 };
 } // namespace
 
-TEST_F(GotoServerTest, ALockedGoalReachesThePlanner) {
-  Rig r("goto_it_lock");
-  auto goal = base_goal();
-  goal.axis_lock.lock_roll = true;
-  goal.axis_lock.lock_pitch = true;
-  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
-  const auto l = r.fake.last_axis_lock();
-  EXPECT_TRUE(l.lock_roll);
-  EXPECT_TRUE(l.lock_pitch);
-  EXPECT_FALSE(l.lock_yaw);
-  EXPECT_FALSE(l.lock_x);
-  EXPECT_FALSE(l.lock_y);
-  EXPECT_FALSE(l.lock_z);
+TEST_F(GotoServerTest, AHeldGoalReachesThePlanner) {
+  using ArmHold = rammp_arm_interfaces::msg::OrientationHold;
+  using PlannerHold = rammp_curobo_interfaces::msg::OrientationHold;
+  // Both modes, because the translation is a switch: a case falling through to
+  // the wrong constant would still pass if only one value were exercised.
+  for (auto [arm, planner] :
+       {std::pair{ArmHold::HOLD_LEVEL, PlannerHold::HOLD_LEVEL},
+        std::pair{ArmHold::HOLD_FIXED, PlannerHold::HOLD_FIXED}}) {
+    Rig r("goto_it_hold" + std::to_string(arm));
+    auto goal = base_goal();
+    goal.orientation_hold.hold = arm;
+    EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+    EXPECT_EQ(r.fake.last_hold().hold, planner) << "mode " << int(arm);
+  }
 }
 
-TEST_F(GotoServerTest, AnApproachOffsetReachesThePlanner) {
-  Rig r("goto_it_approach");
+TEST_F(GotoServerTest, AnUnknownHoldModeIsRefusedNotTreatedAsFree) {
+  // The dangerous failure is not a crash, it is a silently UNCONSTRAINED move
+  // for a caller who asked for a held one -- that looks like success. So this
+  // asserts both the refusal AND that nothing reached the planner.
+  Rig r("goto_it_badhold");
   auto goal = base_goal();
-  goal.approach_offset.distance = 0.10;
-  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
-  const auto a = r.fake.last_approach_via();
-  EXPECT_DOUBLE_EQ(a.offset, 0.10);
-  // Axis mapping is not asserted here: AXIS_Z is the default on both sides, so
-  // it could not fail. Non-default axes are covered in curobo_plan_client_test.
+  goal.orientation_hold.hold = 7;
+  EXPECT_EQ(send_goal(r.node, goal), kRefused);
+  EXPECT_EQ(r.fake.pose_goals_received(), 0);
 }
 
 TEST_F(GotoServerTest, SpeedScaleReachesTheTrajectoryGoal) {
@@ -547,53 +548,14 @@ TEST_F(GotoServerTest, SpeedScaleReachesTheTrajectoryGoal) {
 }
 
 // The whole "nothing changed for existing clients" claim in one place: a goal
-// that sets none of the new fields plans with no lock and no offset, and runs
-// at full speed.
+// that sets none of the new fields plans unconstrained and runs at full speed.
 TEST_F(GotoServerTest, AGoalUsingNoNewFieldsBehavesAsBefore) {
   Rig r("goto_it_legacy");
   EXPECT_EQ(send_goal(r.node, base_goal()), result_code::kSuccessful);
-  const auto l = r.fake.last_axis_lock();
-  EXPECT_FALSE(l.lock_roll || l.lock_pitch || l.lock_yaw || l.lock_x ||
-               l.lock_y || l.lock_z)
-      << "an unlocked goal reached the planner locked";
-  EXPECT_DOUBLE_EQ(r.fake.last_approach_via().offset, 0.0);
-  EXPECT_EQ(r.fake.last_approach_via().axis,
-            rammp_arm_interfaces::msg::ApproachOffset::AXIS_Z);
+  EXPECT_EQ(r.fake.last_hold().hold,
+            rammp_curobo_interfaces::msg::OrientationHold::HOLD_NONE)
+      << "a goal that asked for nothing reached the planner holding something";
   EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 1.0);
-}
-
-TEST_F(GotoServerTest, LockingTheApproachAxisIsRefused) {
-  using A = rammp_arm_interfaces::msg::ApproachOffset;
-  // Each axis paired with the lock that contradicts it, so a transposed index
-  // in the mapping fails here.
-  for (int axis : {A::AXIS_X, A::AXIS_Y, A::AXIS_Z}) {
-    Rig r("goto_it_contradict" + std::to_string(axis));
-    auto goal = base_goal();
-    goal.approach_offset.distance = 0.10;
-    goal.approach_offset.axis = axis;
-    goal.axis_lock.lock_x = axis == A::AXIS_X;
-    goal.axis_lock.lock_y = axis == A::AXIS_Y;
-    goal.axis_lock.lock_z = axis == A::AXIS_Z;
-    EXPECT_EQ(send_goal(r.node, goal), kRefused) << "axis " << axis;
-    EXPECT_EQ(r.fake.pose_goals_received(), 0) << "axis " << axis;
-  }
-}
-
-TEST_F(GotoServerTest, LockingAnotherAxisThanTheApproachIsAccepted) {
-  Rig r("goto_it_noncontradict");
-  auto goal = base_goal();
-  goal.approach_offset.distance = 0.10; // AXIS_Z default
-  goal.axis_lock.lock_x = true;
-  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
-}
-
-// distance 0.0 means no approach is active, so its axis (default Z) must not
-// collide with a lock_z.
-TEST_F(GotoServerTest, AZeroDistanceApproachDoesNotContradictALock) {
-  Rig r("goto_it_zerodist");
-  auto goal = base_goal();
-  goal.axis_lock.lock_z = true;
-  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
 }
 
 TEST_F(GotoServerTest, AnUnusableSpeedScaleIsRefused) {

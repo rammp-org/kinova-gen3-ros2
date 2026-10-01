@@ -84,10 +84,13 @@ public:
 
   // What the caller asked us to constrain the plan by. Default-constructed
   // (no locks, zero offset) until a pose goal arrives.
-  rammp_curobo_interfaces::msg::PoseAxisLock last_axis_lock() const {
+  rammp_curobo_interfaces::msg::OrientationHold last_hold() const {
     std::lock_guard<std::mutex> l(seen_m_);
-    return last_axis_lock_;
+    return last_hold_;
   }
+  // Still recorded, though no test asserts it: approach_via remains a field
+  // on PlanToPose (shelved, see kinova-gen3-ros2#40) and this double should
+  // mirror the real message rather than a subset of it.
   rammp_curobo_interfaces::msg::ApproachVia last_approach_via() const {
     std::lock_guard<std::mutex> l(seen_m_);
     return last_approach_via_;
@@ -99,7 +102,7 @@ public:
 
 private:
   void record_constraints(const PlanToPose::Goal &g) {
-    last_axis_lock_ = g.axis_lock;
+    last_hold_ = g.hold;
     last_approach_via_ = g.approach_via;
   }
   void record_constraints(const PlanToJoints::Goal &) {}
@@ -155,7 +158,7 @@ private:
   std::atomic<int> pose_goals_received_{0};
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
-  rammp_curobo_interfaces::msg::PoseAxisLock last_axis_lock_;
+  rammp_curobo_interfaces::msg::OrientationHold last_hold_;
   rammp_curobo_interfaces::msg::ApproachVia last_approach_via_;
 };
 } // namespace kinova_gen3_ros2::test

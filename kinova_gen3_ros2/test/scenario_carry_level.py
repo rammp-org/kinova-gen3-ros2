@@ -46,7 +46,7 @@ try:
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
     from rammp_arm_interfaces.action import GoToEEPose
-    from rammp_arm_interfaces.msg import ApproachOffset, EeState, ToolAxisLock
+    from rammp_arm_interfaces.msg import EeState, OrientationHold
 
     _HAVE_ROS = True
 except ImportError:
@@ -188,13 +188,13 @@ if _HAVE_ROS:
           ) = _normalize(pose["quat"])
           g.sender_id = self.sender_id
           g.speed_scale = speed
-          g.axis_lock = ToolAxisLock()
-          # Gravity-relative: "level" only means anything in the base frame.
-          g.axis_lock.reference_frame = ToolAxisLock.FRAME_BASE
-          if level:
-              g.axis_lock.lock_roll = True
-              g.axis_lock.lock_pitch = True
-          g.approach_offset = ApproachOffset()
+          g.orientation_hold = OrientationHold()
+          # HOLD_LEVEL holds roll and pitch and leaves yaw free. There is no
+          # frame to choose any more: "level" means level with the world, and
+          # only the base frame can express that, so the planner always uses it.
+          g.orientation_hold.hold = (
+              OrientationHold.HOLD_LEVEL if level else OrientationHold.HOLD_NONE
+          )
           return g
 
       def send(self, goal, measure=False):

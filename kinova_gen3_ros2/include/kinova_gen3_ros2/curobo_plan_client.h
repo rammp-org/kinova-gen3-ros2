@@ -8,8 +8,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
-#include "rammp_arm_interfaces/msg/approach_offset.hpp"
-#include "rammp_arm_interfaces/msg/tool_axis_lock.hpp"
+#include "rammp_arm_interfaces/msg/orientation_hold.hpp"
 #include "rammp_curobo_interfaces/action/plan_to_joints.hpp"
 #include "rammp_curobo_interfaces/action/plan_to_pose.hpp"
 namespace kinova_gen3_ros2 {
@@ -49,18 +48,16 @@ public:
             const std::vector<double> &start_joints, FeedbackCb on_fb,
             DoneCb on_done);
   // THREADING: on_done is normally invoked from the rclcpp executor, but if
-  // the lock or approach carries an unknown frame/axis, plan() invokes on_done
-  // (ok=false) SYNCHRONOUSLY on the caller's thread and dispatches nothing.
-  // A caller must not hold a lock across plan() that on_done also takes.
+  // the hold carries an unknown mode, plan() invokes on_done (ok=false)
+  // SYNCHRONOUSLY on the caller's thread and dispatches nothing. A caller must
+  // not hold a lock across plan() that on_done also takes.
   //
-  // As above, constrained by the arm's own lock and approach types. They are
-  // translated into the planner's equivalents here and nowhere else, so
-  // replacing cuRobo never changes what an arm client sends. A default lock
-  // and a zero-distance offset mean "no constraint".
+  // As above, constrained by the arm's own OrientationHold. It is translated
+  // into the planner's equivalent here and nowhere else, so replacing cuRobo
+  // never changes what an arm client sends. HOLD_NONE means "no constraint".
   void plan(const geometry_msgs::msg::Pose &target,
             const std::vector<double> &start_joints,
-            const rammp_arm_interfaces::msg::ToolAxisLock &axis_lock,
-            const rammp_arm_interfaces::msg::ApproachOffset &approach_offset,
+            const rammp_arm_interfaces::msg::OrientationHold &hold,
             FeedbackCb on_fb, DoneCb on_done);
   void plan_to_joints(const std::vector<double> &target_joints,
                       const std::vector<double> &start_joints, FeedbackCb on_fb,

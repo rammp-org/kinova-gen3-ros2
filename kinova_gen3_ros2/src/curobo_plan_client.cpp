@@ -12,54 +12,29 @@ double mismatch_of(const CuroboPlanClient::PlanToJoints::Result &r) {
   return r.goal_mismatch_rad;
 }
 
-// Arm contract -> planner contract. Constants are mapped by name, never by
-// assigning the raw integer: the two enumerations are independent contracts.
-rammp_curobo_interfaces::msg::PoseAxisLock
-to_planner(const rammp_arm_interfaces::msg::ToolAxisLock &in) {
-  using Arm = rammp_arm_interfaces::msg::ToolAxisLock;
-  using Planner = rammp_curobo_interfaces::msg::PoseAxisLock;
+// Arm contract -> planner contract. Modes are mapped BY NAME, never by
+// assigning the raw integer: the two enumerations are independent contracts
+// that happen to agree today, and a silent renumbering on either side would
+// otherwise turn LEVEL into FIXED without a compile error.
+rammp_curobo_interfaces::msg::OrientationHold
+to_planner(const rammp_arm_interfaces::msg::OrientationHold &in) {
+  using Arm = rammp_arm_interfaces::msg::OrientationHold;
+  using Planner = rammp_curobo_interfaces::msg::OrientationHold;
   Planner out;
-  switch (in.reference_frame) {
-  case Arm::FRAME_BASE:
-    out.reference_frame = Planner::FRAME_BASE;
+  switch (in.hold) {
+  case Arm::HOLD_NONE:
+    out.hold = Planner::HOLD_NONE;
     break;
-  case Arm::FRAME_GOAL:
-    out.reference_frame = Planner::FRAME_GOAL;
+  case Arm::HOLD_LEVEL:
+    out.hold = Planner::HOLD_LEVEL;
+    break;
+  case Arm::HOLD_FIXED:
+    out.hold = Planner::HOLD_FIXED;
     break;
   default:
-    throw std::invalid_argument("unknown axis-lock reference frame " +
-                                std::to_string(in.reference_frame));
+    throw std::invalid_argument("unknown orientation hold mode " +
+                                std::to_string(in.hold));
   }
-  out.lock_roll = in.lock_roll;
-  out.lock_pitch = in.lock_pitch;
-  out.lock_yaw = in.lock_yaw;
-  out.lock_x = in.lock_x;
-  out.lock_y = in.lock_y;
-  out.lock_z = in.lock_z;
-  return out;
-}
-
-rammp_curobo_interfaces::msg::ApproachVia
-to_planner(const rammp_arm_interfaces::msg::ApproachOffset &in) {
-  using Arm = rammp_arm_interfaces::msg::ApproachOffset;
-  using Planner = rammp_curobo_interfaces::msg::ApproachVia;
-  Planner out;
-  switch (in.axis) {
-  case Arm::AXIS_X:
-    out.axis = Planner::AXIS_X;
-    break;
-  case Arm::AXIS_Y:
-    out.axis = Planner::AXIS_Y;
-    break;
-  case Arm::AXIS_Z:
-    out.axis = Planner::AXIS_Z;
-    break;
-  default:
-    throw std::invalid_argument("unknown approach axis " +
-                                std::to_string(in.axis));
-  }
-  out.offset = in.distance;
-  out.at_fraction = in.at_fraction;
   return out;
 }
 
@@ -141,25 +116,24 @@ CuroboPlanClient::CuroboPlanClient(rclcpp::Node::SharedPtr node,
 void CuroboPlanClient::plan(const geometry_msgs::msg::Pose &target,
                             const std::vector<double> &start_joints,
                             FeedbackCb on_fb, DoneCb on_done) {
-  plan(target, start_joints, rammp_arm_interfaces::msg::ToolAxisLock{},
-       rammp_arm_interfaces::msg::ApproachOffset{}, std::move(on_fb),
-       std::move(on_done));
+  plan(target, start_joints, rammp_arm_interfaces::msg::OrientationHold{},
+       std::move(on_fb), std::move(on_done));
 }
 
 void CuroboPlanClient::plan(
     const geometry_msgs::msg::Pose &target,
     const std::vector<double> &start_joints,
-    const rammp_arm_interfaces::msg::ToolAxisLock &axis_lock,
-    const rammp_arm_interfaces::msg::ApproachOffset &approach_offset,
-    FeedbackCb on_fb, DoneCb on_done) {
+    const rammp_arm_interfaces::msg::OrientationHold &hold, FeedbackCb on_fb,
+    DoneCb on_done) {
   PlanToPose::Goal goal;
   goal.target = target;
   goal.start_joints = start_joints; // plan from where the arm actually is
   try {
-    goal.axis_lock = to_planner(axis_lock);
-    goal.approach_via = to_planner(approach_offset);
+    goal.hold = to_planner(hold);
   } catch (const std::invalid_argument &e) {
-    // An unknown frame/axis must not become a silently different constraint.
+    // An unknown mode must not become a silently different constraint -- and
+    // in particular must not become "no hold", which would execute an
+    // unconstrained move for a caller who asked for a held one.
     on_done({false, e.what(), {}, 0.0});
     return;
   }

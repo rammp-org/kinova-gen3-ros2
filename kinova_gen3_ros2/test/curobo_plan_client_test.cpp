@@ -230,8 +230,7 @@ namespace {
 // Runs one pose plan to completion against a fake and hands back the fake's
 // record of what it received.
 struct Seen {
-  rammp_curobo_interfaces::msg::PoseAxisLock lock;
-  rammp_curobo_interfaces::msg::ApproachVia via;
+  rammp_curobo_interfaces::msg::OrientationHold hold;
 };
 template <typename PlanFn> Seen run_plan(const char *name, PlanFn call) {
   auto node = std::make_shared<rclcpp::Node>(name);
@@ -245,66 +244,36 @@ template <typename PlanFn> Seen run_plan(const char *name, PlanFn call) {
   auto f = p.get_future();
   call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   EXPECT_EQ(f.wait_for(5s), std::future_status::ready);
-  return {fake.last_axis_lock(), fake.last_approach_via()};
+  return {fake.last_hold()};
 }
 } // namespace
 
-TEST_F(CuroboClientTest, TranslatesTheArmLockOntoThePlannerLock) {
-  // A mis-mapped boolean constrains the WRONG axis and still plans, so assert
-  // all six and the frame rather than "some lock arrived".
-  rammp_arm_interfaces::msg::ToolAxisLock lock;
-  lock.lock_roll = true;
-  lock.lock_z = true;
-  lock.reference_frame = rammp_arm_interfaces::msg::ToolAxisLock::FRAME_BASE;
-  const auto seen = run_plan("lock_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock,
-           rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
-  });
-  EXPECT_TRUE(seen.lock.lock_roll);
-  EXPECT_FALSE(seen.lock.lock_pitch);
-  EXPECT_FALSE(seen.lock.lock_yaw);
-  EXPECT_FALSE(seen.lock.lock_x);
-  EXPECT_FALSE(seen.lock.lock_y);
-  EXPECT_TRUE(seen.lock.lock_z);
-  EXPECT_EQ(seen.lock.reference_frame,
-            rammp_curobo_interfaces::msg::PoseAxisLock::FRAME_BASE);
-}
-
-TEST_F(CuroboClientTest, TranslatesTheGoalFrame) {
-  rammp_arm_interfaces::msg::ToolAxisLock lock;
-  lock.lock_pitch = true;
-  lock.lock_x = true;
-  lock.reference_frame = rammp_arm_interfaces::msg::ToolAxisLock::FRAME_GOAL;
-  const auto seen = run_plan("frame_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock,
-           rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
-  });
-  EXPECT_FALSE(seen.lock.lock_roll);
-  EXPECT_TRUE(seen.lock.lock_pitch);
-  EXPECT_FALSE(seen.lock.lock_yaw);
-  EXPECT_TRUE(seen.lock.lock_x);
-  EXPECT_FALSE(seen.lock.lock_y);
-  EXPECT_FALSE(seen.lock.lock_z);
-  EXPECT_EQ(seen.lock.reference_frame,
-            rammp_curobo_interfaces::msg::PoseAxisLock::FRAME_GOAL);
-}
-
-TEST_F(CuroboClientTest, TranslatesTheApproachOffset) {
-  rammp_arm_interfaces::msg::ApproachOffset off;
-  off.distance = 0.10;
-  off.axis = rammp_arm_interfaces::msg::ApproachOffset::AXIS_Y;
-  off.at_fraction = 0.7;
-  const auto seen = run_plan("via_test", [&](CuroboPlanClient &c, auto done) {
-    c.plan(geometry_msgs::msg::Pose{}, kStartJoints,
-           rammp_arm_interfaces::msg::ToolAxisLock{}, off, nullptr, done);
-  });
-  EXPECT_DOUBLE_EQ(seen.via.offset, 0.10);
-  EXPECT_EQ(seen.via.axis, rammp_curobo_interfaces::msg::ApproachVia::AXIS_Y);
-  EXPECT_DOUBLE_EQ(seen.via.at_fraction, 0.7);
+TEST_F(CuroboClientTest, TranslatesEveryHoldModeOntoThePlannerContract) {
+  // The translation is a switch over three constants that currently happen to
+  // share numeric values with the planner's. Asserting only one mode would
+  // pass even if two cases were transposed, so every mode is exercised and
+  // compared against the PLANNER's own constant rather than a literal.
+  using Arm = rammp_arm_interfaces::msg::OrientationHold;
+  using Planner = rammp_curobo_interfaces::msg::OrientationHold;
+  const std::pair<uint8_t, uint8_t> cases[] = {
+      {Arm::HOLD_NONE, Planner::HOLD_NONE},
+      {Arm::HOLD_LEVEL, Planner::HOLD_LEVEL},
+      {Arm::HOLD_FIXED, Planner::HOLD_FIXED},
+  };
+  for (const auto &[arm, planner] : cases) {
+    rammp_arm_interfaces::msg::OrientationHold hold;
+    hold.hold = arm;
+    const auto seen = run_plan(
+        ("hold_test" + std::to_string(arm)).c_str(),
+        [&](CuroboPlanClient &c, auto done) {
+          c.plan(geometry_msgs::msg::Pose{}, kStartJoints, hold, nullptr, done);
+        });
+    EXPECT_EQ(seen.hold.hold, planner) << "arm mode " << int(arm);
+  }
 }
 
 namespace {
-// Plans with a malformed lock/offset against a live fake and returns the
+// Plans with a malformed hold against a live fake and returns the
 // outcome plus how many goals the fake received (must be zero).
 template <typename PlanFn>
 std::pair<CuroboPlanClient::Outcome, int> run_refused(const char *name,
@@ -326,44 +295,28 @@ std::pair<CuroboPlanClient::Outcome, int> run_refused(const char *name,
 }
 } // namespace
 
-TEST_F(CuroboClientTest, AnUnknownFrameFailsLoudInsteadOfPlanning) {
-  rammp_arm_interfaces::msg::ToolAxisLock lock;
-  lock.reference_frame = 9;
+TEST_F(CuroboClientTest, AnUnknownHoldModeFailsLoudInsteadOfPlanning) {
+  // Asserting `received == 0` is the real content: the failure that matters is
+  // not a bad error string, it is dispatching an UNCONSTRAINED plan for a
+  // caller who asked for a held one.
+  rammp_arm_interfaces::msg::OrientationHold hold;
+  hold.hold = 9;
   const auto [o, received] =
-      run_refused("bad_frame_test", [&](CuroboPlanClient &c, auto done) {
-        c.plan(geometry_msgs::msg::Pose{}, kStartJoints, lock,
-               rammp_arm_interfaces::msg::ApproachOffset{}, nullptr, done);
+      run_refused("bad_hold_test", [&](CuroboPlanClient &c, auto done) {
+        c.plan(geometry_msgs::msg::Pose{}, kStartJoints, hold, nullptr, done);
       });
   EXPECT_FALSE(o.ok);
   EXPECT_NE(o.message.find("9"), std::string::npos);
   EXPECT_EQ(received, 0);
 }
 
-TEST_F(CuroboClientTest, AnUnknownAxisFailsLoudInsteadOfPlanning) {
-  rammp_arm_interfaces::msg::ApproachOffset off;
-  off.distance = 0.1;
-  off.axis = 7;
-  const auto [o, received] =
-      run_refused("bad_axis_test", [&](CuroboPlanClient &c, auto done) {
-        c.plan(geometry_msgs::msg::Pose{}, kStartJoints,
-               rammp_arm_interfaces::msg::ToolAxisLock{}, off, nullptr, done);
-      });
-  EXPECT_FALSE(o.ok);
-  EXPECT_NE(o.message.find("7"), std::string::npos);
-  EXPECT_EQ(received, 0);
-}
-
-TEST_F(CuroboClientTest, TheFourArgumentPlanSendsNothingExtra) {
+TEST_F(CuroboClientTest, TheShortPlanOverloadSendsNoHold) {
+  // The overload without a hold must reach the planner as HOLD_NONE, not as
+  // whatever an uninitialised field happens to contain.
   const auto seen =
-      run_plan("four_arg_test", [&](CuroboPlanClient &c, auto done) {
+      run_plan("short_overload_test", [&](CuroboPlanClient &c, auto done) {
         c.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr, done);
       });
-  EXPECT_FALSE(seen.lock.lock_roll || seen.lock.lock_pitch ||
-               seen.lock.lock_yaw || seen.lock.lock_x || seen.lock.lock_y ||
-               seen.lock.lock_z);
-  EXPECT_DOUBLE_EQ(seen.via.offset, 0.0);
-  EXPECT_EQ(seen.lock.reference_frame,
-            rammp_curobo_interfaces::msg::PoseAxisLock::FRAME_BASE);
-  EXPECT_EQ(seen.via.axis, rammp_curobo_interfaces::msg::ApproachVia::AXIS_Z);
-  EXPECT_DOUBLE_EQ(seen.via.at_fraction, 0.8);
+  EXPECT_EQ(seen.hold.hold,
+            rammp_curobo_interfaces::msg::OrientationHold::HOLD_NONE);
 }

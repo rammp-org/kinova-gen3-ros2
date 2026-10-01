@@ -1,7 +1,7 @@
 """Checks for speed_scale on ExecuteJointTrajectory.
 
-Scoped deliberately to what the NODE owns. The other two new fields — axis_lock
-and approach_offset — only mean anything once cuRobo is planning, and the whole
+Scoped deliberately to what the NODE owns. The other new field —
+orientation_hold — only means anything once cuRobo is planning, and the whole
 conformance suite is currently driver-facing with no planner dependency. Adding
 GoToEEPose here would make the suite unrunnable without a GPU stack, so the
 constraint cases live in test/sweep_constraints.py instead, which expects a

@@ -64,8 +64,7 @@ Client flags: `--pos X Y Z` (metres, `base_link`), `--quat X Y Z W`
 non-zero if the terminal `error_code` isn't `0`.
 
 It also carries the constraint fields, one move at a time: `--speed-scale S`,
-`--lock roll pitch …` (with `--frame base|goal`), and `--approach-distance D`
-with `--approach-axis` and `--at-fraction`. Bounds are checked client-side too,
+`--hold none|level|fixed`. Bounds are checked client-side too,
 because a rejection carries no payload — the reason only reaches the node's log.
 
 ### Demonstration scripts
@@ -118,49 +117,62 @@ request arrives:
 
 ## Speed, locks and approach
 
-`GoToEEPose` carries three optional fields. All default to off, so a goal that
-sets none of them behaves exactly as before.
+`GoToEEPose` carries two optional fields. Both default to off, so a goal that
+sets neither behaves exactly as before.
 
-| field             | type             | default | meaning                                       |
-| ----------------- | ---------------- | ------- | --------------------------------------------- |
-| `speed_scale`     | `float64`        | `1.0`   | run the trajectory slower; `1.0` = as planned |
-| `axis_lock`       | `ToolAxisLock`   | none    | hold tool-pose components fixed throughout    |
-| `approach_offset` | `ApproachOffset` | `0.0`   | arrive along one axis, from a set distance    |
+| field              | type               | default     | meaning                                       |
+| ------------------ | ------------------ | ----------- | --------------------------------------------- |
+| `speed_scale`      | `float64`          | `1.0`       | run the trajectory slower; `1.0` = as planned |
+| `orientation_hold` | `OrientationHold`  | `HOLD_NONE` | keep the tool's orientation while it travels  |
 
 **`speed_scale`** lowers the speed of the planned trajectory. The driver
 executes it slower by dilating its executor clock; the plan itself is unchanged.
 A value outside the driver's accepted range (its minimum up to `1.0`) or a
 non-finite one is **refused, not clamped**.
 
-**`axis_lock`** (`lock_roll`, `lock_pitch`, `lock_yaw`, `lock_x`, `lock_y`,
-`lock_z`, plus a `reference_frame`) holds those components fixed for the whole
-trajectory. Two things callers meet as surprises:
+**`orientation_hold`** has three modes and no frame:
 
-- **"Locked" means unchanged, not level.** A locked component is held at the
-  *goal's* value, so the start pose must already match the goal on it. A tool at
-  45 degrees planning to a 45-degree goal stays at 45 the whole way. If the start
-  does not match, the planner refuses the goal.
-- **An approach is not independent of locking.** `approach_offset` (`distance`,
-  `axis`, `at_fraction`) makes the path pass near a point `distance` back from the
-  goal along one axis. The planner does this by holding the **other five** pose
-  components at the goal's values while travelling along the freed axis. Asking
-  for an approach therefore also asks for those five locks, and the start pose
-  must already match the goal on them, even if `axis_lock` is all false. The
-  approach is a preference, not a waypoint: the path passes near the offset
-  without stopping at it. `axis_lock.reference_frame` governs both the lock and
-  the approach axis.
+| mode | effect |
+| --- | --- |
+| `HOLD_NONE` | the planner reorients freely |
+| `HOLD_LEVEL` | roll and pitch held; spin about vertical stays free |
+| `HOLD_FIXED` | the whole orientation held |
 
-The node translates the arm's lock and approach into the planner's own types
+Four things callers meet as surprises:
+
+- **LEVEL preserves tilt; it does not create level.** Roll and pitch are held at
+  the *goal's* value, so a gripper that starts 20 degrees off stays 20 degrees
+  off the whole way — faithfully, just not level. "Level" means "as level as you
+  already are".
+- **A goal orientation that disagrees with the current one is refused.** A hold
+  keeps the orientation at the goal's value, so a goal that differs from where
+  the arm is, on the held components, asks for two orientations at once. Send the
+  current orientation as the goal's, or get there with an unconstrained move
+  first. The planner refuses before planning, with the measured deviation.
+- **A spoon needs FIXED, not LEVEL.** LEVEL leaves the spin about vertical free,
+  which is right for anything symmetric about its upright axis — a cup, a bottle,
+  a plate. A spoon is not symmetric: the bowl has to face a particular way, and
+  LEVEL will plan happily while tipping the contents out.
+- **"Level with the world" means "level with the robot base".** Those are the
+  same thing while the arm is mounted level and stop being the same thing the
+  moment it is not. Mount tilt belongs in the robot model, not in this field.
+
+The hold is a planner *cost*, not a hard limit, so the planner measures the
+trajectory it produced and refuses a plan whose worst deviation exceeds its
+configured tolerance. A `SUCCESSFUL` result has been verified to hold within it.
+
+The node translates the arm's `OrientationHold` into the planner's own type
 (inside `CuroboPlanClient`), so callers never see the planner's message types.
+An unknown mode is **refused**, never treated as `HOLD_NONE` — running an
+unconstrained move for a caller who asked for a held one would look like
+success.
 
-**Two kinds of refusal.** `validate()` rejects a bad `speed_scale` or a
-contradictory lock/approach; the client receives a bare ROS action rejection
-with no payload, and the reason is logged on the server only (tracked as
-`kinova-gen3-ros2#39`). A negative approach `distance` or an `at_fraction`
-outside (0, 1) is *not* checked by `validate()`: it reaches the planner, whose
-validation refuses it, and the goal is accepted and then settles
-`PLANNING_FAILED (-7)` with the planner's reason in `error_string`. That reason
-is in the client's result; no need to check the node log.
+**Refusals carry no payload.** `validate()` rejects a bad `speed_scale` or an
+unknown hold mode, and the client receives a bare ROS action rejection with the
+reason logged on the server only (tracked as `kinova-gen3-ros2#39`). A hold the
+planner cannot satisfy is different: the goal is accepted and then settles
+`PLANNING_FAILED (-7)` with the planner's reason — including the measured
+deviation — in `error_string`, which the client does see.
 
 ## Safety
 

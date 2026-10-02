@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.0 — 2026-10-02
+
 > **RESOLVED 2026-10-02: the three dependency releases exist and the pins have
 > moved.** Until then this branch did not build from its own declared sources —
 > a clean `vcs import` + `docker build` failed to compile `message_mapping.cpp`

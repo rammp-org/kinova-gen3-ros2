@@ -35,7 +35,7 @@ Everything below runs on the driver alone. The `go_to_*` actions do not — see
 ```sh
 docker run --rm -it --network host --ipc host \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  ghcr.io/rammp-org/kinova-gen3-ros2:1.0.0
+  ghcr.io/rammp-org/kinova-gen3-ros2:1.1.0
 ```
 
 You should see:
@@ -145,7 +145,7 @@ Off-fleet, run both with compose. Save this as `compose.yaml`:
 ```yaml
 services:
   kinova_gen3_driver:
-    image: ghcr.io/rammp-org/kinova-gen3-ros2:1.0.0
+    image: ghcr.io/rammp-org/kinova-gen3-ros2:1.1.0
     network_mode: host
     ipc: host                      # DDS shared-memory transport
     cap_add: [SYS_NICE]            # permits sched_setscheduler...

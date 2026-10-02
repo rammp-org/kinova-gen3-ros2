@@ -3,6 +3,19 @@
 
 The operator supplies a base_link tool pose. Pick a pose near the current tool
 pose for a safe local move; cuRobo plans collision-free from the live /joint_states.
+
+Optional constraints, one at a time — this is the single-shot companion to
+sweep_constraints.py (which runs the whole matrix) and send_goto_pose_tour.py
+(which runs a lap):
+
+    --speed-scale S   pace the execution; same path, longer clock
+    --hold level      keep the tool's tilt, leave yaw free
+    --hold fixed      keep the orientation entirely
+
+A hold keeps the orientation AT THE GOAL'S VALUE, so a --quat that disagrees
+with where the arm is on the held components is REFUSED rather than re-aimed:
+it asks for two orientations at once. Pass the current orientation, or get
+there with an unconstrained move first.
 """
 
 import argparse
@@ -10,6 +23,12 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rammp_arm_interfaces.action import GoToEEPose
+
+_HOLDS = {
+    "none": GoToEEPose.Goal.HOLD_NONE,
+    "level": GoToEEPose.Goal.HOLD_LEVEL,
+    "fixed": GoToEEPose.Goal.HOLD_FIXED,
+}
 
 
 def main():
@@ -31,7 +50,25 @@ def main():
         help="target tool orientation xyzw",
     )
     ap.add_argument("--sender-id", default="send_goto_pose")
+    ap.add_argument(
+        "--speed-scale",
+        type=float,
+        default=1.0,
+        help="execution pace; 1.0 = as planned. Refused outside [0.01, 1.0].",
+    )
+    ap.add_argument(
+        "--hold",
+        choices=sorted(_HOLDS),
+        default="none",
+        help="keep the tool's orientation while it travels: none, level "
+        "(tilt held, yaw free) or fixed (all three held)",
+    )
     args = ap.parse_args()
+
+    # Same bounds the node enforces, refused rather than clamped — catching it
+    # here saves a round trip and gives a reason, which a rejection cannot carry.
+    if not 0.01 <= args.speed_scale <= 1.0:
+        ap.error(f"--speed-scale must be in [0.01, 1.0]; got {args.speed_scale}")
 
     rclpy.init()
     node = Node("send_goto_pose")
@@ -54,6 +91,9 @@ def main():
         goal.target.pose.orientation.w,
     ) = args.quat
     goal.sender_id = args.sender_id
+    goal.speed_scale = args.speed_scale
+
+    goal.orientation_hold = _HOLDS[args.hold]
 
     def on_fb(fb):
         f = fb.feedback

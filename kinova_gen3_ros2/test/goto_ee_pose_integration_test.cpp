@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <future>
+#include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -451,4 +453,118 @@ TEST_F(GotoServerTest, CancelDuringPlanningThenPlanSucceedsSettlesPreempted) {
 
   ex.cancel();
   spin.join();
+}
+
+namespace {
+// Everything the Task-4 tests need from one goal: the code (or 904 if the
+// server refused it), plus what reached the planner and the supervisor.
+constexpr int kRefused = 904;
+int send_goal(rclcpp::Node::SharedPtr node, const GoToEEPose::Goal &goal) {
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
+  if (!client->wait_for_action_server(5s))
+    return 999;
+  std::promise<int> code;
+  auto fut = code.get_future();
+  rclcpp_action::Client<GoToEEPose>::SendGoalOptions opts;
+  opts.result_callback =
+      [&](const rclcpp_action::ClientGoalHandle<GoToEEPose>::WrappedResult
+              &wr) {
+        code.set_value(wr.result ? wr.result->error_code : -12345);
+      };
+  auto gh = client->async_send_goal(goal, opts);
+  if (gh.wait_for(5s) != std::future_status::ready)
+    return 888;
+  if (gh.get() == nullptr)
+    return kRefused;
+  if (fut.wait_for(8s) != std::future_status::ready)
+    return 888;
+  return fut.get();
+}
+
+GoToEEPose::Goal base_goal() {
+  GoToEEPose::Goal g;
+  g.target.header.frame_id = "base_link";
+  return g;
+}
+
+// Builds the standard rig; the test body only changes the goal.
+struct Rig {
+  rclcpp::Node::SharedPtr node;
+  kinova_gen3_ros2::test::FakeCuroboServer fake;
+  rclcpp::CallbackGroup::SharedPtr grp;
+  kinova_gen3_ros2::CuroboPlanClient planner;
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router;
+  kinova_gen3_ros2::GoToEEPoseServer server;
+  FakeSupervisor sup;
+  rclcpp::executors::MultiThreadedExecutor ex;
+  std::unique_ptr<SpinThread> spin;
+  explicit Rig(const std::string &name)
+      : node(std::make_shared<rclcpp::Node>(name)), fake(node, true, 3),
+        grp(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
+        planner(node, grp), router(dummy), server(node, router, planner, grp),
+        sup(router) {
+    server.set_command_sink(&sup);
+    ex.add_node(node);
+    spin = std::make_unique<SpinThread>(ex);
+  }
+};
+} // namespace
+
+TEST_F(GotoServerTest, AHeldGoalReachesThePlanner) {
+  using ArmHold = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using PlannerHold = rammp_curobo_interfaces::action::PlanToPose::Goal;
+  // Both modes, because the translation is a switch: a case falling through to
+  // the wrong constant would still pass if only one value were exercised.
+  for (auto [arm, planner] :
+       {std::pair{ArmHold::HOLD_LEVEL, PlannerHold::HOLD_LEVEL},
+        std::pair{ArmHold::HOLD_FIXED, PlannerHold::HOLD_FIXED}}) {
+    Rig r("goto_it_hold" + std::to_string(arm));
+    auto goal = base_goal();
+    goal.orientation_hold = arm;
+    EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+    EXPECT_EQ(r.fake.last_hold(), planner) << "mode " << int(arm);
+  }
+}
+
+TEST_F(GotoServerTest, AnUnknownHoldModeIsRefusedNotTreatedAsFree) {
+  // The dangerous failure is not a crash, it is a silently UNCONSTRAINED move
+  // for a caller who asked for a held one -- that looks like success. So this
+  // asserts both the refusal AND that nothing reached the planner.
+  Rig r("goto_it_badhold");
+  auto goal = base_goal();
+  goal.orientation_hold = 7;
+  EXPECT_EQ(send_goal(r.node, goal), kRefused);
+  EXPECT_EQ(r.fake.pose_goals_received(), 0);
+}
+
+TEST_F(GotoServerTest, SpeedScaleReachesTheTrajectoryGoal) {
+  Rig r("goto_it_speed");
+  auto goal = base_goal();
+  goal.speed_scale = 0.5;
+  EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
+  EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 0.5);
+}
+
+// The whole "nothing changed for existing clients" claim in one place: a goal
+// that sets none of the new fields plans unconstrained and runs at full speed.
+TEST_F(GotoServerTest, AGoalUsingNoNewFieldsBehavesAsBefore) {
+  Rig r("goto_it_legacy");
+  EXPECT_EQ(send_goal(r.node, base_goal()), result_code::kSuccessful);
+  EXPECT_EQ(r.fake.last_hold(),
+            rammp_curobo_interfaces::action::PlanToPose::Goal::HOLD_NONE)
+      << "a goal that asked for nothing reached the planner holding something";
+  EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 1.0);
+}
+
+TEST_F(GotoServerTest, AnUnusableSpeedScaleIsRefused) {
+  Rig r("goto_it_badspeed");
+  for (double bad : {0.0, 1.5, std::numeric_limits<double>::quiet_NaN()}) {
+    auto goal = base_goal();
+    goal.speed_scale = bad;
+    EXPECT_EQ(send_goal(r.node, goal), kRefused) << "speed_scale " << bad;
+  }
+  EXPECT_EQ(r.fake.pose_goals_received(), 0)
+      << "a plan was dispatched: refusal did not happen at validate";
+  EXPECT_FALSE(r.sup.got_goal);
 }

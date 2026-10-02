@@ -4,6 +4,8 @@
 #include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
 #include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "kinova_lowlevel/interface/value_types.h"
+#include <optional>
+#include <string>
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 namespace kinova_gen3_ros2 {
 using ExecuteJointTrajectory =
@@ -18,7 +20,14 @@ ExecuteJointTrajectory::Result
 to_result_msg(const kinova::interface::TrajectoryResult &r);
 
 kinova::interface::TrajectoryGoal
-to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj);
+to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
+                   double speed_scale = 1.0);
+
+// Why this speed_scale is unacceptable, or nullopt if it is fine. The driver
+// refuses the same range but its GoalResponse carries no message, so the
+// reason is produced here. Callers log it server-side: an action rejection has
+// no payload, so the client sees a bare rejection (see kinova-gen3-ros2#39).
+std::optional<std::string> speed_scale_rejection(double s);
 GoToEEPose::Feedback
 to_goto_feedback_msg(const kinova::interface::TrajectoryFeedback &fb);
 GoToEEPose::Result

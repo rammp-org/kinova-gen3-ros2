@@ -48,7 +48,9 @@ real divergence. We never send the empty form.
 ## Calling it
 
 Use the test client, which takes a target position and orientation in
-`base_link` (quaternion in `xyzw` order):
+`base_link` (quaternion in `xyzw` order). **It moves the arm as soon as it
+runs** — unlike the tour, sweep and scenario scripts it has no dry run and no
+`--go` gate:
 
 ```sh
 python3 <ws>/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_goto_pose.py \
@@ -62,6 +64,24 @@ Client flags: `--pos X Y Z` (metres, `base_link`), `--quat X Y Z W`
 (`base_link`, xyzw), `--sender-id` (arbitration hook, defaults to
 `send_goto_pose`). The client prints feedback as it arrives and exits
 non-zero if the terminal `error_code` isn't `0`.
+
+It also carries the constraint fields, one move at a time: `--speed-scale S`,
+`--hold none|level|fixed`. Bounds are checked client-side too,
+because a rejection carries no payload — the reason only reaches the node's log.
+
+### Demonstration scripts
+
+Two companions live beside it in `test/`, both **dry run by default** and needing
+an explicit `--go` to move anything:
+
+| Script                   | What it is for                                                                                                                                                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sweep_constraints.py`   | Runs one fixed motion under every constraint combination and tables the outcomes, re-homing between cases so the wall times compare. Each case carries an expectation, so a disagreement is flagged rather than left to the eye. |
+| `send_goto_pose_tour.py` | A lap of large, widely-spaced waypoints, so a change in `speed_scale` or a held axis is visible across a room rather than needing a plot.                                                                                        |
+
+`sweep_constraints.py` is the one to reach for when asking "does this constraint
+actually do anything" — it includes cases that are *expected to be refused*,
+which is how the start-must-match-the-goal rule shows itself.
 
 ## Result codes
 
@@ -97,13 +117,85 @@ request arrives:
   Supervisor (the same path `ExecuteJointTrajectory` cancellation uses),
   which settles the goal `PREEMPTED` once the arm has stopped.
 
+## Speed and orientation hold
+
+`GoToEEPose` carries two optional fields. Both default to off, so a goal that
+sets neither behaves exactly as before.
+
+| field              | type      | default     | meaning                                       |
+| ------------------ | --------- | ----------- | --------------------------------------------- |
+| `speed_scale`      | `float64` | `1.0`       | run the trajectory slower; `1.0` = as planned |
+| `orientation_hold` | `uint8`   | `HOLD_NONE` | keep the tool's orientation while it travels  |
+
+**`speed_scale`** lowers the speed of the planned trajectory. The driver
+executes it slower by dilating its executor clock; the plan itself is unchanged.
+A value outside the driver's accepted range (its minimum up to `1.0`) or a
+non-finite one is **refused, not clamped**.
+
+**`orientation_hold`** has three modes (constants on the goal, e.g.
+`GoToEEPose.Goal.HOLD_LEVEL`) and no frame:
+
+| mode         | effect                                              |
+| ------------ | --------------------------------------------------- |
+| `HOLD_NONE`  | the planner reorients freely                        |
+| `HOLD_LEVEL` | roll and pitch held; spin about vertical stays free |
+| `HOLD_FIXED` | the whole orientation held                          |
+
+Four things callers meet as surprises:
+
+- **LEVEL preserves tilt; it does not create level.** Roll and pitch are held at
+  the *goal's* value, so a gripper that starts 20 degrees off stays 20 degrees
+  off the whole way — faithfully, just not level. "Level" means "as level as you
+  already are".
+- **A goal orientation that disagrees with the current one is refused.** A hold
+  keeps the orientation at the goal's value, so a goal that differs from where
+  the arm is, on the held components, asks for two orientations at once. Send the
+  current orientation as the goal's, or get there with an unconstrained move
+  first. The planner refuses before planning, with the measured deviation.
+- **A spoon needs FIXED, not LEVEL.** LEVEL leaves the spin about vertical free,
+  which is right for anything symmetric about its upright axis — a cup, a bottle,
+  a plate. A spoon is not symmetric: the bowl has to face a particular way, and
+  LEVEL will plan happily while tipping the contents out.
+- **"Level with the world" means "level with the robot base".** Those are the
+  same thing while the arm is mounted level and stop being the same thing the
+  moment it is not. Mount tilt belongs in the robot model, not in this field.
+
+**Nothing in the goal is ignored.** A hold constrains the path, not the
+destination: under every mode the move must end at the goal's full pose, yaw
+included. `HOLD_LEVEL` frees spin about base Z only in transit.
+
+The hold is a planner *cost*, not a hard limit, so the planner checks three
+things and refuses the plan if any fails, all against its own tolerance
+(`constraint_tolerance_deg`, 2 deg by default):
+
+| when            | check                                                 |
+| --------------- | ----------------------------------------------------- |
+| before planning | the start agrees with the goal on the held components |
+| after planning  | every waypoint keeps the held components              |
+| after planning  | the last waypoint reaches the goal's full orientation |
+
+The node translates the arm's hold mode into the planner's own constant
+(inside `CuroboPlanClient`), so callers never see the planner's types.
+An unknown mode is **refused**, never treated as `HOLD_NONE` — running an
+unconstrained move for a caller who asked for a held one would look like
+success.
+
+**Refusals carry no payload.** `validate()` rejects a bad `speed_scale` or an
+unknown hold mode, and the client receives a bare ROS action rejection with the
+reason logged on the server only (tracked as `kinova-gen3-ros2#39`). A hold the
+planner refuses is different, whichever of the three checks fails: the goal
+is accepted and then settles `PLANNING_FAILED (-7)` with the planner's reason —
+including the measured deviation and the limit — in `error_string`, which the
+client does see.
+
 ## Safety
 
-**The planned trajectory executes at cuRobo's full planned speed — there is
-no `speed_scale` or retiming in v1.** The returned `time_from_start` values
-feed straight through to the Supervisor. This means the very first real-arm
-`GoToEEPose` goal will move at whatever speed cuRobo's plan calls for, not a
-conservative default.
+**Unless you set `speed_scale`, the trajectory runs at cuRobo's full planned
+speed.** The returned `time_from_start` values feed straight through to the
+Supervisor, so a goal that leaves `speed_scale` at its default of `1.0` moves
+at whatever speed cuRobo's plan calls for, not a conservative one. For a first
+real-arm goal, set `speed_scale` well below 1 (see
+[Speed and orientation hold](#speed-and-orientation-hold)).
 
 Before running against the real arm:
 

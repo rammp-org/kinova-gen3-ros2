@@ -110,10 +110,44 @@ the sim's zero configuration swings joint 3 through ~3.14 rad and correctly
 returns `-4`. That is the guard working, not a failure. Use a real arm (or a
 small delta) to exercise the success path.
 
+## Speed and constraints per action
+
+| action                     | `speed_scale` | `orientation_hold` |
+| -------------------------- | :-----------: | :----------------: |
+| `go_to_ee_pose`            |      yes      |        yes         |
+| `go_to_joint_config`       |      yes      |         no         |
+| `go_to_preset`             |      yes      |         no         |
+| `execute_joint_trajectory` |      yes      |         no         |
+
+`speed_scale` (default `1.0`, range: the driver's minimum up to `1.0`) runs the
+trajectory slower, by dilating the driver's executor clock. Out of range is
+refused, not clamped.
+
+**Joint-space goals carry speed only.** `GoToJointConfig` and `GoToPreset` plan
+in joint space, where holding a tool orientation has no meaning, so they have no
+`orientation_hold`. The absence is deliberate.
+
+For `go_to_ee_pose`, both fields default to off. Three rules a caller will
+otherwise meet as a confusing failure (full detail in the
+[`GoToEEPose` guide](guide-goto-ee-pose.md)):
+
+- **`HOLD_LEVEL` preserves tilt, it does not create level**: a 45-degree tool
+  stays at 45 the whole way.
+- **A goal orientation disagreeing with the current one is refused**, not
+  re-aimed — a hold keeps the orientation at the goal's value, so that asks for
+  two orientations at once.
+- **A spoon needs `HOLD_FIXED`**: `HOLD_LEVEL` leaves the spin about vertical
+  free, which is fine for a cup and tips a spoon out.
+
+**A refused goal tells the client nothing today.** Rejections are bare ROS
+action rejections with no payload; the reason is logged server-side only
+(tracked as `kinova-gen3-ros2#39`). This includes an out-of-range `speed_scale`.
+
 ## Safety
 
-The planned trajectory runs at **full planner speed**, and cuRobo plans to the
-arm's real velocity limits. Read
+Unless `speed_scale` is set, the planned trajectory runs at **full planner
+speed**, and cuRobo plans to the arm's real velocity limits. Set `speed_scale`
+below 1 for a first real-arm run. Read
 [`on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and keep the e-stop in hand before
 the first real-arm run of any of these actions. Real-arm runs must pin the RT
 loop to the host's isolated core (`--cpu <n>`); `make sim` / `make real` do this

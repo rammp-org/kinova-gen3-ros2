@@ -82,7 +82,6 @@ public:
   }
 
 protected:
-  // Everything action-specific. validate() returns a reason to reject, or
   // The arm's measured configuration, for start_plan() to state in the plan
   // request. This node owns that state -- it is the same source /joint_states
   // is published from -- so the planner never has to source it itself.
@@ -97,7 +96,9 @@ protected:
     return q;
   }
 
-  // nullopt to accept; start_plan() dispatches the appropriate cuRobo plan.
+  // Everything action-specific. validate() returns a reason to reject (logged
+  // server-side only; the client sees a bare rejection, see #39), or nullopt to
+  // accept; start_plan() dispatches the appropriate cuRobo plan.
   virtual std::optional<std::string>
   validate(const typename ActionT::Goal &goal) = 0;
   virtual void start_plan(const typename ActionT::Goal &goal,
@@ -245,7 +246,7 @@ private:
     }
 
     kinova::interface::TrajectoryGoal tg =
-        to_trajectory_goal(outcome.trajectory);
+        to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale);
     tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
     tg.sender_id = gh->get_goal()->sender_id;
     tg.token = gh->get_goal()->token; // the plan inherits the goal's authority

@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <limits>
+#include <optional>
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
 #include "rammp_arm_interfaces/msg/gripper_state.hpp"
@@ -266,4 +268,50 @@ TEST(GripperMapping, StateRoundTripsPresentFalse) {
   const auto m = kinova_gen3_ros2::to_gripper_state_msg(g);
   EXPECT_FLOAT_EQ(m.position, 0.0f);
   EXPECT_FALSE(m.present);
+}
+
+TEST(MessageMapping, SpeedScaleReachesTheTrajectoryGoal) {
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  g.trajectory.points.resize(1);
+  g.trajectory.points[0].positions.assign(7, 0.0);
+  g.speed_scale = 0.25;
+  const auto tg = to_trajectory_goal(g);
+  EXPECT_DOUBLE_EQ(tg.speed_scale, 0.25);
+}
+
+TEST(MessageMapping, ADefaultGoalIsFullSpeed) {
+  // The whole point of appending with a default: a client that knows nothing
+  // about speed_scale must plan and execute exactly as it did before.
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  g.trajectory.points.resize(1);
+  g.trajectory.points[0].positions.assign(7, 0.0);
+  const auto tg = to_trajectory_goal(g);
+  EXPECT_DOUBLE_EQ(tg.speed_scale, 1.0);
+}
+
+TEST(MessageMapping, SpeedScaleRejectionNamesTheProblem) {
+  EXPECT_FALSE(speed_scale_rejection(1.0).has_value());
+  EXPECT_FALSE(
+      speed_scale_rejection(kinova::interface::kMinSpeedScale).has_value());
+  for (double bad : {0.0, kinova::interface::kMinSpeedScale * 0.5, -0.5, 1.5,
+                     std::numeric_limits<double>::quiet_NaN()}) {
+    const auto why = speed_scale_rejection(bad);
+    ASSERT_TRUE(why.has_value()) << "scale " << bad << " must be refused";
+    EXPECT_NE(why->find("speed_scale"), std::string::npos)
+        << "the reason must name the field the client got wrong";
+  }
+}
+
+TEST(MessageMapping, PlannerOverloadDefaultsToFullSpeed) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points.resize(1);
+  traj.points[0].positions.assign(7, 0.0);
+  EXPECT_DOUBLE_EQ(to_trajectory_goal(traj).speed_scale, 1.0);
+}
+
+TEST(MessageMapping, PlannerOverloadCarriesAnExplicitSpeedScale) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points.resize(1);
+  traj.points[0].positions.assign(7, 0.0);
+  EXPECT_DOUBLE_EQ(to_trajectory_goal(traj, 0.3).speed_scale, 0.3);
 }

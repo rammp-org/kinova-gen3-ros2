@@ -22,13 +22,15 @@ const std::array<double, 7> kTarget = {0.0, 0.262, 3.142, -2.269,
 
 // Send a goal and block for its result code; kGoalRejected if not accepted.
 int send_and_get_code(rclcpp::Node::SharedPtr node,
-                      const std::array<double, 7> &joints) {
+                      const std::array<double, 7> &joints,
+                      double speed_scale = 1.0) {
   auto client =
       rclcpp_action::create_client<GoToJointConfig>(node, "go_to_joint_config");
   if (!client->wait_for_action_server(5s))
     return kServerMissing;
   GoToJointConfig::Goal goal;
   goal.target_joints = joints;
+  goal.speed_scale = speed_scale;
   std::promise<int> code;
   auto fut = code.get_future();
   rclcpp_action::Client<GoToJointConfig>::SendGoalOptions opts;
@@ -116,5 +118,44 @@ TEST_F(GotoJointConfigTest, NonFiniteTargetIsRejected) {
   auto bad = kTarget;
   bad[3] = std::numeric_limits<double>::quiet_NaN();
   EXPECT_EQ(send_and_get_code(node, bad), kGoalRejected);
+  EXPECT_FALSE(sup.got_goal);
+}
+
+TEST_F(GotoJointConfigTest, SpeedScaleReachesTheTrajectoryGoal) {
+  auto node = std::make_shared<rclcpp::Node>("goto_jc_speed");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  EXPECT_EQ(send_and_get_code(node, kTarget, 0.5), result_code::kSuccessful);
+  EXPECT_DOUBLE_EQ(sup.last_goal.speed_scale, 0.5);
+}
+
+TEST_F(GotoJointConfigTest, AnUnusableSpeedScaleIsRefused) {
+  auto node = std::make_shared<rclcpp::Node>("goto_jc_speed_bad");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  for (double bad : {0.0, 1.5, std::numeric_limits<double>::quiet_NaN()})
+    EXPECT_EQ(send_and_get_code(node, kTarget, bad), kGoalRejected) << bad;
   EXPECT_FALSE(sup.got_goal);
 }

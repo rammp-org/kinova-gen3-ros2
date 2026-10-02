@@ -29,7 +29,7 @@ add_library(curobo_plan_client src/curobo_plan_client.cpp)
 target_include_directories(curobo_plan_client PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(curobo_plan_client
-  rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs trajectory_msgs)
+  rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs trajectory_msgs)
 
 # The high-level "go to a goal" action servers. Header-only: the lifecycle is
 # the PlannedMoveServer<ActionT> template and each concrete server is a thin
@@ -111,6 +111,12 @@ if(BUILD_TESTING)
   ament_target_dependencies(gripper_server_test
     rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
 
+  ament_add_gtest(ros2_backend_test test/ros2_backend_test.cpp)
+  target_include_directories(ros2_backend_test PRIVATE test)
+  target_link_libraries(ros2_backend_test ros2_backend)
+  ament_target_dependencies(ros2_backend_test
+    rclcpp rclcpp_action rammp_arm_interfaces trajectory_msgs)
+
   ament_add_gtest(arbitration_server_test test/arbitration_server_test.cpp)
   target_include_directories(arbitration_server_test PRIVATE test)
   target_link_libraries(arbitration_server_test arbitration_server)
@@ -124,7 +130,7 @@ if(BUILD_TESTING)
   target_include_directories(curobo_plan_client_test PRIVATE test)
   target_link_libraries(curobo_plan_client_test curobo_plan_client)
   ament_target_dependencies(curobo_plan_client_test
-    rclcpp rclcpp_action rammp_curobo_interfaces geometry_msgs)
+    rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
 
   ament_add_gtest(goto_ee_pose_integration_test test/goto_ee_pose_integration_test.cpp)
   target_include_directories(goto_ee_pose_integration_test PRIVATE test)

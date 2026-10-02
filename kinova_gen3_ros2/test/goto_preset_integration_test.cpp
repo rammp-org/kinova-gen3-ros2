@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <future>
+#include <limits>
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -21,12 +22,14 @@ kinova_gen3_ros2::GoToPresetServer::Registry test_registry() {
            {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}}}; // cuRobo retract
 }
 
-int send_and_get_code(rclcpp::Node::SharedPtr node, const std::string &preset) {
+int send_and_get_code(rclcpp::Node::SharedPtr node, const std::string &preset,
+                      double speed_scale = 1.0) {
   auto client = rclcpp_action::create_client<GoToPreset>(node, "go_to_preset");
   if (!client->wait_for_action_server(5s))
     return kServerMissing;
   GoToPreset::Goal goal;
   goal.preset_name = preset;
+  goal.speed_scale = speed_scale;
   std::promise<int> code;
   auto fut = code.get_future();
   rclcpp_action::Client<GoToPreset>::SendGoalOptions opts;
@@ -95,5 +98,46 @@ TEST_F(GotoPresetTest, UnknownPresetIsRejected) {
   SpinThread spin(ex);
 
   EXPECT_EQ(send_and_get_code(node, "nope"), kGoalRejected);
+  EXPECT_FALSE(sup.got_goal);
+}
+
+TEST_F(GotoPresetTest, SpeedScaleReachesTheTrajectoryGoal) {
+  auto node = std::make_shared<rclcpp::Node>("goto_preset_speed");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToPresetServer server(node, router, planner, grp,
+                                            test_registry());
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  EXPECT_EQ(send_and_get_code(node, "home", 0.5), result_code::kSuccessful);
+  EXPECT_DOUBLE_EQ(sup.last_goal.speed_scale, 0.5);
+}
+
+TEST_F(GotoPresetTest, AnUnusableSpeedScaleIsRefused) {
+  auto node = std::make_shared<rclcpp::Node>("goto_preset_speed_bad");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToPresetServer server(node, router, planner, grp,
+                                            test_registry());
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  for (double bad : {0.0, 1.5, std::numeric_limits<double>::quiet_NaN()})
+    EXPECT_EQ(send_and_get_code(node, "home", bad), kGoalRejected) << bad;
   EXPECT_FALSE(sup.got_goal);
 }

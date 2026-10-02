@@ -1,6 +1,8 @@
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include <chrono>
 #include <mutex>
+#include <stdexcept>
+#include <string>
 namespace kinova_gen3_ros2 {
 namespace {
 
@@ -8,6 +10,26 @@ namespace {
 double mismatch_of(const CuroboPlanClient::PlanToPose::Result &) { return 0.0; }
 double mismatch_of(const CuroboPlanClient::PlanToJoints::Result &r) {
   return r.goal_mismatch_rad;
+}
+
+// Arm contract -> planner contract. Modes are mapped BY NAME, never by
+// assigning the raw integer: the two enumerations are independent contracts
+// that happen to agree today, and a silent renumbering on either side would
+// otherwise turn LEVEL into FIXED without a compile error.
+uint8_t to_planner(uint8_t hold) {
+  using Arm = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using Planner = CuroboPlanClient::PlanToPose::Goal;
+  switch (hold) {
+  case Arm::HOLD_NONE:
+    return Planner::HOLD_NONE;
+  case Arm::HOLD_LEVEL:
+    return Planner::HOLD_LEVEL;
+  case Arm::HOLD_FIXED:
+    return Planner::HOLD_FIXED;
+  default:
+    throw std::invalid_argument("unknown orientation hold mode " +
+                                std::to_string(hold));
+  }
 }
 
 // Shared dispatch for both plan actions. Only the goal type differs; the
@@ -88,9 +110,26 @@ CuroboPlanClient::CuroboPlanClient(rclcpp::Node::SharedPtr node,
 void CuroboPlanClient::plan(const geometry_msgs::msg::Pose &target,
                             const std::vector<double> &start_joints,
                             FeedbackCb on_fb, DoneCb on_done) {
+  plan(target, start_joints,
+       rammp_arm_interfaces::action::GoToEEPose::Goal::HOLD_NONE,
+       std::move(on_fb), std::move(on_done));
+}
+
+void CuroboPlanClient::plan(const geometry_msgs::msg::Pose &target,
+                            const std::vector<double> &start_joints,
+                            uint8_t hold, FeedbackCb on_fb, DoneCb on_done) {
   PlanToPose::Goal goal;
   goal.target = target;
   goal.start_joints = start_joints; // plan from where the arm actually is
+  try {
+    goal.hold = to_planner(hold);
+  } catch (const std::invalid_argument &e) {
+    // An unknown mode must not become a silently different constraint -- and
+    // in particular must not become "no hold", which would execute an
+    // unconstrained move for a caller who asked for a held one.
+    on_done({false, e.what(), {}, 0.0});
+    return;
+  }
   dispatch_plan<PlanToPose>(client_, goal, m_, active_cancel_, std::move(on_fb),
                             std::move(on_done));
 }

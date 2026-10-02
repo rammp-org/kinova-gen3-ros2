@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -48,6 +49,7 @@ public:
         node_, "/rammp_curobo/plan_to_pose",
         [this](const rclcpp_action::GoalUUID &,
                std::shared_ptr<const PlanToPose::Goal>) {
+          ++pose_goals_received_;
           return reject_ ? rclcpp_action::GoalResponse::REJECT
                          : rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
         },
@@ -80,7 +82,33 @@ public:
     return last_start_joints_;
   }
 
+  // What the caller asked us to constrain the plan by. kNoHoldSeen until a
+  // pose goal arrives -- deliberately NOT HOLD_NONE, so a test expecting
+  // HOLD_NONE has to observe it rather than inherit it from a fake that was
+  // never reached.
+  static constexpr uint8_t kNoHoldSeen = 255;
+  uint8_t last_hold() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return last_hold_;
+  }
+  // Still recorded, though no test asserts it: approach_via remains a field
+  // on PlanToPose (shelved, see kinova-gen3-ros2#40) and this double should
+  // mirror the real message rather than a subset of it.
+  rammp_curobo_interfaces::msg::ApproachVia last_approach_via() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return last_approach_via_;
+  }
+
+  // Pose goals that reached this server at all, accepted or not. Lets a test
+  // prove a plan() call was refused client-side rather than dispatched.
+  int pose_goals_received() const { return pose_goals_received_; }
+
 private:
+  void record_constraints(const PlanToPose::Goal &g) {
+    last_hold_ = g.hold;
+    last_approach_via_ = g.approach_via;
+  }
+  void record_constraints(const PlanToJoints::Goal &) {}
   // Shared by both tiers; only the Result type differs. PlanToJoints::Result
   // additionally carries goal_mismatch_rad, which stays at its 0.0 default -
   // the canned plan is treated as reaching the requested joints exactly.
@@ -91,6 +119,7 @@ private:
     {
       std::lock_guard<std::mutex> l(seen_m_);
       last_start_joints_ = gh->get_goal()->start_joints;
+      record_constraints(*gh->get_goal());
     }
     if (started_)
       started_->set_value();
@@ -129,7 +158,10 @@ private:
   std::shared_ptr<std::promise<void>> started_;
   bool reject_cancel_;
   bool bad_width_;
+  std::atomic<int> pose_goals_received_{0};
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
+  uint8_t last_hold_ = kNoHoldSeen;
+  rammp_curobo_interfaces::msg::ApproachVia last_approach_via_;
 };
 } // namespace kinova_gen3_ros2::test

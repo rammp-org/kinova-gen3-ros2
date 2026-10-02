@@ -225,3 +225,109 @@ TEST_F(CuroboClientTest, PlanToJointsServerUnavailableReturnsFailure) {
   EXPECT_FALSE(o.ok);
   EXPECT_FALSE(o.message.empty());
 }
+
+namespace {
+// Runs one pose plan to completion against a fake and hands back the fake's
+// record of what it received. Fails the test unless the plan succeeded and
+// exactly one goal reached the fake, so `hold` is what was actually sent.
+struct Seen {
+  uint8_t hold;
+};
+template <typename PlanFn> Seen run_plan(const char *name, PlanFn call) {
+  auto node = std::make_shared<rclcpp::Node>(name);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  // Guard, don't assert-and-get: a never-set promise must fail the test, not
+  // block the whole binary on get() until the CI timeout.
+  if (f.wait_for(5s) != std::future_status::ready) {
+    ADD_FAILURE() << name << ": on_done never fired";
+    return {fake.last_hold()};
+  }
+  EXPECT_TRUE(f.get().ok);
+  EXPECT_EQ(fake.pose_goals_received(), 1);
+  return {fake.last_hold()};
+}
+} // namespace
+
+TEST_F(CuroboClientTest, TranslatesEveryHoldModeOntoThePlannerContract) {
+  // The translation is a switch over three constants that currently happen to
+  // share numeric values with the planner's. Asserting only one mode would
+  // pass even if two cases were transposed, so every mode is exercised and
+  // compared against the PLANNER's own constant rather than a literal.
+  using Arm = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using Planner = rammp_curobo_interfaces::action::PlanToPose::Goal;
+  const std::pair<uint8_t, uint8_t> cases[] = {
+      {Arm::HOLD_NONE, Planner::HOLD_NONE},
+      {Arm::HOLD_LEVEL, Planner::HOLD_LEVEL},
+      {Arm::HOLD_FIXED, Planner::HOLD_FIXED},
+  };
+  for (const auto &[arm, planner] : cases) {
+    const auto seen = run_plan(("hold_test" + std::to_string(arm)).c_str(),
+                               [&](CuroboPlanClient &c, auto done) {
+                                 c.plan(geometry_msgs::msg::Pose{},
+                                        kStartJoints, arm, nullptr, done);
+                               });
+    EXPECT_EQ(seen.hold, planner) << "arm mode " << int(arm);
+  }
+}
+
+namespace {
+// Plans with a malformed hold against a live fake and returns the
+// outcome plus how many goals the fake received (must be zero).
+template <typename PlanFn>
+std::pair<CuroboPlanClient::Outcome, int> run_refused(const char *name,
+                                                      PlanFn call) {
+  auto node = std::make_shared<rclcpp::Node>(name);
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  CuroboPlanClient client(node, grp);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+  std::promise<CuroboPlanClient::Outcome> p;
+  auto f = p.get_future();
+  call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  // Guard, don't assert-and-get: a never-set promise must fail the test, not
+  // block the whole binary on get() until the CI timeout.
+  if (f.wait_for(5s) != std::future_status::ready) {
+    ADD_FAILURE() << name << ": on_done never fired";
+    CuroboPlanClient::Outcome none;
+    return {std::move(none), fake.pose_goals_received()};
+  }
+  // Give a wrongly dispatched goal time to reach the server.
+  std::this_thread::sleep_for(300ms);
+  return {f.get(), fake.pose_goals_received()};
+}
+} // namespace
+
+TEST_F(CuroboClientTest, AnUnknownHoldModeFailsLoudInsteadOfPlanning) {
+  // Asserting `received == 0` is the real content: the failure that matters is
+  // not a bad error string, it is dispatching an UNCONSTRAINED plan for a
+  // caller who asked for a held one.
+  const uint8_t hold = 9;
+  const auto [o, received] =
+      run_refused("bad_hold_test", [&](CuroboPlanClient &c, auto done) {
+        c.plan(geometry_msgs::msg::Pose{}, kStartJoints, hold, nullptr, done);
+      });
+  EXPECT_FALSE(o.ok);
+  EXPECT_NE(o.message.find("9"), std::string::npos);
+  EXPECT_EQ(received, 0);
+}
+
+TEST_F(CuroboClientTest, TheShortPlanOverloadSendsNoHold) {
+  // The overload without a hold must reach the planner as HOLD_NONE, not as
+  // whatever an uninitialised field happens to contain.
+  const auto seen =
+      run_plan("short_overload_test", [&](CuroboPlanClient &c, auto done) {
+        c.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr, done);
+      });
+  EXPECT_EQ(seen.hold,
+            rammp_curobo_interfaces::action::PlanToPose::Goal::HOLD_NONE);
+}

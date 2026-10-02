@@ -355,15 +355,16 @@ while the generated model uses `end_effector_link`, which the launch passes.
 
 ## Node arguments
 
-| Flag                      | Default                      | Meaning                                                                               |
-| ------------------------- | ---------------------------- | ------------------------------------------------------------------------------------- |
-| `--sim`                   | off                          | Use `SimTransport` instead of the real arm.                                           |
-| `--ip <addr>`             | —                            | Arm IP; required in real mode. Ignored with `--sim`.                                  |
-| `--urdf <path>`           | `models/gen3_7dof_2f85.urdf` | Relative to the **cwd**, so run from the core checkout (which ships `models/`).       |
-| `--cpu <n>`               | `-1` (no pin)                | CPU to pin the RT thread to.                                                          |
-| `--rt-priority <n>`       | `80`                         | SCHED_FIFO priority for the RT thread.                                                |
-| `--rate <hz>`             | `1000.0`                     | RT loop rate.                                                                         |
-| `--max-ref-speed <rad/s>` | URDF velocity limits         | Cap on how fast the position-mode *reference* may move, applied per joint. See below. |
+| Flag                      | Default                      | Meaning                                                                                                                                                                 |
+| ------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--sim`                   | off                          | Use `SimTransport` instead of the real arm.                                                                                                                             |
+| `--ip <addr>`             | —                            | Arm IP; required in real mode. Ignored with `--sim`.                                                                                                                    |
+| `--urdf <path>`           | `models/gen3_7dof_2f85.urdf` | Relative to the **cwd**, so run from the core checkout (which ships `models/`).                                                                                         |
+| `--cpu <n>`               | `-1` (no pin)                | CPU to pin the RT thread to.                                                                                                                                            |
+| `--rt-priority <n>`       | `80`                         | SCHED_FIFO priority for the RT thread.                                                                                                                                  |
+| `--rate <hz>`             | `1000.0`                     | RT loop rate.                                                                                                                                                           |
+| `--max-ref-speed <rad/s>` | URDF velocity limits         | Cap on how fast the position-mode *reference* may move, applied per joint. See below.                                                                                   |
+| `--rt-csv <path>`         | — (summary only)             | Write every RT cycle sample to a CSV. Either way the node logs a cumulative `rt:` timing line every 5 s and an `rt final:` line on exit, with the dropped-sample count. |
 
 `--max-ref-speed` is worth understanding before you change it. `JointPositionParams`
 defaults to 0.5 rad/s on every joint — a conservative bring-up value that

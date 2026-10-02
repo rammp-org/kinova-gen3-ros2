@@ -19,8 +19,18 @@ colcon build --packages-up-to kinova_gen3_ros2 --cmake-args \
   -DCMAKE_BUILD_TYPE=Release -DKINOVA_ENABLE_KORTEX=ON -DKORTEX_HW_DIR="$HOME/kortex_api"
 ```
 
-Confirm the node linked KORTEX (not the sim binary): the `kinova_gen3_node` binary
-is ~9.7MB (vs ~1.5MB sim) and `strings` on it shows `KortexTransport::connect`.
+Confirm the node linked KORTEX (not the sim binary) by looking for the **symbol**,
+which is the only check that holds across build types:
+
+```sh
+nm -C install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node \
+  | grep 'KortexTransport::connect()'      # expect a hit
+```
+
+Do **not** use `strings … | grep KortexTransport::connect`: under
+`-DCMAKE_BUILD_TYPE=Release` that literal text is not embedded in the binary, so
+the grep returns nothing on a perfectly good KORTEX build. Binary size is a weak
+signal too — it moves with build type — so prefer the symbol over both.
 
 **When done on the arm, rebuild sim-only explicitly** so the installed workspace
 isn't left KORTEX-linked:

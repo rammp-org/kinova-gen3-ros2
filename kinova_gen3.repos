@@ -7,6 +7,14 @@
 # base image tag in the Dockerfile, not a line in this file. A native build
 # clones rammp-interfaces-ros2 itself -- see the README's Build section.
 #
+# The versioning rules for the interfaces contract -- which changes are MAJOR, MINOR or
+# PATCH, and the Cyclone DDS condition they depend on -- live in ONE place:
+# the README of rammp-org/rammp-interfaces-ros2. They are deliberately not
+# restated here; a rule copied into several repos gets flipped in one of them
+# (this comment once said the opposite). One warning is worth repeating:
+# inserting a field anywhere but the end of a message is a silent-corruption
+# MAJOR change, not a minor one.
+#
 # BOTH repositories below are pinned to a TAG, never a branch. A tagged image
 # that builds from a moving branch is not reproducible: rebuild v1.0.0 next
 # month and you get whatever those branches have become, with nothing in this
@@ -18,22 +26,21 @@ repositories:
   # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
   # holds one version of a package, so this pin is what decides whether this
   # module can run alongside any other that speaks the same interfaces.
-  # See rammp-org/rammp-interfaces-ros2 for the versioning policy -- note that
-  # adding a field to an existing message is a MAJOR bump there, because Humble
-  # matches publishers to subscribers on type NAME and never checks content.
   kinova-gen3-driver:
     type: git
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
-    version: v1.1.1
+    # v1.2.0: TrajectoryGoal::speed_scale, kMinSpeedScale and
+    # CommandSink::on_set_speed_override, which this branch compiles against.
+    version: v1.2.0
   RAMMP-CuRobo:
     type: git
     url: https://github.com/rammp-org/RAMMP-CuRobo.git
-    # v1.0.0 and main carry an IDENTICAL IDL -- only rammp_curobo_interfaces'
-    # package.xml <version> differs between them -- so this pin buys
-    # reproducibility without changing the contract this module compiles against.
-    version: v1.0.0
+    # v1.1.0: PlanToPose carries hold/approach_via, which this branch compiles
+    # against. Goes together with rammp-interfaces-ros2 v1.1.0, which arrives
+    # via the rammp-base 1.1.0-jp6 image -- see the Dockerfile FROM.
+    version: v1.1.0
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # Builds must scope colcon with --packages-up-to kinova_gen3_ros2 so the GPU
     # packages are skipped.

@@ -26,11 +26,12 @@ from rclpy.node import Node
 import checks_arbitration  # noqa: F401  (registers checks on import)
 import checks_gripper  # noqa: F401
 import checks_motion  # noqa: F401
+import checks_speed  # noqa: F401
 import checks_state  # noqa: F401
 import checks_streaming  # noqa: F401
 from harness import FAIL, PASS, REGISTRY, SKIP, Ctx, Result
 
-SECTION_ORDER = ["state", "arbitration", "streaming", "motion", "gripper"]
+SECTION_ORDER = ["state", "arbitration", "streaming", "motion", "speed", "gripper"]
 # The e-stop must be proven before anything commands the arm. These run first within
 # their section, and a failure aborts the run.
 ESTOP_CRITICAL = ("engaging /estop latches", "a fresh clear releases")

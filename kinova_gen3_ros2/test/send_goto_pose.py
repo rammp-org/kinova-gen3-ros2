@@ -23,12 +23,11 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rammp_arm_interfaces.action import GoToEEPose
-from rammp_arm_interfaces.msg import OrientationHold
 
 _HOLDS = {
-    "none": OrientationHold.HOLD_NONE,
-    "level": OrientationHold.HOLD_LEVEL,
-    "fixed": OrientationHold.HOLD_FIXED,
+    "none": GoToEEPose.Goal.HOLD_NONE,
+    "level": GoToEEPose.Goal.HOLD_LEVEL,
+    "fixed": GoToEEPose.Goal.HOLD_FIXED,
 }
 
 
@@ -95,8 +94,7 @@ def main():
     goal.sender_id = args.sender_id
     goal.speed_scale = args.speed_scale
 
-    goal.orientation_hold = OrientationHold()
-    goal.orientation_hold.hold = _HOLDS[args.hold]
+    goal.orientation_hold = _HOLDS[args.hold]
 
     def on_fb(fb):
         f = fb.feedback

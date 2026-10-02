@@ -33,7 +33,7 @@ try:
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
     from rammp_curobo_interfaces.action import PlanToPose
-    from rammp_curobo_interfaces.msg import ApproachVia, OrientationHold
+    from rammp_curobo_interfaces.msg import ApproachVia
     from sensor_msgs.msg import JointState
 
     _HAVE_ROS = True
@@ -48,8 +48,8 @@ ARM_JOINTS = [f"joint_{i}" for i in range(1, 8)]
 
 # Gripper level, approach axis horizontal facing forward. Read off the arm.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
-# Values match OrientationHold's constants; spelled out so --help works with no
-# ROS on the path.
+# Values match PlanToPose.Goal's HOLD_* constants; spelled out so --help
+# works with no ROS on the path.
 _HOLDS = {"none": 0, "level": 1, "fixed": 2}
 
 
@@ -103,8 +103,7 @@ if _HAVE_ROS:
             # REQUIRED -- an empty list is refused ("7 joint positions expected,
             # got 0"). Every probe plans from where the arm is right now.
             g.start_joints = list(self.joints)
-            g.hold = OrientationHold()
-            g.hold.hold = hold
+            g.hold = hold
             g.approach_via = ApproachVia()
             if approach:
                 g.approach_via.offset = approach[0]
@@ -207,7 +206,7 @@ def main():
         "--hold",
         choices=["none", "level", "fixed"],
         default="none",
-        help="send an OrientationHold straight to the planner",
+        help="send an orientation hold straight to the planner",
     )
     ap.add_argument(
         "--quat",

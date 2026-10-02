@@ -501,10 +501,9 @@ struct Rig {
   std::unique_ptr<SpinThread> spin;
   explicit Rig(const std::string &name)
       : node(std::make_shared<rclcpp::Node>(name)), fake(node, true, 3),
-        grp(node->create_callback_group(
-            rclcpp::CallbackGroupType::Reentrant)),
-        planner(node, grp), router(dummy),
-        server(node, router, planner, grp), sup(router) {
+        grp(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
+        planner(node, grp), router(dummy), server(node, router, planner, grp),
+        sup(router) {
     server.set_command_sink(&sup);
     ex.add_node(node);
     spin = std::make_unique<SpinThread>(ex);
@@ -513,8 +512,8 @@ struct Rig {
 } // namespace
 
 TEST_F(GotoServerTest, AHeldGoalReachesThePlanner) {
-  using ArmHold = rammp_arm_interfaces::msg::OrientationHold;
-  using PlannerHold = rammp_curobo_interfaces::msg::OrientationHold;
+  using ArmHold = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using PlannerHold = rammp_curobo_interfaces::action::PlanToPose::Goal;
   // Both modes, because the translation is a switch: a case falling through to
   // the wrong constant would still pass if only one value were exercised.
   for (auto [arm, planner] :
@@ -522,9 +521,9 @@ TEST_F(GotoServerTest, AHeldGoalReachesThePlanner) {
         std::pair{ArmHold::HOLD_FIXED, PlannerHold::HOLD_FIXED}}) {
     Rig r("goto_it_hold" + std::to_string(arm));
     auto goal = base_goal();
-    goal.orientation_hold.hold = arm;
+    goal.orientation_hold = arm;
     EXPECT_EQ(send_goal(r.node, goal), result_code::kSuccessful);
-    EXPECT_EQ(r.fake.last_hold().hold, planner) << "mode " << int(arm);
+    EXPECT_EQ(r.fake.last_hold(), planner) << "mode " << int(arm);
   }
 }
 
@@ -534,7 +533,7 @@ TEST_F(GotoServerTest, AnUnknownHoldModeIsRefusedNotTreatedAsFree) {
   // asserts both the refusal AND that nothing reached the planner.
   Rig r("goto_it_badhold");
   auto goal = base_goal();
-  goal.orientation_hold.hold = 7;
+  goal.orientation_hold = 7;
   EXPECT_EQ(send_goal(r.node, goal), kRefused);
   EXPECT_EQ(r.fake.pose_goals_received(), 0);
 }
@@ -552,8 +551,8 @@ TEST_F(GotoServerTest, SpeedScaleReachesTheTrajectoryGoal) {
 TEST_F(GotoServerTest, AGoalUsingNoNewFieldsBehavesAsBefore) {
   Rig r("goto_it_legacy");
   EXPECT_EQ(send_goal(r.node, base_goal()), result_code::kSuccessful);
-  EXPECT_EQ(r.fake.last_hold().hold,
-            rammp_curobo_interfaces::msg::OrientationHold::HOLD_NONE)
+  EXPECT_EQ(r.fake.last_hold(),
+            rammp_curobo_interfaces::action::PlanToPose::Goal::HOLD_NONE)
       << "a goal that asked for nothing reached the planner holding something";
   EXPECT_DOUBLE_EQ(r.sup.last_goal.speed_scale, 1.0);
 }

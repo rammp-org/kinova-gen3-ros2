@@ -12,7 +12,7 @@ The three things it shows off:
   speed_scale   Per-leg pace. The path is identical; only the clock changes. Run
                 the same lap at 1.0 and at 0.25 and it takes ~4x as long.
   hold          Keep the tool's orientation for the WHOLE leg, held AT THE
-                GOAL'S VALUE — see OrientationHold.msg. Every ring waypoint
+                GOAL'S VALUE — see GoToEEPose.action. Every ring waypoint
                 shares one orientation, so a hold is satisfiable on every leg;
                 `level` through a whole lap is the "carry a full cup around the
                 room" demo.
@@ -46,7 +46,6 @@ try:
     from rclpy.action import ActionClient
     from rclpy.node import Node
     from rammp_arm_interfaces.action import GoToEEPose
-    from rammp_arm_interfaces.msg import OrientationHold
 
     _HAVE_ROS = True
 except ImportError:
@@ -64,7 +63,8 @@ RING_Z_HIGH = 0.55  # height of the high pass
 # about it, which cuRobo could solve for 3 of 25 probed poses.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 
-# Values match OrientationHold's constants; spelled out so a dry run needs no ROS.
+# Values match GoToEEPose.Goal's HOLD_* constants; spelled out so a dry run
+# needs no ROS.
 _HOLDS = {"none": 0, "level": 1, "fixed": 2}
 
 
@@ -140,8 +140,7 @@ def _send_one(node, client, pose, args, sender_id):
     goal.sender_id = sender_id
     goal.speed_scale = args.speed_scale
 
-    goal.orientation_hold = OrientationHold()
-    goal.orientation_hold.hold = _HOLDS[args.hold]
+    goal.orientation_hold = _HOLDS[args.hold]
 
 
     def on_fb(fb):

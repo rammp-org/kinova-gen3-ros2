@@ -16,26 +16,20 @@ double mismatch_of(const CuroboPlanClient::PlanToJoints::Result &r) {
 // assigning the raw integer: the two enumerations are independent contracts
 // that happen to agree today, and a silent renumbering on either side would
 // otherwise turn LEVEL into FIXED without a compile error.
-rammp_curobo_interfaces::msg::OrientationHold
-to_planner(const rammp_arm_interfaces::msg::OrientationHold &in) {
-  using Arm = rammp_arm_interfaces::msg::OrientationHold;
-  using Planner = rammp_curobo_interfaces::msg::OrientationHold;
-  Planner out;
-  switch (in.hold) {
+uint8_t to_planner(uint8_t hold) {
+  using Arm = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using Planner = CuroboPlanClient::PlanToPose::Goal;
+  switch (hold) {
   case Arm::HOLD_NONE:
-    out.hold = Planner::HOLD_NONE;
-    break;
+    return Planner::HOLD_NONE;
   case Arm::HOLD_LEVEL:
-    out.hold = Planner::HOLD_LEVEL;
-    break;
+    return Planner::HOLD_LEVEL;
   case Arm::HOLD_FIXED:
-    out.hold = Planner::HOLD_FIXED;
-    break;
+    return Planner::HOLD_FIXED;
   default:
     throw std::invalid_argument("unknown orientation hold mode " +
-                                std::to_string(in.hold));
+                                std::to_string(hold));
   }
-  return out;
 }
 
 // Shared dispatch for both plan actions. Only the goal type differs; the
@@ -116,15 +110,14 @@ CuroboPlanClient::CuroboPlanClient(rclcpp::Node::SharedPtr node,
 void CuroboPlanClient::plan(const geometry_msgs::msg::Pose &target,
                             const std::vector<double> &start_joints,
                             FeedbackCb on_fb, DoneCb on_done) {
-  plan(target, start_joints, rammp_arm_interfaces::msg::OrientationHold{},
+  plan(target, start_joints,
+       rammp_arm_interfaces::action::GoToEEPose::Goal::HOLD_NONE,
        std::move(on_fb), std::move(on_done));
 }
 
-void CuroboPlanClient::plan(
-    const geometry_msgs::msg::Pose &target,
-    const std::vector<double> &start_joints,
-    const rammp_arm_interfaces::msg::OrientationHold &hold, FeedbackCb on_fb,
-    DoneCb on_done) {
+void CuroboPlanClient::plan(const geometry_msgs::msg::Pose &target,
+                            const std::vector<double> &start_joints,
+                            uint8_t hold, FeedbackCb on_fb, DoneCb on_done) {
   PlanToPose::Goal goal;
   goal.target = target;
   goal.start_joints = start_joints; // plan from where the arm actually is

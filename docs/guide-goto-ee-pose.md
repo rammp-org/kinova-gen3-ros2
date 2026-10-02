@@ -120,17 +120,18 @@ request arrives:
 `GoToEEPose` carries two optional fields. Both default to off, so a goal that
 sets neither behaves exactly as before.
 
-| field              | type               | default     | meaning                                       |
-| ------------------ | ------------------ | ----------- | --------------------------------------------- |
-| `speed_scale`      | `float64`          | `1.0`       | run the trajectory slower; `1.0` = as planned |
-| `orientation_hold` | `OrientationHold`  | `HOLD_NONE` | keep the tool's orientation while it travels  |
+| field              | type      | default     | meaning                                       |
+| ------------------ | --------- | ----------- | --------------------------------------------- |
+| `speed_scale`      | `float64` | `1.0`       | run the trajectory slower; `1.0` = as planned |
+| `orientation_hold` | `uint8`   | `HOLD_NONE` | keep the tool's orientation while it travels  |
 
 **`speed_scale`** lowers the speed of the planned trajectory. The driver
 executes it slower by dilating its executor clock; the plan itself is unchanged.
 A value outside the driver's accepted range (its minimum up to `1.0`) or a
 non-finite one is **refused, not clamped**.
 
-**`orientation_hold`** has three modes and no frame:
+**`orientation_hold`** has three modes (constants on the goal, e.g.
+`GoToEEPose.Goal.HOLD_LEVEL`) and no frame:
 
 | mode | effect |
 | --- | --- |
@@ -161,8 +162,8 @@ The hold is a planner *cost*, not a hard limit, so the planner measures the
 trajectory it produced and refuses a plan whose worst deviation exceeds its
 configured tolerance. A `SUCCESSFUL` result has been verified to hold within it.
 
-The node translates the arm's `OrientationHold` into the planner's own type
-(inside `CuroboPlanClient`), so callers never see the planner's message types.
+The node translates the arm's hold mode into the planner's own constant
+(inside `CuroboPlanClient`), so callers never see the planner's types.
 An unknown mode is **refused**, never treated as `HOLD_NONE` — running an
 unconstrained move for a caller who asked for a held one would look like
 success.

@@ -83,8 +83,8 @@ public:
   }
 
   // What the caller asked us to constrain the plan by. Default-constructed
-  // (no locks, zero offset) until a pose goal arrives.
-  rammp_curobo_interfaces::msg::OrientationHold last_hold() const {
+  // (HOLD_NONE, zero offset) until a pose goal arrives.
+  uint8_t last_hold() const {
     std::lock_guard<std::mutex> l(seen_m_);
     return last_hold_;
   }
@@ -158,7 +158,7 @@ private:
   std::atomic<int> pose_goals_received_{0};
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
-  rammp_curobo_interfaces::msg::OrientationHold last_hold_;
+  uint8_t last_hold_ = PlanToPose::Goal::HOLD_NONE;
   rammp_curobo_interfaces::msg::ApproachVia last_approach_via_;
 };
 } // namespace kinova_gen3_ros2::test

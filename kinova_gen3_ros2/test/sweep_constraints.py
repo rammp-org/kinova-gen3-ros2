@@ -45,7 +45,6 @@ try:
     from rclpy.action import ActionClient
     from rclpy.node import Node
     from rammp_arm_interfaces.action import GoToEEPose
-    from rammp_arm_interfaces.msg import OrientationHold
 
     _HAVE_ROS = True
 except ImportError:
@@ -255,8 +254,7 @@ def main():
         ) = _normalize(pose["quat"])
         g.sender_id = args.sender_id
         g.speed_scale = speed
-        g.orientation_hold = OrientationHold()
-        g.orientation_hold.hold = _HOLDS[hold]
+        g.orientation_hold = _HOLDS[hold]
         return g
 
     def send(goal):

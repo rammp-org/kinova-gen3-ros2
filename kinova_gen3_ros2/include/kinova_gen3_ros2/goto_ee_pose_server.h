@@ -1,7 +1,6 @@
 #pragma once
 #include <optional>
 #include <string>
-#include "rammp_arm_interfaces/msg/orientation_hold.hpp"
 #include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/planned_move_server.h"
 namespace kinova_gen3_ros2 {
@@ -34,15 +33,14 @@ protected:
     // like success. (CuroboPlanClient refuses it too -- this is the earlier of
     // the two gates, so the client gets a goal rejection instead of a failed
     // result.)
-    using Hold = rammp_arm_interfaces::msg::OrientationHold;
-    switch (goal.orientation_hold.hold) {
-    case Hold::HOLD_NONE:
-    case Hold::HOLD_LEVEL:
-    case Hold::HOLD_FIXED:
+    switch (goal.orientation_hold) {
+    case Action::Goal::HOLD_NONE:
+    case Action::Goal::HOLD_LEVEL:
+    case Action::Goal::HOLD_FIXED:
       break;
     default:
-      return "GoToEEPose: unknown orientation_hold.hold " +
-             std::to_string(goal.orientation_hold.hold) +
+      return "GoToEEPose: unknown orientation_hold " +
+             std::to_string(goal.orientation_hold) +
              " (expected HOLD_NONE=0, HOLD_LEVEL=1 or HOLD_FIXED=2)";
     }
     return std::nullopt;
@@ -50,8 +48,8 @@ protected:
 
   void start_plan(const Action::Goal &goal, CuroboPlanClient::FeedbackCb on_fb,
                   CuroboPlanClient::DoneCb on_done) override {
-    planner_.plan(goal.target.pose, this->start_config(),
-                  goal.orientation_hold, std::move(on_fb), std::move(on_done));
+    planner_.plan(goal.target.pose, this->start_config(), goal.orientation_hold,
+                  std::move(on_fb), std::move(on_done));
   }
 };
 

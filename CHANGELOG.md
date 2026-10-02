@@ -28,8 +28,8 @@
 
 ### Added
 
-- `GoToEEPose` accepts `orientation_hold` (an `OrientationHold`: `HOLD_NONE`,
-  `HOLD_LEVEL` or `HOLD_FIXED`) and `speed_scale`. `GoToJointConfig`,
+- `GoToEEPose` accepts `orientation_hold` (`HOLD_NONE`, `HOLD_LEVEL` or
+  `HOLD_FIXED`, constants on the goal) and `speed_scale`. `GoToJointConfig`,
   `GoToPreset` and `ExecuteJointTrajectory` accept `speed_scale` only. Both
   fields default to off, so existing goals behave as before.
 - An unknown hold mode is **refused**, in the server and again in

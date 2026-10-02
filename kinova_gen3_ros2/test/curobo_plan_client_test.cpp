@@ -230,7 +230,7 @@ namespace {
 // Runs one pose plan to completion against a fake and hands back the fake's
 // record of what it received.
 struct Seen {
-  rammp_curobo_interfaces::msg::OrientationHold hold;
+  uint8_t hold;
 };
 template <typename PlanFn> Seen run_plan(const char *name, PlanFn call) {
   auto node = std::make_shared<rclcpp::Node>(name);
@@ -253,22 +253,20 @@ TEST_F(CuroboClientTest, TranslatesEveryHoldModeOntoThePlannerContract) {
   // share numeric values with the planner's. Asserting only one mode would
   // pass even if two cases were transposed, so every mode is exercised and
   // compared against the PLANNER's own constant rather than a literal.
-  using Arm = rammp_arm_interfaces::msg::OrientationHold;
-  using Planner = rammp_curobo_interfaces::msg::OrientationHold;
+  using Arm = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using Planner = rammp_curobo_interfaces::action::PlanToPose::Goal;
   const std::pair<uint8_t, uint8_t> cases[] = {
       {Arm::HOLD_NONE, Planner::HOLD_NONE},
       {Arm::HOLD_LEVEL, Planner::HOLD_LEVEL},
       {Arm::HOLD_FIXED, Planner::HOLD_FIXED},
   };
   for (const auto &[arm, planner] : cases) {
-    rammp_arm_interfaces::msg::OrientationHold hold;
-    hold.hold = arm;
-    const auto seen = run_plan(
-        ("hold_test" + std::to_string(arm)).c_str(),
-        [&](CuroboPlanClient &c, auto done) {
-          c.plan(geometry_msgs::msg::Pose{}, kStartJoints, hold, nullptr, done);
-        });
-    EXPECT_EQ(seen.hold.hold, planner) << "arm mode " << int(arm);
+    const auto seen = run_plan(("hold_test" + std::to_string(arm)).c_str(),
+                               [&](CuroboPlanClient &c, auto done) {
+                                 c.plan(geometry_msgs::msg::Pose{},
+                                        kStartJoints, arm, nullptr, done);
+                               });
+    EXPECT_EQ(seen.hold, planner) << "arm mode " << int(arm);
   }
 }
 
@@ -299,8 +297,7 @@ TEST_F(CuroboClientTest, AnUnknownHoldModeFailsLoudInsteadOfPlanning) {
   // Asserting `received == 0` is the real content: the failure that matters is
   // not a bad error string, it is dispatching an UNCONSTRAINED plan for a
   // caller who asked for a held one.
-  rammp_arm_interfaces::msg::OrientationHold hold;
-  hold.hold = 9;
+  const uint8_t hold = 9;
   const auto [o, received] =
       run_refused("bad_hold_test", [&](CuroboPlanClient &c, auto done) {
         c.plan(geometry_msgs::msg::Pose{}, kStartJoints, hold, nullptr, done);
@@ -317,6 +314,6 @@ TEST_F(CuroboClientTest, TheShortPlanOverloadSendsNoHold) {
       run_plan("short_overload_test", [&](CuroboPlanClient &c, auto done) {
         c.plan(geometry_msgs::msg::Pose{}, kStartJoints, nullptr, done);
       });
-  EXPECT_EQ(seen.hold.hold,
-            rammp_curobo_interfaces::msg::OrientationHold::HOLD_NONE);
+  EXPECT_EQ(seen.hold,
+            rammp_curobo_interfaces::action::PlanToPose::Goal::HOLD_NONE);
 }

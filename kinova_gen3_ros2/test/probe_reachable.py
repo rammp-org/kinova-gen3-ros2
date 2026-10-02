@@ -222,12 +222,18 @@ def main():
     quat = _normalize(args.quat)
     approach = None
     if args.approach:
-        approach = (float(args.approach[0]), args.approach[1].lower(), float(args.approach[2]))
+        approach = (
+            float(args.approach[0]),
+            args.approach[1].lower(),
+            float(args.approach[2]),
+        )
         if approach[1] not in ("x", "y", "z"):
             ap.error("--approach AXIS must be x, y or z")
     poses = [(x, y, z) for x in args.x for y in args.y for z in args.z]
-    print(f"\n  probing {len(poses)} pose(s), quat xyzw = "
-          f"[{', '.join(f'{c:.4f}' for c in quat)}]")
+    print(
+        f"\n  probing {len(poses)} pose(s), quat xyzw = "
+        f"[{', '.join(f'{c:.4f}' for c in quat)}]"
+    )
     if approach:
         print(f"  approach_via: {approach[0]} m along {approach[1]} at {approach[2]}")
     if args.hold != "none":

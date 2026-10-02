@@ -23,9 +23,9 @@ public:
 
 protected:
   std::optional<std::string> validate(const Action::Goal &goal) override {
-    // speed_scale is the only new field this action carries. orientation_hold is
-    // deliberately absent: this plans in joint space, where
-    // holding a tool orientation has no meaning.
+    // speed_scale is the only new field this action carries. orientation_hold
+    // is deliberately absent: this plans in joint space, where holding a tool
+    // orientation has no meaning.
     if (auto why = speed_scale_rejection(goal.speed_scale))
       return "GoToJointConfig: " + *why;
     // target_joints is float64[7], so the width is type-enforced and cannot be

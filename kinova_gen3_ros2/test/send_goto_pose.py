@@ -70,7 +70,6 @@ def main():
     if not 0.01 <= args.speed_scale <= 1.0:
         ap.error(f"--speed-scale must be in [0.01, 1.0]; got {args.speed_scale}")
 
-
     rclpy.init()
     node = Node("send_goto_pose")
     client = ActionClient(node, GoToEEPose, "go_to_ee_pose")

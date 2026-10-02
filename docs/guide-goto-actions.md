@@ -114,10 +114,10 @@ small delta) to exercise the success path.
 
 | action                     | `speed_scale` | `orientation_hold` |
 | -------------------------- | :-----------: | :----------------: |
-| `go_to_ee_pose`            | yes           | yes                |
-| `go_to_joint_config`       | yes           | no                 |
-| `go_to_preset`             | yes           | no                 |
-| `execute_joint_trajectory` | yes           | no                 |
+| `go_to_ee_pose`            |      yes      |        yes         |
+| `go_to_joint_config`       |      yes      |         no         |
+| `go_to_preset`             |      yes      |         no         |
+| `execute_joint_trajectory` |      yes      |         no         |
 
 `speed_scale` (default `1.0`, range: the driver's minimum up to `1.0`) runs the
 trajectory slower, by dilating the driver's executor clock. Out of range is
@@ -129,7 +129,7 @@ in joint space, where holding a tool orientation has no meaning, so they have no
 
 For `go_to_ee_pose`, both fields default to off. Three rules a caller will
 otherwise meet as a confusing failure (full detail in the
-[`GoToEEPose` guide](../guide-goto-ee-pose)):
+[`GoToEEPose` guide](guide-goto-ee-pose.md)):
 
 - **`HOLD_LEVEL` preserves tilt, it does not create level**: a 45-degree tool
   stays at 45 the whole way.

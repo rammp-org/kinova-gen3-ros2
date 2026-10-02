@@ -244,7 +244,12 @@ template <typename PlanFn> Seen run_plan(const char *name, PlanFn call) {
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
   call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
-  EXPECT_EQ(f.wait_for(5s), std::future_status::ready);
+  // Guard, don't assert-and-get: a never-set promise must fail the test, not
+  // block the whole binary on get() until the CI timeout.
+  if (f.wait_for(5s) != std::future_status::ready) {
+    ADD_FAILURE() << name << ": on_done never fired";
+    return {fake.last_hold()};
+  }
   EXPECT_TRUE(f.get().ok);
   EXPECT_EQ(fake.pose_goals_received(), 1);
   return {fake.last_hold()};
@@ -289,7 +294,13 @@ std::pair<CuroboPlanClient::Outcome, int> run_refused(const char *name,
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
   call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
-  EXPECT_EQ(f.wait_for(5s), std::future_status::ready);
+  // Guard, don't assert-and-get: a never-set promise must fail the test, not
+  // block the whole binary on get() until the CI timeout.
+  if (f.wait_for(5s) != std::future_status::ready) {
+    ADD_FAILURE() << name << ": on_done never fired";
+    CuroboPlanClient::Outcome none;
+    return {std::move(none), fake.pose_goals_received()};
+  }
   // Give a wrongly dispatched goal time to reach the server.
   std::this_thread::sleep_for(300ms);
   return {f.get(), fake.pose_goals_received()};

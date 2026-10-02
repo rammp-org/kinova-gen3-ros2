@@ -28,7 +28,8 @@ demonstration of anything, so push A and B further apart and rerun.
 
 SAFETY: DRY RUN by default. --go moves the arm: 4 motions in total (a move to A,
 run 1, back to A, run 2). Attended, e-stop in hand. A and B have NOT been
-checked for reachability on this cell -- dry-run first and tune them.
+checked for reachability on this cell -- vet them with probe_reachable.py first
+(the dry run here only prints them; it contacts no planner).
 
 Examples:
     python3 scenario_carry_level.py                  # dry run
@@ -82,9 +83,17 @@ def rotate_axis(q_xyzw, axis):
     """A local unit axis ('x'|'y'|'z') expressed in the base frame, for q."""
     x, y, z, w = q_xyzw
     if axis == "x":
-        return (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y))
+        return (
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y + w * z),
+            2.0 * (x * z - w * y),
+        )
     if axis == "y":
-        return (2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x))
+        return (
+            2.0 * (x * y - w * z),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z + w * x),
+        )
     return (2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y))
 
 
@@ -134,94 +143,96 @@ def _normalize(quat):
 # dry run is meant to be useful.
 if _HAVE_ROS:
 
-  class Scenario(Node):
-      def __init__(self, sender_id):
-          super().__init__("scenario_carry_level")
-          self.sender_id = sender_id
-          self.client = ActionClient(self, GoToEEPose, "go_to_ee_pose")
-          self.tilts = []
-          self.sampling = False
-          self.ref_q = None       # calibrated at A; see the note by GRIPPER_LEVEL
-          self.ref_axis = None
-          self.latest_q = None
-          self.create_subscription(
-              EeState, "/ee_state", self._on_ee, qos_profile_sensor_data
-          )
+    class Scenario(Node):
+        def __init__(self, sender_id):
+            super().__init__("scenario_carry_level")
+            self.sender_id = sender_id
+            self.client = ActionClient(self, GoToEEPose, "go_to_ee_pose")
+            self.tilts = []
+            self.sampling = False
+            self.ref_q = None  # calibrated at A; see the note by GRIPPER_LEVEL
+            self.ref_axis = None
+            self.latest_q = None
+            self.create_subscription(
+                EeState, "/ee_state", self._on_ee, qos_profile_sensor_data
+            )
 
-      def _on_ee(self, msg):
-          o = msg.pose.orientation
-          self.latest_q = [o.x, o.y, o.z, o.w]
-          if not self.sampling or self.ref_q is None:
-              return
-          self.tilts.append(
-              tilt_from_level_deg(self.latest_q, self.ref_q, self.ref_axis)
-          )
+        def _on_ee(self, msg):
+            o = msg.pose.orientation
+            self.latest_q = [o.x, o.y, o.z, o.w]
+            if not self.sampling or self.ref_q is None:
+                return
+            self.tilts.append(
+                tilt_from_level_deg(self.latest_q, self.ref_q, self.ref_axis)
+            )
 
-      def calibrate(self, settle=1.0):
-          """Adopt the arm's CURRENT orientation as level. Called at pose A.
+        def calibrate(self, settle=1.0):
+            """Adopt the arm's CURRENT orientation as level. Called at pose A.
 
-          This is what makes the measurement frame-agnostic: the reference comes
-          from the same topic, in the same convention, as everything compared
-          against it.
-          """
-          end = time.monotonic() + settle
-          while time.monotonic() < end and self.latest_q is None:
-              rclpy.spin_once(self, timeout_sec=0.05)
-          if self.latest_q is None:
-              return False
-          self.ref_q = list(self.latest_q)
-          self.ref_axis = spill_axis(self.ref_q)
-          return True
+            This is what makes the measurement frame-agnostic: the reference comes
+            from the same topic, in the same convention, as everything compared
+            against it.
+            """
+            end = time.monotonic() + settle
+            while time.monotonic() < end and self.latest_q is None:
+                rclpy.spin_once(self, timeout_sec=0.05)
+            if self.latest_q is None:
+                return False
+            self.ref_q = list(self.latest_q)
+            self.ref_axis = spill_axis(self.ref_q)
+            return True
 
-      def goal(self, pose, speed=1.0, level=False):
-          g = GoToEEPose.Goal()
-          g.target.header.frame_id = "base_link"
-          (
-              g.target.pose.position.x,
-              g.target.pose.position.y,
-              g.target.pose.position.z,
-          ) = pose["pos"]
-          (
-              g.target.pose.orientation.x,
-              g.target.pose.orientation.y,
-              g.target.pose.orientation.z,
-              g.target.pose.orientation.w,
-          ) = _normalize(pose["quat"])
-          g.sender_id = self.sender_id
-          g.speed_scale = speed
-          # HOLD_LEVEL holds roll and pitch and leaves yaw free. There is no
-          # frame to choose any more: "level" means level with the world, and
-          # only the base frame can express that, so the planner always uses it.
-          g.orientation_hold = (
-              GoToEEPose.Goal.HOLD_LEVEL if level else GoToEEPose.Goal.HOLD_NONE
-          )
-          return g
+        def goal(self, pose, speed=1.0, level=False):
+            g = GoToEEPose.Goal()
+            g.target.header.frame_id = "base_link"
+            (
+                g.target.pose.position.x,
+                g.target.pose.position.y,
+                g.target.pose.position.z,
+            ) = pose["pos"]
+            (
+                g.target.pose.orientation.x,
+                g.target.pose.orientation.y,
+                g.target.pose.orientation.z,
+                g.target.pose.orientation.w,
+            ) = _normalize(pose["quat"])
+            g.sender_id = self.sender_id
+            g.speed_scale = speed
+            # HOLD_LEVEL holds roll and pitch and leaves yaw free. There is no
+            # frame to choose any more: "level" means level with the world, and
+            # only the base frame can express that, so the planner always uses it.
+            g.orientation_hold = (
+                GoToEEPose.Goal.HOLD_LEVEL if level else GoToEEPose.Goal.HOLD_NONE
+            )
+            return g
 
-      def send(self, goal, measure=False):
-          """Returns (code, wall_seconds, max_tilt_deg or None)."""
-          self.tilts = []
-          self.sampling = measure
-          t0 = time.monotonic()
-          fut = self.client.send_goal_async(goal)
-          rclpy.spin_until_future_complete(self, fut)
-          gh = fut.result()
-          if gh is None or not gh.accepted:
-              self.sampling = False
-              return -1, time.monotonic() - t0, None
-          rf = gh.get_result_async()
-          rclpy.spin_until_future_complete(self, rf)
-          wall = time.monotonic() - t0
-          self.sampling = False
-          code = rf.result().result.error_code
-          worst = max(self.tilts) if self.tilts else None
-          return code, wall, worst
+        def send(self, goal, measure=False):
+            """Returns (code, wall_seconds, max_tilt_deg or None)."""
+            self.tilts = []
+            self.sampling = measure
+            t0 = time.monotonic()
+            fut = self.client.send_goal_async(goal)
+            rclpy.spin_until_future_complete(self, fut)
+            gh = fut.result()
+            if gh is None or not gh.accepted:
+                self.sampling = False
+                return -1, time.monotonic() - t0, None
+            rf = gh.get_result_async()
+            rclpy.spin_until_future_complete(self, rf)
+            wall = time.monotonic() - t0
+            self.sampling = False
+            code = rf.result().result.error_code
+            worst = max(self.tilts) if self.tilts else None
+            return code, wall, worst
 
 
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--speed", type=float, default=0.5, help="speed_scale for BOTH runs")
+    ap.add_argument(
+        "--speed", type=float, default=0.5, help="speed_scale for BOTH runs"
+    )
     ap.add_argument("--sender-id", default="scenario_carry_level")
     ap.add_argument("--no-pause", action="store_true", help="do not wait for Enter")
     ap.add_argument("--go", action="store_true", help="ACTUALLY MOVE THE ARM")
@@ -235,7 +246,9 @@ def main():
     print(f"  B  {POSE_B['pos']}   gripper level, facing forward")
     print(f"  {dist:.2f} m apart, same orientation at both ends\n")
     print(f"  run 1   free    A -> B at speed_scale {args.speed}")
-    print(f"  run 2   level   A -> B at speed_scale {args.speed}, roll+pitch held (base frame)\n")
+    print(
+        f"  run 2   level   A -> B at speed_scale {args.speed}, roll+pitch held (base frame)\n"
+    )
     print("  measured: worst tilt of the cup's axis away from the reference the")
     print("  arm itself reports at A, sampled from /ee_state throughout each run.")
     print("  Calibrated, not assumed: the measured frame and the commanded frame")
@@ -266,7 +279,7 @@ def main():
     results = {}
     try:
         for label, level in (("free", False), ("level", True)):
-            print(f"\n  ── setting up: moving to A")
+            print("\n  ── setting up: moving to A")
             if not pause("move to A"):
                 break
             code, wall, _ = n.send(n.goal(POSE_A))
@@ -276,11 +289,15 @@ def main():
             if not n.calibrate():
                 print("    no /ee_state — cannot calibrate the level reference.")
                 return 3
-            print(f"    at A ({wall:.2f}s); level reference calibrated from the arm, "
-                  f"cup axis = tool {n.ref_axis.upper()}")
+            print(
+                f"    at A ({wall:.2f}s); level reference calibrated from the arm, "
+                f"cup axis = tool {n.ref_axis.upper()}"
+            )
 
-            print(f"\n  ── run: {label}   A -> B at {args.speed}"
-                  + ("   roll+pitch HELD" if level else "   unconstrained"))
+            print(
+                f"\n  ── run: {label}   A -> B at {args.speed}"
+                + ("   roll+pitch HELD" if level else "   unconstrained")
+            )
             if not pause(f"run {label}"):
                 break
             code, wall, worst = n.send(n.goal(POSE_B, args.speed, level), measure=True)
@@ -308,7 +325,9 @@ def main():
         if f is None or lv is None:
             print("  no /ee_state samples — cannot compare tilt.\n")
         elif f - lv > 2.0:
-            print(f"  the hold kept the tool {f - lv:.1f}° flatter through the carry.\n")
+            print(
+                f"  the hold kept the tool {f - lv:.1f}° flatter through the carry.\n"
+            )
         else:
             print(
                 f"  free {f:.1f}° vs level {lv:.1f}° — too close to call. The planner\n"

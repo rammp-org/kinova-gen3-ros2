@@ -41,7 +41,9 @@ protected:
     default:
       return "GoToEEPose: unknown orientation_hold " +
              std::to_string(goal.orientation_hold) +
-             " (expected HOLD_NONE=0, HOLD_LEVEL=1 or HOLD_FIXED=2)";
+             " (expected HOLD_NONE=" + std::to_string(Action::Goal::HOLD_NONE) +
+             ", HOLD_LEVEL=" + std::to_string(Action::Goal::HOLD_LEVEL) +
+             " or HOLD_FIXED=" + std::to_string(Action::Goal::HOLD_FIXED) + ")";
     }
     return std::nullopt;
   }

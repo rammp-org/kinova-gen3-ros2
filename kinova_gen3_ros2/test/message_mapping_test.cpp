@@ -291,8 +291,10 @@ TEST(MessageMapping, ADefaultGoalIsFullSpeed) {
 
 TEST(MessageMapping, SpeedScaleRejectionNamesTheProblem) {
   EXPECT_FALSE(speed_scale_rejection(1.0).has_value());
-  EXPECT_FALSE(speed_scale_rejection(kinova::interface::kMinSpeedScale).has_value());
-  for (double bad : {0.0, kinova::interface::kMinSpeedScale * 0.5, -0.5, 1.5, std::numeric_limits<double>::quiet_NaN()}) {
+  EXPECT_FALSE(
+      speed_scale_rejection(kinova::interface::kMinSpeedScale).has_value());
+  for (double bad : {0.0, kinova::interface::kMinSpeedScale * 0.5, -0.5, 1.5,
+                     std::numeric_limits<double>::quiet_NaN()}) {
     const auto why = speed_scale_rejection(bad);
     ASSERT_TRUE(why.has_value()) << "scale " << bad << " must be refused";
     EXPECT_NE(why->find("speed_scale"), std::string::npos)

@@ -74,10 +74,10 @@ because a rejection carries no payload — the reason only reaches the node's lo
 Two companions live beside it in `test/`, both **dry run by default** and needing
 an explicit `--go` to move anything:
 
-| Script | What it is for |
-| --- | --- |
-| `sweep_constraints.py` | Runs one fixed motion under every constraint combination and tables the outcomes, re-homing between cases so the wall times compare. Each case carries an expectation, so a disagreement is flagged rather than left to the eye. |
-| `send_goto_pose_tour.py` | A lap of large, widely-spaced waypoints, so a change in `speed_scale` or a held axis is visible across a room rather than needing a plot. |
+| Script                   | What it is for                                                                                                                                                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sweep_constraints.py`   | Runs one fixed motion under every constraint combination and tables the outcomes, re-homing between cases so the wall times compare. Each case carries an expectation, so a disagreement is flagged rather than left to the eye. |
+| `send_goto_pose_tour.py` | A lap of large, widely-spaced waypoints, so a change in `speed_scale` or a held axis is visible across a room rather than needing a plot.                                                                                        |
 
 `sweep_constraints.py` is the one to reach for when asking "does this constraint
 actually do anything" — it includes cases that are *expected to be refused*,
@@ -135,11 +135,11 @@ non-finite one is **refused, not clamped**.
 **`orientation_hold`** has three modes (constants on the goal, e.g.
 `GoToEEPose.Goal.HOLD_LEVEL`) and no frame:
 
-| mode | effect |
-| --- | --- |
-| `HOLD_NONE` | the planner reorients freely |
+| mode         | effect                                              |
+| ------------ | --------------------------------------------------- |
+| `HOLD_NONE`  | the planner reorients freely                        |
 | `HOLD_LEVEL` | roll and pitch held; spin about vertical stays free |
-| `HOLD_FIXED` | the whole orientation held |
+| `HOLD_FIXED` | the whole orientation held                          |
 
 Four things callers meet as surprises:
 
@@ -168,11 +168,11 @@ The hold is a planner *cost*, not a hard limit, so the planner checks three
 things and refuses the plan if any fails, all against its own tolerance
 (`constraint_tolerance_deg`, 2 deg by default):
 
-| when | check |
-| --- | --- |
+| when            | check                                                 |
+| --------------- | ----------------------------------------------------- |
 | before planning | the start agrees with the goal on the held components |
-| after planning | every waypoint keeps the held components |
-| after planning | the last waypoint reaches the goal's full orientation |
+| after planning  | every waypoint keeps the held components              |
+| after planning  | the last waypoint reaches the goal's full orientation |
 
 The node translates the arm's hold mode into the planner's own constant
 (inside `CuroboPlanClient`), so callers never see the planner's types.

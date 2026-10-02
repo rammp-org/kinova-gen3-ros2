@@ -156,7 +156,9 @@ def check_dilation_stretches_wall_time(ctx):
         return Result("", FAIL, f"the half-speed leg did not succeed ({code})")
 
     if wall_full <= 0.1:
-        return Result("", FAIL, f"the full-speed leg took {wall_full:.2f}s; too short to compare")
+        return Result(
+            "", FAIL, f"the full-speed leg took {wall_full:.2f}s; too short to compare"
+        )
     ratio = wall_half / wall_full
     detail = f"{wall_full:.2f}s at 1.0 vs {wall_half:.2f}s at 0.5 (ratio {ratio:.2f})"
     # A wide band on purpose: both legs carry the same fixed action round-trip and

@@ -144,7 +144,6 @@ def _send_one(node, client, pose, args, sender_id, hold):
 
     goal.orientation_hold = _HOLDS[hold]
 
-
     def on_fb(fb):
         f = fb.feedback
         node.get_logger().info(
@@ -214,7 +213,6 @@ def main():
     # node enforces, refused rather than clamped.
     if not 0.01 <= args.speed_scale <= 1.0:
         ap.error(f"--speed-scale must be in [0.01, 1.0]; got {args.speed_scale}")
-
 
     tour = build_tour(args.count)
     print_tour(tour, args)

@@ -81,8 +81,9 @@ int main(int argc, char **argv) {
   double rate = 1000.0;
   double max_ref_speed = 0.0; // <=0 => seed from the URDF velocity limits
   // Per-cycle RT samples to a CSV. Empty => summary line only. The samples are
-  // measured either way; before this they were drained and discarded, which left
-  // the node unable to answer whether a stutter was ITS fault or the plan's.
+  // measured either way; before this they were drained and discarded, which
+  // left the node unable to answer whether a stutter was ITS fault or the
+  // plan's.
   std::string rt_csv;
   for (int i = 1; i < argc; ++i) {
     std::string a = argv[i];
@@ -280,14 +281,15 @@ int main(int argc, char **argv) {
   std::thread ros_spin([&] { ex.spin(); });
   // Drain thread. It used to pop samples and discard them, so the node measured
   // its own 1 kHz timing and then threw the measurement away -- the one thing
-  // you need when someone reports a stutter. All formatting and file I/O happens
-  // HERE, off the RT thread, which is the whole point of the ring.
+  // you need when someone reports a stutter. All formatting and file I/O
+  // happens HERE, off the RT thread, which is the whole point of the ring.
   std::thread drain([&] {
     TelemetrySink sink(rt_csv);
     CycleSample s;
     auto last = std::chrono::steady_clock::now();
     while (!g_stop.load()) {
-      while (ring.pop(s)) sink.consume(s);
+      while (ring.pop(s))
+        sink.consume(s);
       const auto now = std::chrono::steady_clock::now();
       if (now - last >= std::chrono::seconds(5)) {
         // Percentiles are cumulative since startup, not per interval; the CSV
@@ -299,7 +301,8 @@ int main(int argc, char **argv) {
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    while (ring.pop(s)) sink.consume(s);
+    while (ring.pop(s))
+      sink.consume(s);
     RCLCPP_INFO(node->get_logger(), "rt final: %s dropped=%llu",
                 sink.console_line().c_str(),
                 static_cast<unsigned long long>(ring.dropped()));

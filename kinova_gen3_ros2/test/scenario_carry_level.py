@@ -5,30 +5,30 @@ This is the "don't spill the cup" demo. The SAME motion at the SAME speed runs
 twice, and the only difference is whether roll and pitch are held:
 
     run 1   free     A -> B at speed_scale 0.5
-    run 2   level    A -> B at speed_scale 0.5, roll+pitch held in the BASE frame
+    run 2   level    A -> B at speed_scale 0.5, HOLD_LEVEL (roll+pitch held)
 
 A and B are at the SAME tool orientation -- the gripper LEVEL, approach axis
 horizontal and facing forward, gripping a cup from the side with the cup's axis
-vertical -- and differ only in position. That matters: a lock holds a component
+vertical -- and differ only in position. That matters: a hold keeps a component
 AT THE GOAL'S VALUE, so roll/pitch can only be held if the start already matches
 the goal on them. It also means the difference to watch is in the MIDDLE of the
 motion -- unconstrained, cuRobo is free to tilt the tool on its way between two
 level poses; constrained, it is not.
 
-"Level" is gravity-relative, so the lock is applied in FRAME_BASE. In FRAME_GOAL
-it would be held relative to the goal's own frame, which is a different question.
+"Level" means level with the robot base, which is gravity-relative only while
+the arm is mounted level. There is no frame to choose.
 
 MEASURED, not eyeballed: /ee_state is sampled throughout each run and the script
 reports the worst tilt of the CUP's axis away from vertical. Which tool axis that
-is depends on the grasp pose (it is the tool's local X here, not its Z), so it is
+is depends on the grasp pose (it is the tool's local Y here, not its Z), so it is
 derived from the reference orientation rather than assumed. Expect a
 few degrees or more on the free run and ~0 on the held one. If both come back
 near zero the planner simply chose a level path anyway -- that is not a
 demonstration of anything, so push A and B further apart and rerun.
 
 SAFETY: DRY RUN by default. --go moves the arm: 4 motions in total (a move to A,
-run 1, back to A, run 2). Attended, e-stop in hand. A and B default to the pose
-pair the constraint sweep already exercises on this cell.
+run 1, back to A, run 2). Attended, e-stop in hand. A and B have NOT been
+checked for reachability on this cell -- dry-run first and tune them.
 
 Examples:
     python3 scenario_carry_level.py                  # dry run
@@ -53,16 +53,17 @@ except ImportError:
     _HAVE_ROS = False
 
 # Gripper LEVEL, approach axis horizontal and facing forward (+X): the cup is
-# gripped from the side with its axis vertical. xyzw; a +90 deg rotation about Y.
+# gripped from the side with its axis vertical. xyzw; a 120 deg rotation about
+# (1, 1, 1)/sqrt(3).
 #
-# In this pose the tool's local axes land as: Z -> +X (forward), Y -> +Y, and
-# X -> straight DOWN. So the axis that must stay vertical -- the cup's axis, the
-# one that decides whether it spills -- is the tool's local X, not its Z. That is
+# In this pose the tool's local axes land as: Z -> +X (forward), X -> +Y, and
+# Y -> straight UP. So the axis that must stay vertical -- the cup's axis, the
+# one that decides whether it spills -- is the tool's local Y, not its Z. That is
 # derived below rather than hardcoded, so changing this constant keeps the
 # measurement honest.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 # Same orientation at both ends -- see the module docstring for why that is the
-# whole point. Reuses the sweep's known-good pair for this cell.
+# whole point.
 POSE_A = {"name": "A", "pos": [0.45, -0.25, 0.25], "quat": list(GRIPPER_LEVEL)}
 POSE_B = {"name": "B", "pos": [0.45, 0.25, 0.50], "quat": list(GRIPPER_LEVEL)}
 
@@ -112,7 +113,7 @@ def tilt_from_level_deg(q_xyzw, reference_q=GRIPPER_LEVEL, axis=None):
 
     One number rather than separate roll and pitch, and rotation ABOUT the cup's
     own axis contributes nothing -- correct, because spinning a cup on its axis
-    does not spill it and that rotation is not locked either.
+    does not spill it and that rotation is not held either.
     """
     axis = axis or spill_axis(reference_q)
     a = rotate_axis(q_xyzw, axis)
@@ -307,7 +308,7 @@ def main():
         if f is None or lv is None:
             print("  no /ee_state samples — cannot compare tilt.\n")
         elif f - lv > 2.0:
-            print(f"  the lock held the tool {f - lv:.1f}° flatter through the carry.\n")
+            print(f"  the hold kept the tool {f - lv:.1f}° flatter through the carry.\n")
         else:
             print(
                 f"  free {f:.1f}° vs level {lv:.1f}° — too close to call. The planner\n"

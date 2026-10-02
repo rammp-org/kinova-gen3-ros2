@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Walk the EE around a large, deterministic tour — the demo lap for speed_scale,
-orientation holds.
+"""Walk the EE around a large, deterministic tour — the demo lap for speed_scale
+and orientation holds.
 
 Where send_goto_pose_sequence.py samples RANDOM poses in a small conservative box
 (a reachability probe), this walks a fixed RING of widely-spaced waypoints in front
 of the arm. The motions are deliberately big, so a change in speed_scale or a held
 axis is visible from across the room rather than needing a plot.
 
-The three things it shows off:
+The two things it shows off:
 
   speed_scale   Per-leg pace. The path is identical; only the clock changes. Run
                 the same lap at 1.0 and at 0.25 and it takes ~4x as long.
   hold          Keep the tool's orientation for the WHOLE leg, held AT THE
                 GOAL'S VALUE — see GoToEEPose.action. Every ring waypoint
-                shares one orientation, so a hold is satisfiable on every leg;
-                `level` through a whole lap is the "carry a full cup around the
-                room" demo.
+                shares one orientation, so a hold is satisfiable on every leg
+                after the first; the first is always sent unconstrained, since
+                the arm starts wherever it is. `level` through a whole lap is
+                the "carry a full cup around the room" demo.
 
 ARBITRATION: like the other test clients here, this sends no capability
 token. Under kEnforced every goal comes back refused and the table fills with
@@ -85,8 +86,9 @@ def build_tour(n):
     big diagonal rather than a slide along one axis.
 
     Every waypoint shares ONE orientation, which is what makes a hold
-    satisfiable on every leg: a hold keeps the orientation at the goal's value,
-    so the previous waypoint already matches it. An earlier version appended a
+    satisfiable on every leg after the first: a hold keeps the orientation at
+    the goal's value, so the previous waypoint already matches it. The first
+    leg starts from wherever the arm is, so main() sends it unconstrained. An earlier version appended a
     dedicated descent leg to carry an approach offset; that field is gone
     (kinova-gen3-ros2#40) and the ring needs no special case.
     """
@@ -121,7 +123,7 @@ def _normalize(quat):
     return [c / n for c in quat]
 
 
-def _send_one(node, client, pose, args, sender_id):
+def _send_one(node, client, pose, args, sender_id, hold):
     """Send one GoToEEPose goal; return its integer error_code (or a synthetic
     negative for reject/no-result). Blocks until the goal settles."""
     goal = GoToEEPose.Goal()
@@ -140,7 +142,7 @@ def _send_one(node, client, pose, args, sender_id):
     goal.sender_id = sender_id
     goal.speed_scale = args.speed_scale
 
-    goal.orientation_hold = _HOLDS[args.hold]
+    goal.orientation_hold = _HOLDS[hold]
 
 
     def on_fb(fb):
@@ -171,7 +173,8 @@ def print_tour(tour, args):
     total = sum(leg_length(tour[i], tour[i + 1]) for i in range(len(tour) - 1))
     print(f"\n  tour: {len(tour)} waypoints, {total:.2f} m of travel")
     print(f"  speed_scale  {args.speed_scale}")
-    print(f"  hold         {args.hold}")
+    leg1 = "" if args.hold == "none" else " (leg 1 unconstrained)"
+    print(f"  hold         {args.hold}{leg1}")
     print()
     for i, p in enumerate(tour):
         x, y, z = p["pos"]
@@ -239,9 +242,12 @@ def main():
         return 1
 
     failed = 0
-    for p in tour:
-        node.get_logger().info(f"--> {p['name']} {p['pos']}")
-        if _send_one(node, client, p, args, args.sender_id) != 0:
+    for i, p in enumerate(tour):
+        # A hold keeps the orientation at the goal's value, so leg 1 -- from
+        # wherever the arm happens to be -- would be refused under one.
+        hold = args.hold if i else "none"
+        node.get_logger().info(f"--> {p['name']} {p['pos']} hold={hold}")
+        if _send_one(node, client, p, args, args.sender_id, hold) != 0:
             failed += 1
             node.get_logger().error(f"{p['name']} did not succeed — stopping the tour")
             break

@@ -7,7 +7,7 @@ rather than GoToEEPose, because planning never commands the arm -- the planner
 node says so itself on startup ("This node never moves the arm; execution is the
 caller's"). Nothing here executes a trajectory.
 
-Use it to pick the endpoints for scenario_approach.py / scenario_carry_level.py
+Use it to pick the endpoints for scenario_carry_level.py
 instead of discovering IK_FAIL one run at a time.
 
     python3 probe_reachable.py --z 0.45 0.40 0.35 0.30 0.25 0.20
@@ -200,7 +200,8 @@ def main():
         "--approach",
         nargs=3,
         metavar=("OFFSET", "AXIS", "AT_FRACTION"),
-        help="send an ApproachVia straight to the planner, e.g. --approach 0.1 z 0.8",
+        help="send an ApproachVia straight to the planner, e.g. --approach 0.1 z "
+        "0.8. Shelved on the arm side (kinova-gen3-ros2#40); planner-only probe.",
     )
     ap.add_argument(
         "--hold",

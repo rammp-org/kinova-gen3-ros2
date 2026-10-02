@@ -22,7 +22,7 @@
 # Layer order is deliberate: the slow, rarely-changing steps (pip, vcs import,
 # rosdep) come first, so editing node source only re-runs colcon.
 
-FROM ghcr.io/rammp-org/rammp-base:1.0.0-jp6
+FROM ghcr.io/rammp-org/rammp-base:1.1.0-jp6
 
 SHELL ["/bin/bash", "-c"]
 

@@ -228,7 +228,8 @@ TEST_F(CuroboClientTest, PlanToJointsServerUnavailableReturnsFailure) {
 
 namespace {
 // Runs one pose plan to completion against a fake and hands back the fake's
-// record of what it received.
+// record of what it received. Fails the test unless the plan succeeded and
+// exactly one goal reached the fake, so `hold` is what was actually sent.
 struct Seen {
   uint8_t hold;
 };
@@ -244,6 +245,8 @@ template <typename PlanFn> Seen run_plan(const char *name, PlanFn call) {
   auto f = p.get_future();
   call(client, [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
   EXPECT_EQ(f.wait_for(5s), std::future_status::ready);
+  EXPECT_TRUE(f.get().ok);
+  EXPECT_EQ(fake.pose_goals_received(), 1);
   return {fake.last_hold()};
 }
 } // namespace

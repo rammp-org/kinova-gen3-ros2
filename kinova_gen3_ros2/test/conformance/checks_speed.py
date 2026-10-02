@@ -70,6 +70,10 @@ def _send(ctx, goal, timeout=40.0):
     end = time.time() + timeout
     while time.time() < end and not fut.done():
         ctx.spin(0.02)
+    if not fut.done():
+        # Not a refusal: nothing answered. Raising keeps the refusal checks
+        # from passing against a node that is wedged rather than strict.
+        raise RuntimeError(f"no goal response within {timeout:.0f} s")
     gh = fut.result()
     if gh is None or not gh.accepted:
         return False, None, time.time() - t0
@@ -128,9 +132,9 @@ def check_dilation_stretches_wall_time(ctx):
     """The same trajectory at 1.0 and at 0.5. Same path, same endpoints; only the
     clock differs, so the second should take about twice as long.
 
-    The arm ends where it started: the full-speed leg moves +DELTA and the
-    half-speed leg is built fresh from the measured q, so it moves +DELTA again.
-    That is intentional -- each leg is timed from its own start, and neither
+    The arm does NOT end where it started: the full-speed leg moves +DELTA
+    and the half-speed leg is built fresh from the measured q, so it moves
+    +DELTA again -- joint 6 finishes 2*DELTA from its start. That is intentional -- each leg is timed from its own start, and neither
     depends on the other's endpoint.
     """
     session_tok = ctx.acquire("conformance-speed").token

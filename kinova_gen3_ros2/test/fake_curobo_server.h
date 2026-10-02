@@ -82,8 +82,11 @@ public:
     return last_start_joints_;
   }
 
-  // What the caller asked us to constrain the plan by. Default-constructed
-  // (HOLD_NONE, zero offset) until a pose goal arrives.
+  // What the caller asked us to constrain the plan by. kNoHoldSeen until a
+  // pose goal arrives -- deliberately NOT HOLD_NONE, so a test expecting
+  // HOLD_NONE has to observe it rather than inherit it from a fake that was
+  // never reached.
+  static constexpr uint8_t kNoHoldSeen = 255;
   uint8_t last_hold() const {
     std::lock_guard<std::mutex> l(seen_m_);
     return last_hold_;
@@ -158,7 +161,7 @@ private:
   std::atomic<int> pose_goals_received_{0};
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
-  uint8_t last_hold_ = PlanToPose::Goal::HOLD_NONE;
+  uint8_t last_hold_ = kNoHoldSeen;
   rammp_curobo_interfaces::msg::ApproachVia last_approach_via_;
 };
 } // namespace kinova_gen3_ros2::test

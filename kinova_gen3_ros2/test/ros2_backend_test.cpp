@@ -1,5 +1,6 @@
 // ExecuteJointTrajectory goal validation in Ros2Backend::handle_goal.
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <thread>
 #include <gtest/gtest.h>
@@ -31,16 +32,24 @@ protected:
   }
 };
 
-// Returns true if the server accepted the goal.
+// Returns true if the server accepted the goal. A missing server or a goal
+// response that never came FAILS the test rather than returning false, so
+// "refused" cannot be satisfied by a dead server.
 static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
-  auto client = rclcpp_action::create_client<Action>(node, "execute_joint_trajectory");
+  auto client =
+      rclcpp_action::create_client<Action>(node, "execute_joint_trajectory");
   rclcpp::executors::SingleThreadedExecutor ex;
   ex.add_node(node);
-  if (!client->wait_for_action_server(5s))
+  if (!client->wait_for_action_server(5s)) {
+    ADD_FAILURE() << "execute_joint_trajectory server never appeared";
     return false;
+  }
   auto fut = client->async_send_goal(one_point_goal(speed_scale));
-  if (ex.spin_until_future_complete(fut, 5s) != rclcpp::FutureReturnCode::SUCCESS)
+  if (ex.spin_until_future_complete(fut, 5s) !=
+      rclcpp::FutureReturnCode::SUCCESS) {
+    ADD_FAILURE() << "no goal response within 5 s";
     return false;
+  }
   return fut.get() != nullptr;
 }
 
@@ -49,7 +58,7 @@ TEST_F(Ros2BackendTest, ABadSpeedScaleIsRefusedBeforeTheSink) {
   kinova_gen3_ros2::Ros2Backend backend(node);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
-  for (double bad : {0.0, -1.0, 1.5}) {
+  for (double bad : {0.0, -1.0, 1.5, std::nan("")}) {
     EXPECT_FALSE(send(node, bad)) << bad;
     EXPECT_FALSE(sup.got_goal) << bad;
   }

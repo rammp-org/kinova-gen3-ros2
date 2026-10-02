@@ -18,6 +18,11 @@ namespace kinova_gen3_ros2 {
 // plan()/plan_to_joints() dispatch and return; the result arrives on on_done
 // from the rclcpp executor (client's reentrant group). on_done is invoked
 // EXACTLY ONCE (success, failure, rejection, or unavailable).
+//
+// THREADING: on_done normally runs on the rclcpp executor, but some failures
+// invoke it SYNCHRONOUSLY on the caller's thread before plan()/plan_to_joints()
+// returns -- e.g. an unknown hold mode, or an unavailable action server. A
+// caller must not hold a lock across these calls that on_done also takes.
 class CuroboPlanClient {
 public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
@@ -47,11 +52,6 @@ public:
   void plan(const geometry_msgs::msg::Pose &target,
             const std::vector<double> &start_joints, FeedbackCb on_fb,
             DoneCb on_done);
-  // THREADING: on_done is normally invoked from the rclcpp executor, but if
-  // the hold carries an unknown mode, plan() invokes on_done (ok=false)
-  // SYNCHRONOUSLY on the caller's thread and dispatches nothing. A caller must
-  // not hold a lock across plan() that on_done also takes.
-  //
   // As above, constrained by the arm's own orientation hold (one of
   // GoToEEPose::Goal::HOLD_*). It is translated into the planner's equivalent
   // here and nowhere else, so replacing cuRobo never changes what an arm

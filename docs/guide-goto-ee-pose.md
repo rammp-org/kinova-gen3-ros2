@@ -48,7 +48,9 @@ real divergence. We never send the empty form.
 ## Calling it
 
 Use the test client, which takes a target position and orientation in
-`base_link` (quaternion in `xyzw` order):
+`base_link` (quaternion in `xyzw` order). **It moves the arm as soon as it
+runs** — unlike the tour, sweep and scenario scripts it has no dry run and no
+`--go` gate:
 
 ```sh
 python3 <ws>/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_goto_pose.py \
@@ -115,7 +117,7 @@ request arrives:
   Supervisor (the same path `ExecuteJointTrajectory` cancellation uses),
   which settles the goal `PREEMPTED` once the arm has stopped.
 
-## Speed, locks and approach
+## Speed and orientation hold
 
 `GoToEEPose` carries two optional fields. Both default to off, so a goal that
 sets neither behaves exactly as before.
@@ -158,9 +160,19 @@ Four things callers meet as surprises:
   same thing while the arm is mounted level and stop being the same thing the
   moment it is not. Mount tilt belongs in the robot model, not in this field.
 
-The hold is a planner *cost*, not a hard limit, so the planner measures the
-trajectory it produced and refuses a plan whose worst deviation exceeds its
-configured tolerance. A `SUCCESSFUL` result has been verified to hold within it.
+**Nothing in the goal is ignored.** A hold constrains the path, not the
+destination: under every mode the move must end at the goal's full pose, yaw
+included. `HOLD_LEVEL` frees spin about base Z only in transit.
+
+The hold is a planner *cost*, not a hard limit, so the planner checks three
+things and refuses the plan if any fails, all against its own tolerance
+(`constraint_tolerance_deg`, 2 deg by default):
+
+| when | check |
+| --- | --- |
+| before planning | the start agrees with the goal on the held components |
+| after planning | every waypoint keeps the held components |
+| after planning | the last waypoint reaches the goal's full orientation |
 
 The node translates the arm's hold mode into the planner's own constant
 (inside `CuroboPlanClient`), so callers never see the planner's types.
@@ -171,9 +183,10 @@ success.
 **Refusals carry no payload.** `validate()` rejects a bad `speed_scale` or an
 unknown hold mode, and the client receives a bare ROS action rejection with the
 reason logged on the server only (tracked as `kinova-gen3-ros2#39`). A hold the
-planner cannot satisfy is different: the goal is accepted and then settles
-`PLANNING_FAILED (-7)` with the planner's reason — including the measured
-deviation — in `error_string`, which the client does see.
+planner refuses is different, whichever of the three checks fails: the goal
+is accepted and then settles `PLANNING_FAILED (-7)` with the planner's reason —
+including the measured deviation and the limit — in `error_string`, which the
+client does see.
 
 ## Safety
 
@@ -182,7 +195,7 @@ speed.** The returned `time_from_start` values feed straight through to the
 Supervisor, so a goal that leaves `speed_scale` at its default of `1.0` moves
 at whatever speed cuRobo's plan calls for, not a conservative one. For a first
 real-arm goal, set `speed_scale` well below 1 (see
-[Speed, locks and approach](#speed-locks-and-approach)).
+[Speed and orientation hold](#speed-and-orientation-hold)).
 
 Before running against the real arm:
 

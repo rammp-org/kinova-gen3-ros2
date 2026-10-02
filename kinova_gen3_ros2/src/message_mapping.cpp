@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_gen3_ros2/joint_point.h" // shared vec_to_point
 namespace kinova_gen3_ros2 {
@@ -111,12 +112,16 @@ to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
 }
 
 std::optional<std::string> speed_scale_rejection(double s) {
-  if (!std::isfinite(s)) return std::string("speed_scale must be finite");
+  if (!std::isfinite(s))
+    return std::string("speed_scale must be finite");
   // Same range the driver enforces; the floor is the driver's own constant.
   const double lo = kinova::interface::kMinSpeedScale;
-  if (s < lo || s > 1.0)
-    return "speed_scale must be in [" + std::to_string(lo) +
-           ", 1]; got " + std::to_string(s);
+  if (s < lo || s > 1.0) {
+    char buf[96]; // %g, not std::to_string: "[0.01, 1]", not "[0.010000, 1]"
+    std::snprintf(buf, sizeof buf, "speed_scale must be in [%g, 1]; got %g", lo,
+                  s);
+    return std::string(buf);
+  }
   return std::nullopt;
 }
 

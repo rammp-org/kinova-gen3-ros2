@@ -10,7 +10,7 @@
 > | Dependency | Pinned today | Required | Branch carrying the work |
 > |---|---|---|---|
 > | `kinova-gen3-driver` (`kinova_gen3.repos`) | `v1.1.1` (no `TrajectoryGoal::speed_scale`, no `kMinSpeedScale`) | the release containing `speed_scale` | `feature/69-trajectory-speed-scale` |
-> | `RAMMP-CuRobo` (`kinova_gen3.repos`) | `v1.0.0` (`PlanToPose.action` lacks `axis_lock`/`approach_via`) | the release containing pose constraints | `feature/16-pose-constraints-and-via-point` |
+> | `RAMMP-CuRobo` (`kinova_gen3.repos`) | `v1.0.0` (`PlanToPose.action` lacks `hold`/`approach_via`) | the release containing pose constraints | `feature/16-pose-constraints-and-via-point` |
 > | `rammp-interfaces-ros2` (base image `rammp-base:1.0.0-jp6` in `Dockerfile`) | 1.1.0 | 1.2.0 | `feature/38-lock-via-speed` |
 >
 > How it *was* verified: a four-source colcon workspace (this node plus the

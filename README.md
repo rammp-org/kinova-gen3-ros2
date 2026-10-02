@@ -364,6 +364,7 @@ while the generated model uses `end_effector_link`, which the launch passes.
 | `--rt-priority <n>`       | `80`                         | SCHED_FIFO priority for the RT thread.                                                |
 | `--rate <hz>`             | `1000.0`                     | RT loop rate.                                                                         |
 | `--max-ref-speed <rad/s>` | URDF velocity limits         | Cap on how fast the position-mode *reference* may move, applied per joint. See below. |
+| `--rt-csv <path>`         | — (summary only)             | Write every RT cycle sample to a CSV. Either way the node logs a cumulative `rt:` timing line every 5 s and an `rt final:` line on exit, with the dropped-sample count. |
 
 `--max-ref-speed` is worth understanding before you change it. `JointPositionParams`
 defaults to 0.5 rad/s on every joint — a conservative bring-up value that

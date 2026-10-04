@@ -140,6 +140,9 @@ TEST_F(Ros2BackendTest, SetGainsMapsAndRelaysTheSinkVerdict) {
   auto fut3 = client->async_send_request(req);
   ASSERT_EQ(ex.spin_until_future_complete(fut3, 5s),
             rclcpp::FutureReturnCode::SUCCESS);
-  EXPECT_FALSE(fut3.get()->accepted);
-  EXPECT_EQ(fut3.get()->message, "refused by fake");
+  // get() once: an rclcpp client future's shared state is CONSUMED by get(),
+  // and a second call throws std::future_error (no associated state).
+  const auto resp3 = fut3.get();
+  EXPECT_FALSE(resp3->accepted);
+  EXPECT_EQ(resp3->message, "refused by fake");
 }

@@ -112,6 +112,13 @@ private:
   using GoalId = kinova::interface::GoalId;
   static constexpr double kGotoPathTolRad =
       0.35; // generous; full-speed tracking lag
+  // Impedance executes compliantly: tracking error up to the spring leash
+  // (0.35 rad on the medium profile, 0.45 on soft) is NORMAL operation -- the
+  // spring saturates and the arm yields, which is the point of the mode. A
+  // 0.35 rad divergence guard would abort on the first real contact, so the
+  // guard sits above the largest profile leash with headroom: it now means
+  // "the arm is somewhere the plan never was", not "the arm is complying".
+  static constexpr double kGotoPathTolImpedanceRad = 0.60;
 
   rclcpp_action::GoalResponse
   handle_goal(const rclcpp_action::GoalUUID &,
@@ -259,7 +266,10 @@ private:
         to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale,
                            to_control_mode(gh->get_goal()->control_mode),
                            to_gains_spec(gh->get_goal()->gains));
-    tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
+    tg.path_tolerance = kinova::JointVec::Constant(
+        tg.control_mode == kinova::interface::ControlModeKind::kImpedance
+            ? kGotoPathTolImpedanceRad
+            : kGotoPathTolRad);
     tg.sender_id = gh->get_goal()->sender_id;
     tg.token = gh->get_goal()->token; // the plan inherits the goal's authority
 

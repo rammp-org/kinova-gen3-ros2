@@ -167,6 +167,10 @@ TEST_F(GotoJointConfigTest, ImpedanceModeAndGainsReachTheTrajectoryGoal) {
   EXPECT_TRUE(sup.got_goal);
   EXPECT_EQ(sup.last_goal.control_mode, ControlModeKind::kImpedance);
   EXPECT_EQ(sup.last_goal.gains.profile, GainsProfile::kSoft);
+  // Compliant execution gets the RELAXED divergence guard: error up to the
+  // spring leash is the mode working, not the plan failing (0.60 > every
+  // profile's leash). Position GoTo keeps 0.35.
+  EXPECT_NEAR(sup.last_goal.path_tolerance[0], 0.60, 1e-12);
 }
 
 // Gains on a POSITION GoTo cannot act: rejected at submission, never planned.

@@ -73,3 +73,73 @@ TEST_F(Ros2BackendTest, AValidSpeedScaleReachesTheSink) {
   EXPECT_TRUE(sup.got_goal);
   EXPECT_DOUBLE_EQ(sup.last_goal.speed_scale, 0.5);
 }
+
+// Gains on a POSITION goal cannot act; refused before the sink, with the
+// reason in the node log (the driver would refuse it silently).
+TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {
+  auto node = std::make_shared<rclcpp::Node>("backend_gains_bad");
+  kinova_gen3_ros2::Ros2Backend backend(node);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  auto goal = one_point_goal(1.0);
+  goal.control_mode = 0;
+  goal.gains.profile = rammp_arm_interfaces::msg::GainsSpec::PROFILE_STIFF;
+
+  auto client = rclcpp_action::create_client<Action>(
+      node, "execute_joint_trajectory");
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(node);
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  auto fut = client->async_send_goal(goal);
+  ASSERT_EQ(ex.spin_until_future_complete(fut, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_EQ(fut.get(), nullptr);
+  EXPECT_FALSE(sup.got_goal);
+}
+
+// /set_gains: local validation refuses what cannot be mapped; everything else
+// is relayed to the CommandSink (the Arbiter, in bringup) and the sink's
+// verdict comes back verbatim.
+TEST_F(Ros2BackendTest, SetGainsMapsAndRelaysTheSinkVerdict) {
+  using Srv = rammp_arm_interfaces::srv::SetGains;
+  auto node = std::make_shared<rclcpp::Node>("backend_set_gains");
+  kinova_gen3_ros2::Ros2Backend backend(node);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+
+  auto client = node->create_client<Srv>("set_gains");
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(node);
+  ASSERT_TRUE(client->wait_for_service(5s));
+
+  auto req = std::make_shared<Srv::Request>();
+  req->spec.profile = rammp_arm_interfaces::msg::GainsSpec::PROFILE_SOFT;
+  req->token.fill(0);
+  req->token[0] = 0xEE;
+  auto fut = client->async_send_request(req);
+  ASSERT_EQ(ex.spin_until_future_complete(fut, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_TRUE(fut.get()->accepted);
+  ASSERT_TRUE(sup.got_gains);
+  EXPECT_EQ(sup.last_gains.spec.profile,
+            kinova::interface::GainsProfile::kSoft);
+  EXPECT_EQ(sup.last_gains.token[0], 0xEE); // the capability survives the hop
+
+  // An unknown profile byte never reaches the sink as "session default".
+  sup.got_gains = false;
+  auto bad = std::make_shared<Srv::Request>();
+  bad->spec.profile = 9;
+  auto fut2 = client->async_send_request(bad);
+  ASSERT_EQ(ex.spin_until_future_complete(fut2, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_FALSE(fut2.get()->accepted);
+  EXPECT_FALSE(sup.got_gains);
+
+  // The sink's refusal is relayed with its message.
+  sup.gains_result = {false, "refused by fake"};
+  auto fut3 = client->async_send_request(req);
+  ASSERT_EQ(ex.spin_until_future_complete(fut3, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_FALSE(fut3.get()->accepted);
+  EXPECT_EQ(fut3.get()->message, "refused by fake");
+}

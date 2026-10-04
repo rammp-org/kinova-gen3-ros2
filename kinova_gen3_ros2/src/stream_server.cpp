@@ -5,6 +5,7 @@
 #include <functional>
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "kinova_gen3_ros2/message_mapping.h" // to_gains_spec, mode_gains_rejection
 #include "kinova_lowlevel/interface/streaming_session.h" // pair_supported
 namespace kinova_gen3_ros2 {
 using namespace kinova::interface;
@@ -79,11 +80,26 @@ const std::vector<StreamServer::ControllerRow> &StreamServer::registry() {
        true,
        SetpointKind::kJointVelocity,
        ControlModeKind::kVelocity},
+      // The compliant velocity tiers (v1.3.0): same channels as their stiff
+      // siblings, integrated onto an impedance reference instead of a stiff
+      // one. Registered against the pair; availability comes live from core's
+      // pair_supported(), so these rows light up when the driver pin carries
+      // the pairs and stay unavailable (and unopenable) until it does.
+      {"joint_velocity_impedance",
+       {"joint_velocity"},
+       true,
+       SetpointKind::kJointVelocity,
+       ControlModeKind::kImpedance},
       {"ee_twist",
        {"twist"},
        true,
        SetpointKind::kEeTwist,
        ControlModeKind::kVelocity},
+      {"ee_twist_impedance",
+       {"twist"},
+       true,
+       SetpointKind::kEeTwist,
+       ControlModeKind::kImpedance},
       {"cartesian_impedance",
        // "wrench" names a channel with NO topic: rammp_arm_interfaces v1.0.0
        // ships no WrenchSetpoint, because no controller consumes one. The
@@ -198,10 +214,24 @@ void StreamServer::on_open(const std::shared_ptr<OpenStream::Request> req,
     return;
   }
 
+  // Refuse an unmappable or mis-aimed spec HERE: an unknown profile byte
+  // would otherwise map onto the session default and open as if the caller
+  // had said nothing. The driver re-checks either way (its session is the
+  // authority on its own lifecycle); this copy exists for the message.
+  if (auto why = mode_gains_rejection(
+          row->mode == ControlModeKind::kImpedance ? 1 : 0, req->gains)) {
+    resp->accepted = false;
+    resp->error_code = result_code::kStreamRejected;
+    resp->message = *why;
+    RCLCPP_WARN(node_->get_logger(), "%s", resp->message.c_str());
+    return;
+  }
+
   StreamOpenRequest r;
   r.kind = row->kind;
   r.control_mode = row->mode;
   r.timeout_s = req->timeout_s;
+  r.gains = to_gains_spec(req->gains); // resolved and applied at open
   r.token = req->token;
   const StreamOpenResult res =
       sink_.on_stream_open(r); // blocks the mode settle

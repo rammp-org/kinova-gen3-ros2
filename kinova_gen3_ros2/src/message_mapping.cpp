@@ -2,10 +2,12 @@
 #include <cmath>
 #include <cstdio>
 #include "kinova_gen3_ros2/message_mapping.h"
-#include "kinova_gen3_ros2/joint_point.h" // shared vec_to_point
+#include "kinova_gen3_ros2/joint_point.h"       // shared vec_to_point
+#include "kinova_lowlevel/interface/gains.h"    // validate_custom
 namespace kinova_gen3_ros2 {
 using namespace kinova;
 using namespace kinova::interface;
+using GainsSpecMsg = rammp_arm_interfaces::msg::GainsSpec;
 
 static JointVec
 tol_to_vec(const std::vector<control_msgs::msg::JointTolerance> &t) {
@@ -61,18 +63,13 @@ TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal &g) {
   tg.goal_time_tolerance_s =
       static_cast<double>(g.goal_time_tolerance.sec) +
       static_cast<double>(g.goal_time_tolerance.nanosec) * 1e-9;
-  tg.control_mode = (g.control_mode == 1) ? ControlModeKind::kImpedance
-                                          : ControlModeKind::kPosition;
+  tg.control_mode = to_control_mode(g.control_mode);
   tg.preemption =
       (g.preemption == 1) ? Preemption::kLatestWins : Preemption::kQueue;
-  tg.has_gains = (g.control_mode == 1);
-  if (tg.has_gains) {
-    for (int i = 0; i < kNumJoints; ++i) {
-      tg.gains.kq[i] = g.gains.kq[i];
-      tg.gains.torque_limit[i] = g.gains.torque_limit[i];
-    }
-    tg.gains.zeta = g.gains.zeta;
-  }
+  // The default message maps to kSessionDefault -- the predecessor set
+  // has_gains with zero-filled message defaults on every impedance goal, so a
+  // client that said nothing asked for zero stiffness.
+  tg.gains = to_gains_spec(g.gains);
   tg.sender_id = g.sender_id;
   // uint8[16] generates as std::array<uint8_t,16>, which IS interface::Token.
   tg.token = g.token;
@@ -100,15 +97,73 @@ ExecuteJointTrajectory::Result to_result_msg(const TrajectoryResult &r) {
 
 TrajectoryGoal
 to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
-                   double speed_scale) {
+                   double speed_scale, ControlModeKind control_mode,
+                   const GainsSpec &gains) {
   TrajectoryGoal tg;
   fill_trajectory(traj.points,
                   tg.trajectory); // cuRobo emits qd/qdd — keep them
-  tg.control_mode = ControlModeKind::kPosition;
+  tg.control_mode = control_mode;
+  tg.gains = gains;
   tg.preemption = Preemption::kLatestWins;
   tg.speed_scale = speed_scale;
   // path_tolerance / sender_id are set by the caller (GoToEEPoseServer).
   return tg;
+}
+
+ControlModeKind to_control_mode(uint8_t m) {
+  return (m == 1) ? ControlModeKind::kImpedance : ControlModeKind::kPosition;
+}
+
+GainsSpec to_gains_spec(const rammp_arm_interfaces::msg::GainsSpec &m) {
+  GainsSpec s; // defaults to kSessionDefault with untouched custom
+  switch (m.profile) {
+  case GainsSpecMsg::PROFILE_SOFT:
+    s.profile = GainsProfile::kSoft;
+    break;
+  case GainsSpecMsg::PROFILE_MEDIUM:
+    s.profile = GainsProfile::kMedium;
+    break;
+  case GainsSpecMsg::PROFILE_STIFF:
+    s.profile = GainsProfile::kStiff;
+    break;
+  case GainsSpecMsg::PROFILE_CUSTOM:
+    s.profile = GainsProfile::kCustom;
+    // The ONLY branch that reads the custom fields: everywhere else the
+    // message's zero-filled defaults stay out of core, where they would mean
+    // "zero stiffness, zero torque headroom".
+    for (int i = 0; i < kNumJoints; ++i) {
+      s.custom.kq[i] = m.custom.kq[i];
+      s.custom.torque_limit[i] = m.custom.torque_limit[i];
+    }
+    s.custom.zeta = m.custom.zeta;
+    break;
+  default: // PROFILE_SESSION_DEFAULT; unknown bytes are refused upstream by
+           // mode_gains_rejection, never silently mapped
+    break;
+  }
+  return s;
+}
+
+std::optional<std::string>
+mode_gains_rejection(uint8_t control_mode,
+                     const rammp_arm_interfaces::msg::GainsSpec &g) {
+  if (control_mode > 1)
+    return "control_mode " + std::to_string(control_mode) +
+           " is not CONTROL_MODE_POSITION (0) or CONTROL_MODE_IMPEDANCE (1)";
+  if (g.profile > GainsSpecMsg::PROFILE_CUSTOM)
+    return "unknown gains profile " + std::to_string(g.profile) +
+           " (expected PROFILE_SESSION_DEFAULT=0 .. PROFILE_CUSTOM=4)";
+  // Same posture as the driver: gains that cannot act are a caller bug,
+  // refused loudly rather than ignored.
+  if (control_mode != 1 && g.profile != GainsSpecMsg::PROFILE_SESSION_DEFAULT)
+    return "gains (profile " + std::to_string(g.profile) +
+           ") supplied for a non-impedance command";
+  if (g.profile == GainsSpecMsg::PROFILE_CUSTOM) {
+    const GainsCheck c = validate_custom(to_gains_spec(g).custom);
+    if (!c.ok)
+      return c.message; // the driver's own bounds text, verbatim
+  }
+  return std::nullopt;
 }
 
 std::optional<std::string> speed_scale_rejection(double s) {

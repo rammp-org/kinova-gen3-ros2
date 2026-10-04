@@ -1,12 +1,17 @@
 #include <gtest/gtest.h>
+#include <cstdint>
 #include <limits>
 #include <optional>
+#include <utility>
 #include "kinova_gen3_ros2/message_mapping.h"
+#include "kinova_lowlevel/interface/gains.h" // kTorqueLimitFloor
 #include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
 #include "rammp_arm_interfaces/msg/gripper_state.hpp"
 using namespace kinova_gen3_ros2;
 using kinova::interface::ControlModeKind;
+using kinova::interface::GainsProfile;
 using kinova::interface::Preemption;
+using GainsSpecMsg = rammp_arm_interfaces::msg::GainsSpec;
 
 static trajectory_msgs::msg::JointTrajectoryPoint pt(double v, double t) {
   trajectory_msgs::msg::JointTrajectoryPoint p;
@@ -30,26 +35,108 @@ TEST(MessageMapping, GoalToTrajectoryGoalPosition) {
   EXPECT_EQ(tg.control_mode, ControlModeKind::kPosition);
   EXPECT_EQ(tg.preemption, Preemption::kLatestWins);
   EXPECT_LT(tg.path_tolerance[0], 0.0); // disabled
-  EXPECT_FALSE(tg.has_gains);
+  EXPECT_EQ(tg.gains.profile, GainsProfile::kSessionDefault);
 }
 
-TEST(MessageMapping, GoalImpedanceGainsAndPathTol) {
+TEST(MessageMapping, GoalImpedanceCustomGainsAndPathTol) {
   rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {pt(0.0, 0.0), pt(0.1, 1.0)};
   g.control_mode = 1; // IMPEDANCE
+  g.gains.profile = GainsSpecMsg::PROFILE_CUSTOM;
   for (int i = 0; i < 7; ++i)
-    g.gains.kq[i] = 60.0;
-  g.gains.zeta = 0.6;
+    g.gains.custom.kq[i] = 60.0;
+  g.gains.custom.zeta = 0.6;
   for (int i = 0; i < 7; ++i)
-    g.gains.torque_limit[i] = 9.0;
+    g.gains.custom.torque_limit[i] = 9.0;
   control_msgs::msg::JointTolerance jt;
   jt.position = 0.2;
   g.path_tolerance.assign(7, jt);
   auto tg = to_trajectory_goal(g);
-  EXPECT_TRUE(tg.has_gains);
-  EXPECT_NEAR(tg.gains.kq[0], 60.0, 1e-12);
-  EXPECT_NEAR(tg.gains.zeta, 0.6, 1e-12);
+  EXPECT_EQ(tg.gains.profile, GainsProfile::kCustom);
+  EXPECT_NEAR(tg.gains.custom.kq[0], 60.0, 1e-12);
+  EXPECT_NEAR(tg.gains.custom.zeta, 0.6, 1e-12);
+  EXPECT_NEAR(tg.gains.custom.torque_limit[6], 9.0, 1e-12);
   EXPECT_NEAR(tg.path_tolerance[0], 0.2, 1e-12);
+}
+
+// THE bug this shape exists to kill: the old mapping set has_gains with the
+// message's zero-filled defaults on every impedance goal, so a client that
+// said nothing about gains asked for zero stiffness. A default GainsSpec must
+// arrive as kSessionDefault with NO custom read.
+TEST(MessageMapping, DefaultGainsOnAnImpedanceGoalMeanSessionDefault) {
+  rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
+  g.trajectory.points = {pt(0.0, 0.0), pt(0.1, 1.0)};
+  g.control_mode = 1; // IMPEDANCE, gains untouched
+  auto tg = to_trajectory_goal(g);
+  EXPECT_EQ(tg.control_mode, ControlModeKind::kImpedance);
+  EXPECT_EQ(tg.gains.profile, GainsProfile::kSessionDefault);
+  // The message's zero-filled custom block must NOT have been copied: core's
+  // own defaults (zeta 0.5) survive, proving the read never happened.
+  EXPECT_DOUBLE_EQ(tg.gains.custom.zeta, 0.5);
+}
+
+TEST(GainsMapping, EveryProfileConstantMapsOntoCores) {
+  const std::pair<uint8_t, GainsProfile> cases[] = {
+      {GainsSpecMsg::PROFILE_SESSION_DEFAULT, GainsProfile::kSessionDefault},
+      {GainsSpecMsg::PROFILE_SOFT, GainsProfile::kSoft},
+      {GainsSpecMsg::PROFILE_MEDIUM, GainsProfile::kMedium},
+      {GainsSpecMsg::PROFILE_STIFF, GainsProfile::kStiff},
+      {GainsSpecMsg::PROFILE_CUSTOM, GainsProfile::kCustom},
+  };
+  for (const auto &[byte, want] : cases) {
+    GainsSpecMsg m;
+    m.profile = byte;
+    EXPECT_EQ(to_gains_spec(m).profile, want) << static_cast<int>(byte);
+  }
+}
+
+// A named profile must not drag the message's custom block into core: the
+// driver reads custom iff kCustom, but the mapping keeps the contract literal
+// so a future reader of the struct cannot be misled by copied zeros.
+TEST(GainsMapping, NamedProfileLeavesCustomUnread) {
+  GainsSpecMsg m;
+  m.profile = GainsSpecMsg::PROFILE_STIFF;
+  for (int i = 0; i < 7; ++i)
+    m.custom.kq[i] = 123.0; // garbage that must stay behind
+  const auto s = to_gains_spec(m);
+  EXPECT_EQ(s.profile, GainsProfile::kStiff);
+  EXPECT_DOUBLE_EQ(s.custom.kq[0], 0.0); // core's default, not 123
+}
+
+TEST(GainsMapping, RejectionNamesTheProblem) {
+  GainsSpecMsg ok; // session default
+  EXPECT_FALSE(mode_gains_rejection(0, ok).has_value());
+  EXPECT_FALSE(mode_gains_rejection(1, ok).has_value());
+
+  // Unknown control_mode byte: never silently "position".
+  EXPECT_TRUE(mode_gains_rejection(2, ok).has_value());
+
+  // Unknown profile byte: never silently "session default".
+  GainsSpecMsg unk;
+  unk.profile = 9;
+  EXPECT_TRUE(mode_gains_rejection(1, unk).has_value());
+
+  // Gains that cannot act are a caller bug (driver posture, with a message).
+  GainsSpecMsg stiff;
+  stiff.profile = GainsSpecMsg::PROFILE_STIFF;
+  EXPECT_TRUE(mode_gains_rejection(0, stiff).has_value());
+  EXPECT_FALSE(mode_gains_rejection(1, stiff).has_value());
+
+  // Custom out of bounds is refused with the driver's own bounds text --
+  // zero-filled custom gains are exactly the #64 shape.
+  GainsSpecMsg zeros;
+  zeros.profile = GainsSpecMsg::PROFILE_CUSTOM;
+  EXPECT_TRUE(mode_gains_rejection(1, zeros).has_value());
+
+  // And a custom spec inside the driver's bounds passes.
+  GainsSpecMsg good;
+  good.profile = GainsSpecMsg::PROFILE_CUSTOM;
+  for (int i = 0; i < 7; ++i) {
+    good.custom.kq[i] = 60.0;
+    good.custom.torque_limit[i] = kinova::interface::kTorqueLimitFloor[i];
+  }
+  good.custom.zeta = 0.6;
+  EXPECT_FALSE(mode_gains_rejection(1, good).has_value());
 }
 
 TEST(MessageMapping, GoalWithFewerThanSevenPositionsZeroFillsRemainder) {
@@ -104,7 +191,26 @@ TEST(MessageMapping, JointTrajectoryToPositionGoal) {
   EXPECT_NEAR(tg.trajectory.points[1].t_s, 0.5, 1e-9);
   EXPECT_EQ(tg.control_mode, ControlModeKind::kPosition);
   EXPECT_EQ(tg.preemption, Preemption::kLatestWins);
-  EXPECT_FALSE(tg.has_gains);
+  EXPECT_EQ(tg.gains.profile, GainsProfile::kSessionDefault);
+}
+
+// The GoTo path: the planner's trajectory executed compliantly, under the
+// gains the goal named. Position + session default stays the default.
+TEST(MessageMapping, PlannerOverloadCarriesControlModeAndGains) {
+  trajectory_msgs::msg::JointTrajectory traj;
+  traj.points = {pt(0.0, 0.0), pt(0.3, 0.5)};
+  kinova::interface::GainsSpec gains;
+  gains.profile = GainsProfile::kSoft;
+  const auto tg = to_trajectory_goal(traj, 0.5,
+                                     ControlModeKind::kImpedance, gains);
+  EXPECT_EQ(tg.control_mode, ControlModeKind::kImpedance);
+  EXPECT_EQ(tg.gains.profile, GainsProfile::kSoft);
+  EXPECT_DOUBLE_EQ(tg.speed_scale, 0.5);
+}
+
+TEST(MessageMapping, ToControlModeMapsTheGoalConstants) {
+  EXPECT_EQ(to_control_mode(0), ControlModeKind::kPosition);
+  EXPECT_EQ(to_control_mode(1), ControlModeKind::kImpedance);
 }
 
 TEST(MessageMapping, GotoResultCarriesPlanningFailed) {

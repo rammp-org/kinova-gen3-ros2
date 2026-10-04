@@ -16,6 +16,8 @@ Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
       std::bind(&Ros2Backend::handle_goal, this, _1, _2),
       std::bind(&Ros2Backend::handle_cancel, this, _1),
       std::bind(&Ros2Backend::handle_accepted, this, _1));
+  set_gains_srv_ = node_->create_service<SetGains>(
+      "set_gains", std::bind(&Ros2Backend::on_set_gains, this, _1, _2));
   state_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
       "joint_states", rclcpp::SensorDataQoS());
   // Same QoS as /joint_states: it is the same data at the same rate from the
@@ -56,6 +58,12 @@ Ros2Backend::handle_goal(const rclcpp_action::GoalUUID &,
     RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
     return rclcpp_action::GoalResponse::REJECT;
   }
+  // Same reason as speed_scale: the driver refuses these too, but its
+  // GoalResponse carries no message, so the reason is produced here.
+  if (auto why = mode_gains_rejection(goal->control_mode, goal->gains)) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
   const GoalResponse r = sink_->on_trajectory_goal(to_trajectory_goal(*goal));
   return (r == GoalResponse::kAccept)
              ? rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE
@@ -92,6 +100,35 @@ void Ros2Backend::handle_accepted(std::shared_ptr<GoalHandle> gh) {
     handles_[id] = Entry{gh, tg.token};
   }
   sink_->on_trajectory_accepted(id, tg);
+}
+
+void Ros2Backend::on_set_gains(const std::shared_ptr<SetGains::Request> req,
+                               std::shared_ptr<SetGains::Response> resp) {
+  if (!sink_) {
+    resp->accepted = false;
+    resp->message = "no command sink wired";
+    return;
+  }
+  // Local checks first (unknown profile byte, custom out of bounds), so an
+  // unmappable spec never reaches core looking like a session default. "1" =
+  // impedance: set_gains is impedance vocabulary by nature, so every profile
+  // is admissible here; the driver itself refuses PROFILE_SESSION_DEFAULT
+  // ("the default cannot point at itself") with its own message.
+  if (auto why = mode_gains_rejection(1, req->spec)) {
+    resp->accepted = false;
+    resp->message = *why;
+    RCLCPP_WARN(node_->get_logger(), "set_gains refused: %s", why->c_str());
+    return;
+  }
+  GainsRequest r;
+  r.spec = to_gains_spec(req->spec);
+  r.token = req->token; // uint8[16] IS interface::Token
+  const GainsResult res = sink_->on_set_gains(r);
+  resp->accepted = res.accepted;
+  resp->message = res.message;
+  if (!res.accepted)
+    RCLCPP_WARN(node_->get_logger(), "set_gains refused: %s",
+                res.message.c_str());
 }
 
 void Ros2Backend::publish_feedback(const GoalId &id,

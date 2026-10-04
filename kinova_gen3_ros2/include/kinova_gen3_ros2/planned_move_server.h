@@ -130,6 +130,14 @@ private:
                   "configuration is unknown, so there is nothing to plan from");
       return rclcpp_action::GoalResponse::REJECT;
     }
+    // Shared across all three GoTo actions, so it lives here rather than in
+    // each validate(): an unknown control_mode byte, gains on a POSITION
+    // goal, or out-of-bounds custom gains are refused with the reason the
+    // driver's bare GoalResponse cannot carry.
+    if (auto why = mode_gains_rejection(goal->control_mode, goal->gains)) {
+      RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+      return rclcpp_action::GoalResponse::REJECT;
+    }
     if (auto why = validate(*goal)) { // fail loud
       RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
       return rclcpp_action::GoalResponse::REJECT;
@@ -245,8 +253,12 @@ private:
       }
     }
 
+    // Impedance GoTo = plan with cuRobo exactly as a position GoTo, execute
+    // the plan compliantly. Only the execution mode and its gains change.
     kinova::interface::TrajectoryGoal tg =
-        to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale);
+        to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale,
+                           to_control_mode(gh->get_goal()->control_mode),
+                           to_gains_spec(gh->get_goal()->gains));
     tg.path_tolerance = kinova::JointVec::Constant(kGotoPathTolRad);
     tg.sender_id = gh->get_goal()->sender_id;
     tg.token = gh->get_goal()->token; // the plan inherits the goal's authority

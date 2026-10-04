@@ -10,6 +10,7 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "rammp_arm_interfaces/msg/ee_state.hpp"
 #include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
+#include "rammp_arm_interfaces/srv/set_gains.hpp"
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
@@ -38,13 +39,21 @@ public:
   void publish_state(const kinova::interface::ArmState &) override;
 
 private:
+  using SetGains = rammp_arm_interfaces::srv::SetGains;
+
   rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID &,
                                           std::shared_ptr<const Action::Goal>);
   rclcpp_action::CancelResponse handle_cancel(std::shared_ptr<GoalHandle>);
   void handle_accepted(std::shared_ptr<GoalHandle>);
+  // /set_gains: re-point the SESSION DEFAULT compliance. Goes through the
+  // same CommandSink the goals do, so under kEnforced the Arbiter gates it on
+  // the token exactly like every other command.
+  void on_set_gains(const std::shared_ptr<SetGains::Request>,
+                    std::shared_ptr<SetGains::Response>);
 
   rclcpp::Node::SharedPtr node_;
   rclcpp_action::Server<Action>::SharedPtr server_;
+  rclcpp::Service<SetGains>::SharedPtr set_gains_srv_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_pub_;
   // /ee_state: the Cartesian sibling of /joint_states. Core hands us ee_pose
   // and ee_twist on every ArmState and we used to drop both, so a client

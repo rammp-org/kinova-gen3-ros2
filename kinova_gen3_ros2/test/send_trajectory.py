@@ -13,6 +13,8 @@ from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectoryPoint
 from rammp_arm_interfaces.action import ExecuteJointTrajectory
 
+from gains_cli import add_gains_args, build_gains
+
 
 class C(Node):
     def __init__(self, args):
@@ -20,6 +22,7 @@ class C(Node):
         self.args = args
         self.code = None
         self.status = None
+        self.rejected = False
         self.current_q = None
         self.create_subscription(
             JointState, "joint_states", self._on_js, qos_profile_sensor_data
@@ -56,6 +59,7 @@ class C(Node):
 
         g = ExecuteJointTrajectory.Goal()
         g.control_mode = 1 if self.args.mode == "impedance" else 0
+        g.gains = build_gains(self.args)
         g.preemption = 1  # LATEST_WINS
         p0 = JointTrajectoryPoint()
         p0.positions = start
@@ -75,6 +79,7 @@ class C(Node):
         if not gh.accepted:
             print("REJECTED")
             self.code = None
+            self.rejected = True
             return
         rf = gh.get_result_async()
         rclpy.spin_until_future_complete(self, rf)
@@ -96,7 +101,10 @@ def main():
     ap.add_argument("--dur", type=float, default=0.4)
     ap.add_argument("--path-tol", type=float, default=-1.0)
     ap.add_argument("--joint", default="6")  # comma-list of joint indices 0..6
-    ap.add_argument("--expect", type=int, required=True)
+    ap.add_argument(
+        "--expect", required=True, help="result error_code, or 'rejected'"
+    )
+    add_gains_args(ap)
     a = ap.parse_args()
     joints = [int(x) for x in a.joint.split(",")]
     deltas = [float(x) for x in a.delta.split(",")]
@@ -113,7 +121,10 @@ def main():
     c = C(a)
     c.run()
     rclpy.shutdown()
-    ok = c.code == a.expect
+    if a.expect == "rejected":
+        ok = c.rejected
+    else:
+        ok = c.code == int(a.expect)
     print("PASS" if ok else f"FAIL (got {c.code}, expected {a.expect})")
     sys.exit(0 if ok else 1)
 

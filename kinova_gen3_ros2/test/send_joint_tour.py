@@ -102,12 +102,13 @@ class Tour(Node):
                 (t, self.leg, list(msg.position[:7]), list(msg.velocity[:7]))
             )
 
-    def go_to(self, target, sender_id, control_mode, gains):
+    def go_to(self, target, sender_id, control_mode, gains, speed_scale):
         goal = GoToJointConfig.Goal()
         goal.target_joints = [float(v) for v in target]
         goal.sender_id = sender_id
         goal.control_mode = control_mode
         goal.gains = gains
+        goal.speed_scale = speed_scale
         send = self.client.send_goal_async(goal)
         rclpy.spin_until_future_complete(self, send)
         gh = send.result()
@@ -154,6 +155,12 @@ def main():
     )
     ap.add_argument("--sender-id", default="send_joint_tour")
     ap.add_argument(
+        "--speed-scale",
+        type=float,
+        default=1.0,
+        help="execution pace; 1.0 = as planned. Refused outside [0.01, 1.0].",
+    )
+    ap.add_argument(
         "--mode",
         choices=["position", "impedance"],
         default="position",
@@ -161,6 +168,10 @@ def main():
     )
     add_gains_args(ap)
     args = ap.parse_args()
+    # Same bounds the node enforces, refused rather than clamped -- catching it
+    # here saves a round trip and gives a reason, which a rejection cannot carry.
+    if not 0.01 <= args.speed_scale <= 1.0:
+        ap.error(f"--speed-scale must be in [0.01, 1.0]; got {args.speed_scale}")
     control_mode = (
         GoToJointConfig.Goal.CONTROL_MODE_IMPEDANCE
         if args.mode == "impedance"
@@ -181,7 +192,8 @@ def main():
     print(
         f"Tour: {len(waypoints)} waypoint(s) x {args.loops} loop(s), "
         f"{args.mode} (gains: "
-        f"{'custom' if gains.profile == gains.PROFILE_CUSTOM else args.profile})"
+        f"{'custom' if gains.profile == gains.PROFILE_CUSTOM else args.profile}, "
+        f"speed {args.speed_scale:g})"
     )
     for i, w in enumerate(waypoints):
         print(f"  {i + 1}. [" + ", ".join(f"{v:+.3f}" for v in w) + "]")
@@ -202,7 +214,7 @@ def main():
             node.leg = i
             start = time.monotonic()
             code, msg, final_err = node.go_to(
-                target, args.sender_id, control_mode, gains
+                target, args.sender_id, control_mode, gains, args.speed_scale
             )
             label = RESULT_CODES.get(code, str(code))
             err_txt = f" final_err={final_err:.4f} rad" if final_err is not None else ""

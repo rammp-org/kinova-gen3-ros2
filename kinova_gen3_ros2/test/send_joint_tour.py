@@ -113,7 +113,9 @@ class Tour(Node):
         rclpy.spin_until_future_complete(self, send)
         gh = send.result()
         if gh is None or not gh.accepted:
-            return -1, "goal rejected by the server", None
+            # None, not -1: -1 would print as INVALID_GOAL, which the server
+            # never actually returned.
+            return None, "goal rejected by the server", None
         res = gh.get_result_async()
         rclpy.spin_until_future_complete(self, res)
         r = res.result().result
@@ -216,7 +218,7 @@ def main():
             code, msg, final_err = node.go_to(
                 target, args.sender_id, control_mode, gains, args.speed_scale
             )
-            label = RESULT_CODES.get(code, str(code))
+            label = "REJECTED" if code is None else RESULT_CODES.get(code, str(code))
             err_txt = f" final_err={final_err:.4f} rad" if final_err is not None else ""
             print(
                 f"[{i + 1}/{len(tour)}] {label} in {time.monotonic() - start:.2f} s{err_txt} {msg}"

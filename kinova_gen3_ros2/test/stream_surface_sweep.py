@@ -114,6 +114,11 @@ def run_surface(node, results, name, pub, make_msg, profile_byte, moved_expect):
         return
     check(results, f"{name} open", True, f"channels={list(r.channels)}")
     q_start = list(node.q)
+    # rejected_count is cumulative across the driver's lifetime, not per
+    # session -- assert the DELTA over this surface, or a stale rejection from
+    # an earlier run fails every later surface.
+    node.spin_for(0.3)  # let the post-open status land
+    rc_base = node.status.rejected_count if node.status else 0
 
     t0 = time.monotonic()
     while time.monotonic() - t0 < STREAM_S:
@@ -127,9 +132,9 @@ def run_surface(node, results, name, pub, make_msg, profile_byte, moved_expect):
     )
     check(
         results,
-        f"{name} rejected_count == 0",
-        st is not None and st.rejected_count == 0,
-        f"got {st.rejected_count if st else '?'}",
+        f"{name} no setpoints rejected this session",
+        st is not None and st.rejected_count - rc_base == 0,
+        f"delta {st.rejected_count - rc_base if st else '?'}",
     )
     if moved_expect > 0.0:
         moved = abs(node.q[6] - q_start[6])

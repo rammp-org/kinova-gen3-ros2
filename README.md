@@ -206,7 +206,7 @@ token is ignored, so existing clients need no changes.
 > tokens. See `docs/superpowers/specs/2026-08-29-ros2-arbitration-tier-design.md`.
 
 `/set_gains` (`rammp_arm_interfaces/srv/SetGains`) sets the **session default**
-compliance — what a `ImpedanceGains` left at `PROFILE_SESSION_DEFAULT` resolves to
+compliance — what an `ImpedanceGains` left at `PROFILE_SESSION_DEFAULT` resolves to
 from then on. It takes a named profile or custom gains plus the arbitration
 token, and goes through the same Arbiter-gated `CommandSink` as every other
 command. It touches no live mode: a running impedance session keeps the tuning

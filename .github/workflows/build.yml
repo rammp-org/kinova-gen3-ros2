@@ -62,11 +62,67 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The REQUIRED leg builds the composition this change actually
+      # proposes: a companion branch (same name as the PR head) in each
+      # sibling repo wins, else dev -- so dev always builds against dev, and
+      # a breaking chain is green pre-merge via its companions. Tag and main
+      # builds keep the recipe's released pins untouched: those are release
+      # artifacts and the pins are the point.
+      - name: Resolve sibling refs (companion branch, else dev)
+        id: refs
+        run: |
+          set -euo pipefail
+          driver=""
+          interfaces=""
+          if [ -n "${GITHUB_HEAD_REF}" ] || [ "${GITHUB_REF_NAME}" = "dev" ]; then
+            cand="${GITHUB_HEAD_REF:-dev}"
+            resolve() {
+              if git ls-remote --exit-code --heads "$1" "$cand" >/dev/null 2>&1; then
+                echo "$cand"
+              else
+                echo "dev"
+              fi
+            }
+            driver="$(resolve https://github.com/rammp-org/kinova-gen3-driver.git)"
+            interfaces="$(resolve https://github.com/rammp-org/rammp-interfaces-ros2.git)"
+          fi
+          echo "driver=$driver" >> "$GITHUB_OUTPUT"
+          echo "interfaces=$interfaces" >> "$GITHUB_OUTPUT"
+          echo "composition: driver='${driver:-released pin}' interfaces='${interfaces:-rammp-base copy}'"
+
       - name: Build the sim image
-        run: docker build -t kinova-gen3-ros2:ci .
+        run: |
+          docker build \
+            --build-arg CORE_REF="${{ steps.refs.outputs.driver }}" \
+            --build-arg INTERFACES_REF="${{ steps.refs.outputs.interfaces }}" \
+            -t kinova-gen3-ros2:ci .
 
       - name: Publishes, and exits on SIGTERM
         run: SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:ci
+
+  # INFORMATIONAL, never a merge gate: can this change still ship against
+  # what is deployed today (the recipe's released pins)? During a breaking
+  # round this leg is red BY DESIGN until the chain cut repins -- that
+  # redness is the warning light that dev owes the world a chain release,
+  # not a defect in the change under review.
+  smoke-released:
+    if: github.event_name == 'pull_request' || github.ref_name == 'dev'
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the sim image against the released pins
+        run: docker build -t kinova-gen3-ros2:ci-released .
+
+      - name: Publishes, and exits on SIGTERM
+        run: SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:ci-released
 
   # The image that actually drives a robot. The sim image cannot, so without
   # this job a change that broke only the KORTEX path would reach the arm

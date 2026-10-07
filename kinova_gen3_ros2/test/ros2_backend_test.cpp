@@ -85,8 +85,8 @@ TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {
   goal.control_mode = 0;
   goal.gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF;
 
-  auto client = rclcpp_action::create_client<Action>(
-      node, "execute_joint_trajectory");
+  auto client =
+      rclcpp_action::create_client<Action>(node, "execute_joint_trajectory");
   rclcpp::executors::SingleThreadedExecutor ex;
   ex.add_node(node);
   ASSERT_TRUE(client->wait_for_action_server(5s));

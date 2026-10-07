@@ -2,8 +2,8 @@
 #include <cmath>
 #include <cstdio>
 #include "kinova_gen3_ros2/message_mapping.h"
-#include "kinova_gen3_ros2/joint_point.h"       // shared vec_to_point
-#include "kinova_lowlevel/interface/gains.h"    // validate_custom
+#include "kinova_gen3_ros2/joint_point.h"    // shared vec_to_point
+#include "kinova_lowlevel/interface/gains.h" // validate_custom
 namespace kinova_gen3_ros2 {
 using namespace kinova;
 using namespace kinova::interface;
@@ -114,7 +114,8 @@ ControlModeKind to_control_mode(uint8_t m) {
   return (m == 1) ? ControlModeKind::kImpedance : ControlModeKind::kPosition;
 }
 
-ImpedanceGains to_impedance_gains(const rammp_arm_interfaces::msg::ImpedanceGains &m) {
+ImpedanceGains
+to_impedance_gains(const rammp_arm_interfaces::msg::ImpedanceGains &m) {
   ImpedanceGains s; // defaults to kSessionDefault with untouched custom
   switch (m.profile) {
   case ImpedanceGainsMsg::PROFILE_SOFT:
@@ -155,7 +156,8 @@ mode_gains_rejection(uint8_t control_mode,
            " (expected PROFILE_SESSION_DEFAULT=0 .. PROFILE_CUSTOM=4)";
   // Same posture as the driver: gains that cannot act are a caller bug,
   // refused loudly rather than ignored.
-  if (control_mode != 1 && g.profile != ImpedanceGainsMsg::PROFILE_SESSION_DEFAULT)
+  if (control_mode != 1 &&
+      g.profile != ImpedanceGainsMsg::PROFILE_SESSION_DEFAULT)
     return "gains (profile " + std::to_string(g.profile) +
            ") supplied for a non-impedance command";
   if (g.profile == ImpedanceGainsMsg::PROFILE_CUSTOM) {

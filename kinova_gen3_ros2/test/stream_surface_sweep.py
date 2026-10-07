@@ -156,8 +156,12 @@ def run_surface(node, results, name, pub, make_msg, profile_byte, moved_expect):
     q_hold = list(node.q)
     node.spin_for(1.0)
     drift = max(abs(a - b) for a, b in zip(node.q, q_hold))
-    check(results, f"{name} holds after close (drift < 0.02)", drift < 0.02,
-          f"drift {drift:.4f} rad")
+    check(
+        results,
+        f"{name} holds after close (drift < 0.02)",
+        drift < 0.02,
+        f"drift {drift:.4f} rad",
+    )
     node.close()  # no-op if the deadline already closed it
 
 
@@ -165,7 +169,9 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--go", action="store_true", help="small motions + tracking asserts")
+    ap.add_argument(
+        "--go", action="store_true", help="small motions + tracking asserts"
+    )
     ap.add_argument(
         "--profile",
         choices=sorted(PROFILES),
@@ -208,6 +214,7 @@ def main():
                 m.values = list(q_start)
                 m.values[6] = q_start[6] + target_j7_delta
                 return m
+
             return make
 
         def jv(rate):
@@ -215,6 +222,7 @@ def main():
                 m = JointSetpoint()
                 m.values = [0.0] * 6 + [rate]
                 return m
+
             return make
 
         def tw(vz):
@@ -222,6 +230,7 @@ def main():
                 m = TwistSetpoint()
                 m.twist.linear.z = vz
                 return m
+
             return make
 
         half = 0.5  # accept >= half the commanded excursion as "tracked"
@@ -229,8 +238,13 @@ def main():
             ("joint_position", node.pub_jp, jp(d_pos), 0, d_pos * half),
             ("joint_impedance", node.pub_jp, jp(d_pos), prof, d_pos * half),
             ("joint_velocity", node.pub_jv, jv(v_j7), 0, v_j7 * STREAM_S * half),
-            ("joint_velocity_impedance", node.pub_jv, jv(v_j7), prof,
-             v_j7 * STREAM_S * half),
+            (
+                "joint_velocity_impedance",
+                node.pub_jv,
+                jv(v_j7),
+                prof,
+                v_j7 * STREAM_S * half,
+            ),
             ("ee_twist", node.pub_tw, tw(v_z), 0, 0.0),  # j7 isn't the twist axis
             ("ee_twist_impedance", node.pub_tw, tw(v_z), prof, 0.0),
         ]
@@ -239,20 +253,32 @@ def main():
 
         print("[contract refusals]")
         r = node.open("joint_velocity", PROFILES["stiff"])
-        check(results, "gains on a stiff stream refused",
-              r is not None and not r.accepted, getattr(r, "message", ""))
+        check(
+            results,
+            "gains on a stiff stream refused",
+            r is not None and not r.accepted,
+            getattr(r, "message", ""),
+        )
         r = node.open("cartesian_impedance", 0)
-        check(results, "cartesian_impedance refused",
-              r is not None and not r.accepted, getattr(r, "message", ""))
+        check(
+            results,
+            "cartesian_impedance refused",
+            r is not None and not r.accepted,
+            getattr(r, "message", ""),
+        )
         r = node.open("no_such_controller", 0)
-        check(results, "unknown controller refused",
-              r is not None and not r.accepted, getattr(r, "message", ""))
+        check(
+            results,
+            "unknown controller refused",
+            r is not None and not r.accepted,
+            getattr(r, "message", ""),
+        )
 
-        failed = [l for l, ok in results if not ok]
+        failed = [lbl for lbl, ok in results if not ok]
         print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")
         if failed:
-            for l in failed:
-                print(f"  FAILED: {l}")
+            for lbl in failed:
+                print(f"  FAILED: {lbl}")
         return 1 if failed else 0
     finally:
         node.close()  # belt and braces: never leave a session open

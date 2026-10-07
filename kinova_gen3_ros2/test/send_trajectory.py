@@ -101,9 +101,7 @@ def main():
     ap.add_argument("--dur", type=float, default=0.4)
     ap.add_argument("--path-tol", type=float, default=-1.0)
     ap.add_argument("--joint", default="6")  # comma-list of joint indices 0..6
-    ap.add_argument(
-        "--expect", required=True, help="result error_code, or 'rejected'"
-    )
+    ap.add_argument("--expect", required=True, help="result error_code, or 'rejected'")
     add_gains_args(ap)
     a = ap.parse_args()
     joints = [int(x) for x in a.joint.split(",")]

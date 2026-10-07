@@ -61,8 +61,8 @@ TEST(MessageMapping, GoalImpedanceCustomGainsAndPathTol) {
 
 // THE bug this shape exists to kill: the old mapping set has_gains with the
 // message's zero-filled defaults on every impedance goal, so a client that
-// said nothing about gains asked for zero stiffness. A default ImpedanceGains must
-// arrive as kSessionDefault with NO custom read.
+// said nothing about gains asked for zero stiffness. A default ImpedanceGains
+// must arrive as kSessionDefault with NO custom read.
 TEST(MessageMapping, DefaultGainsOnAnImpedanceGoalMeanSessionDefault) {
   rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {pt(0.0, 0.0), pt(0.1, 1.0)};
@@ -77,7 +77,8 @@ TEST(MessageMapping, DefaultGainsOnAnImpedanceGoalMeanSessionDefault) {
 
 TEST(GainsMapping, EveryProfileConstantMapsOntoCores) {
   const std::pair<uint8_t, GainsProfile> cases[] = {
-      {ImpedanceGainsMsg::PROFILE_SESSION_DEFAULT, GainsProfile::kSessionDefault},
+      {ImpedanceGainsMsg::PROFILE_SESSION_DEFAULT,
+       GainsProfile::kSessionDefault},
       {ImpedanceGainsMsg::PROFILE_SOFT, GainsProfile::kSoft},
       {ImpedanceGainsMsg::PROFILE_MEDIUM, GainsProfile::kMedium},
       {ImpedanceGainsMsg::PROFILE_STIFF, GainsProfile::kStiff},
@@ -201,8 +202,8 @@ TEST(MessageMapping, PlannerOverloadCarriesControlModeAndGains) {
   traj.points = {pt(0.0, 0.0), pt(0.3, 0.5)};
   kinova::interface::ImpedanceGains gains;
   gains.profile = GainsProfile::kSoft;
-  const auto tg = to_trajectory_goal(traj, 0.5,
-                                     ControlModeKind::kImpedance, gains);
+  const auto tg =
+      to_trajectory_goal(traj, 0.5, ControlModeKind::kImpedance, gains);
   EXPECT_EQ(tg.control_mode, ControlModeKind::kImpedance);
   EXPECT_EQ(tg.gains.profile, GainsProfile::kSoft);
   EXPECT_DOUBLE_EQ(tg.speed_scale, 0.5);

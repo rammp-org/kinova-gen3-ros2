@@ -14,10 +14,10 @@ Design docs: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.
 
 ## Packages
 
-| Package                | Type                     | Contents                                                                                |
-| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------- |
+| Package                | Type                     | Contents                                                                            |
+| ---------------------- | ------------------------ | ----------------------------------------------------------------------------------- |
 | `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointGainValues.msg`. Interface definitions only. |
-| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.     |
+| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable. |
 
 ```
 rammp_arm_interfaces/
@@ -219,24 +219,24 @@ Teleop and reactive control drive the arm through a **session**: you name a
 *controller* (a control law), and the driver replies with the *channels* (topics)
 to publish on.
 
-| Service            | Type              | Notes                                                                        |
-| ------------------ | ----------------- | ---------------------------------------------------------------------------- |
-| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below.                          |
+| Service            | Type              | Notes                                                                                                                                                                                                      |
+| ------------------ | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below.                                                                                                                                                        |
 | `open_stream`      | `OpenStream`      | `controller, timeout_s, token, gains` → `accepted, channels[], error_code, message`. `gains` applies iff the controller is an impedance one, resolved AT OPEN; mid-session changes mean close-then-reopen. |
-| `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                  |
+| `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                                                                                                                                                |
 
-| Controller            | Channel                               | Available                                                                      |
-| --------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
-| `joint_position`      | `/setpoint/joint_position`            | yes                                                                            |
-| `joint_impedance`     | `/setpoint/joint_position`            | yes                                                                            |
-| `ee_pose_impedance`   | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                           |
-| `ee_pose_position`    | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                           |
-| `joint_torque`        | `/setpoint/joint_torque`              | yes                                                                            |
-| `joint_velocity`      | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact        |
-| `joint_velocity_impedance` | `/setpoint/joint_velocity`       | with a core that supports (`kJointVelocity` × `kImpedance`) — the compliant velocity tier |
-| `ee_twist`            | `/setpoint/twist`                     | yes — damped least squares with null-space posture                             |
-| `ee_twist_impedance`  | `/setpoint/twist`                     | with a core that supports (`kEeTwist` × `kImpedance`) — the compliant twist tier |
-| `cartesian_impedance` | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
+| Controller                 | Channel                               | Available                                                                                 |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `joint_position`           | `/setpoint/joint_position`            | yes                                                                                       |
+| `joint_impedance`          | `/setpoint/joint_position`            | yes                                                                                       |
+| `ee_pose_impedance`        | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                                      |
+| `ee_pose_position`         | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                                      |
+| `joint_torque`             | `/setpoint/joint_torque`              | yes                                                                                       |
+| `joint_velocity`           | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact                   |
+| `joint_velocity_impedance` | `/setpoint/joint_velocity`            | with a core that supports (`kJointVelocity` × `kImpedance`) — the compliant velocity tier |
+| `ee_twist`                 | `/setpoint/twist`                     | yes — damped least squares with null-space posture                                        |
+| `ee_twist_impedance`       | `/setpoint/twist`                     | with a core that supports (`kEeTwist` × `kImpedance`) — the compliant twist tier          |
+| `cartesian_impedance`      | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind            |
 
 `available` is computed live from core's `pair_supported()`, so these rows light up
 when core grows the mode. That is not theoretical: `joint_velocity` and `ee_twist`

@@ -47,7 +47,7 @@ kinova_gen3_ros2/                       (this repo)
                               control_msgs, builtin_interfaces, action_msgs, std_msgs
     CMakeLists.txt            rosidl_generate_interfaces(...)
     action/ExecuteJointTrajectory.action
-    msg/JointGainValues.msg
+    msg/JointImpedanceGainValues.msg
   kinova_gen3_ros2/            ament_cmake — the backend + bring-up node
     package.xml               depends rclcpp, rclcpp_action, rammp_arm_interfaces,
                               kinova_lowlevel, sensor_msgs (stream is later; dep is fine)

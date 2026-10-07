@@ -14,15 +14,15 @@ Design docs: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.
 
 ## Packages
 
-| Package                | Type                     | Contents                                                                            |
-| ---------------------- | ------------------------ | ----------------------------------------------------------------------------------- |
-| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointGainValues.msg`. Interface definitions only. |
-| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable. |
+| Package                | Type                     | Contents                                                                                     |
+| ---------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGainValues.msg`. Interface definitions only. |
+| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.          |
 
 ```
 rammp_arm_interfaces/
   action/ExecuteJointTrajectory.action
-  msg/JointGainValues.msg
+  msg/JointImpedanceGainValues.msg
 kinova_gen3_ros2/
   include/kinova_gen3_ros2/{ros2_backend,message_mapping}.h
   src/message_mapping.cpp     ROS2 msg <-> kinova::interface value types (no rclcpp)

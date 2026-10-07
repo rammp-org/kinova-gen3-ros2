@@ -26,8 +26,9 @@ namespace kinova_gen3_ros2 {
 //
 // A client names a CONTROLLER; the driver replies with the CHANNELS to publish
 // on. Core models a session as a (SetpointKind, ControlModeKind) pair, which
-// would make 20 combinations representable when 5 are legal; the registry below
-// is the only place that collapse lives.
+// would make 20 combinations representable when only a few are legal (7 with
+// the v1.3 compliant velocity/twist pairs); the registry below is the only
+// place that collapse lives.
 class StreamServer {
 public:
   using OpenStream = rammp_arm_interfaces::srv::OpenStream;

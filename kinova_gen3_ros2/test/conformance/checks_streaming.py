@@ -57,7 +57,9 @@ def check_list_controllers(ctx):
         "ee_pose_position",
         "joint_torque",
         "joint_velocity",
+        "joint_velocity_impedance",
         "ee_twist",
+        "ee_twist_impedance",
         "cartesian_impedance",
     ):
         if want not in by:

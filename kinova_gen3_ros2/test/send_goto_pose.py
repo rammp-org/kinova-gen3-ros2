@@ -24,6 +24,13 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rammp_arm_interfaces.action import GoToEEPose
 
+from gains_cli import add_gains_args, build_gains
+
+_MODES = {
+    "position": GoToEEPose.Goal.CONTROL_MODE_POSITION,
+    "impedance": GoToEEPose.Goal.CONTROL_MODE_IMPEDANCE,
+}
+
 _HOLDS = {
     "none": GoToEEPose.Goal.HOLD_NONE,
     "level": GoToEEPose.Goal.HOLD_LEVEL,
@@ -63,6 +70,13 @@ def main():
         help="keep the tool's orientation while it travels: none, level "
         "(tilt held, yaw free) or fixed (all three held)",
     )
+    ap.add_argument(
+        "--mode",
+        choices=sorted(_MODES),
+        default="position",
+        help="execute stiff (position) or compliant (impedance)",
+    )
+    add_gains_args(ap)
     args = ap.parse_args()
 
     # Same bounds the node enforces, refused rather than clamped — catching it
@@ -94,6 +108,8 @@ def main():
     goal.speed_scale = args.speed_scale
 
     goal.orientation_hold = _HOLDS[args.hold]
+    goal.control_mode = _MODES[args.mode]
+    goal.gains = build_gains(args)
 
     def on_fb(fb):
         f = fb.feedback

@@ -23,7 +23,8 @@ const std::array<double, 7> kTarget = {0.0, 0.262, 3.142, -2.269,
 // Send a goal and block for its result code; kGoalRejected if not accepted.
 int send_and_get_code(rclcpp::Node::SharedPtr node,
                       const std::array<double, 7> &joints,
-                      double speed_scale = 1.0) {
+                      double speed_scale = 1.0, uint8_t control_mode = 0,
+                      uint8_t gains_profile = 0) {
   auto client =
       rclcpp_action::create_client<GoToJointConfig>(node, "go_to_joint_config");
   if (!client->wait_for_action_server(5s))
@@ -31,6 +32,8 @@ int send_and_get_code(rclcpp::Node::SharedPtr node,
   GoToJointConfig::Goal goal;
   goal.target_joints = joints;
   goal.speed_scale = speed_scale;
+  goal.control_mode = control_mode;
+  goal.gains.profile = gains_profile;
   std::promise<int> code;
   auto fut = code.get_future();
   rclcpp_action::Client<GoToJointConfig>::SendGoalOptions opts;
@@ -138,6 +141,59 @@ TEST_F(GotoJointConfigTest, SpeedScaleReachesTheTrajectoryGoal) {
 
   EXPECT_EQ(send_and_get_code(node, kTarget, 0.5), result_code::kSuccessful);
   EXPECT_DOUBLE_EQ(sup.last_goal.speed_scale, 0.5);
+}
+
+// Impedance GoTo: planned by cuRobo exactly as a position GoTo, executed
+// compliantly under the gains the goal named.
+TEST_F(GotoJointConfigTest, ImpedanceModeAndGainsReachTheTrajectoryGoal) {
+  auto node = std::make_shared<rclcpp::Node>("goto_jc_imp");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  EXPECT_EQ(send_and_get_code(
+                node, kTarget, 1.0, /*control_mode=*/1,
+                rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_SOFT),
+            result_code::kSuccessful);
+  EXPECT_TRUE(sup.got_goal);
+  EXPECT_EQ(sup.last_goal.control_mode, ControlModeKind::kImpedance);
+  EXPECT_EQ(sup.last_goal.gains.profile, GainsProfile::kSoft);
+  // Compliant execution gets the RELAXED divergence guard: error up to the
+  // spring leash is the mode working, not the plan failing (0.60 > every
+  // profile's leash). Position GoTo keeps 0.35.
+  EXPECT_NEAR(sup.last_goal.path_tolerance[0], 0.60, 1e-12);
+}
+
+// Gains on a POSITION GoTo cannot act: rejected at submission, never planned.
+TEST_F(GotoJointConfigTest, GainsOnAPositionGoalAreRefused) {
+  auto node = std::make_shared<rclcpp::Node>("goto_jc_gains_bad");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  EXPECT_EQ(send_and_get_code(
+                node, kTarget, 1.0, /*control_mode=*/0,
+                rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF),
+            kGoalRejected);
+  EXPECT_FALSE(sup.got_goal);
 }
 
 TEST_F(GotoJointConfigTest, AnUnusableSpeedScaleIsRefused) {

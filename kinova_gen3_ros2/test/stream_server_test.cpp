@@ -111,7 +111,7 @@ TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
   using Srv = rammp_arm_interfaces::srv::ListControllers;
   auto resp = call<Srv>("list_controllers", std::make_shared<Srv::Request>());
   ASSERT_NE(resp, nullptr);
-  EXPECT_EQ(resp->controllers.size(), 8u);
+  EXPECT_EQ(resp->controllers.size(), 10u);
 
   auto find = [&](const std::string &n)
       -> const rammp_arm_interfaces::msg::ControllerCapability * {
@@ -152,6 +152,20 @@ TEST_F(StreamServerTest, ListsEveryControllerWithItsChannels) {
   ASSERT_NE(cart, nullptr);
   EXPECT_FALSE(cart->available);
   EXPECT_EQ(cart->channels.size(), 2u);
+
+  // The compliant velocity tiers (v1.3.0): registered against their core
+  // pairs, same channels as their stiff siblings. Availability is deliberately
+  // NOT asserted -- it comes live from pair_supported(), so it tracks whatever
+  // driver this build is pinned to; the two registry cross-check tests below
+  // keep both directions honest.
+  const auto *jvi = find("joint_velocity_impedance");
+  ASSERT_NE(jvi, nullptr);
+  ASSERT_EQ(jvi->channels.size(), 1u);
+  EXPECT_EQ(jvi->channels[0], "joint_velocity");
+  const auto *eti = find("ee_twist_impedance");
+  ASSERT_NE(eti, nullptr);
+  ASSERT_EQ(eti->channels.size(), 1u);
+  EXPECT_EQ(eti->channels[0], "twist");
 }
 
 // ------------------------------------------------------------------- open /
@@ -177,6 +191,38 @@ TEST_F(StreamServerTest, OpenMapsTheControllerOntoCoresPair) {
             kinova::interface::ControlModeKind::kImpedance);
   EXPECT_DOUBLE_EQ(sink_.last_open.timeout_s, 0.1);
   EXPECT_EQ(sink_.last_open.token, mktoken(0xAB));
+  // Nothing asked for -> the session default, not zero-filled customs.
+  EXPECT_EQ(sink_.last_open.gains.profile,
+            kinova::interface::GainsProfile::kSessionDefault);
+}
+
+// An impedance open carries its gains through to core, resolved at open.
+TEST_F(StreamServerTest, OpenPassesTheImpedanceGainsThrough) {
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
+  auto req = std::make_shared<Srv::Request>();
+  req->controller = "joint_impedance";
+  req->timeout_s = 0.1;
+  req->gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF;
+  auto resp = call<Srv>("open_stream", req);
+  ASSERT_NE(resp, nullptr);
+  EXPECT_TRUE(resp->accepted);
+  EXPECT_EQ(sink_.last_open.gains.profile,
+            kinova::interface::GainsProfile::kStiff);
+}
+
+// Gains on a non-impedance controller cannot act; refused HERE with the
+// reason, before a pointless trip into core.
+TEST_F(StreamServerTest, GainsOnANonImpedanceControllerAreRefusedLocally) {
+  using Srv = rammp_arm_interfaces::srv::OpenStream;
+  auto req = std::make_shared<Srv::Request>();
+  req->controller = "joint_position";
+  req->timeout_s = 0.1;
+  req->gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_SOFT;
+  auto resp = call<Srv>("open_stream", req);
+  ASSERT_NE(resp, nullptr);
+  EXPECT_FALSE(resp->accepted);
+  EXPECT_EQ(resp->error_code, kinova::interface::result_code::kStreamRejected);
+  EXPECT_TRUE(sink_.log().empty());
 }
 
 // An unknown name must not reach core -- core would have to invent an error for

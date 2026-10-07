@@ -14,15 +14,15 @@ Design docs: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.
 
 ## Packages
 
-| Package                | Type                     | Contents                                                                                |
-| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------- |
-| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGains.msg`. Interface definitions only. |
-| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.     |
+| Package                | Type                     | Contents                                                                                     |
+| ---------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGainValues.msg`. Interface definitions only. |
+| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.          |
 
 ```
 rammp_arm_interfaces/
   action/ExecuteJointTrajectory.action
-  msg/JointImpedanceGains.msg
+  msg/JointImpedanceGainValues.msg
 kinova_gen3_ros2/
   include/kinova_gen3_ros2/{ros2_backend,message_mapping}.h
   src/message_mapping.cpp     ROS2 msg <-> kinova::interface value types (no rclcpp)
@@ -78,7 +78,9 @@ control_msgs/JointTolerance[]    goal_tolerance      # empty => guard disabled
 builtin_interfaces/Duration      goal_time_tolerance
 uint8   control_mode             # 0 = POSITION, 1 = IMPEDANCE
 uint8   preemption               # 0 = QUEUE,    1 = LATEST_WINS
-JointImpedanceGains gains        # kq[7], zeta, torque_limit[7]; used iff IMPEDANCE
+ImpedanceGains gains                  # a compliance PROFILE (SESSION_DEFAULT/SOFT/MEDIUM/STIFF/CUSTOM);
+                                 # custom kq[7]/zeta/torque_limit[7] read iff CUSTOM. Compliance
+                                 # iff IMPEDANCE; a non-default spec on a POSITION goal is refused.
 string  sender_id
 ```
 
@@ -105,6 +107,12 @@ Result/Feedback and their cancel behaviour are identical — see
 Both joint-space actions plan through cuRobo's `plan_to_joints`; `go_to_preset`
 just resolves a name to 7 joint angles first, from the `preset_names` /
 `presets.<name>` parameters.
+
+All three GoTo goals also carry `control_mode`
+(`CONTROL_MODE_POSITION`/`CONTROL_MODE_IMPEDANCE`, default position) and a
+`ImpedanceGains gains`: an impedance GoTo plans with cuRobo exactly as before and
+executes the plan compliantly under the named gains. Gains on a position goal
+are refused at submission, not ignored.
 
 ### Published topics
 
@@ -197,8 +205,13 @@ token is ignored, so existing clients need no changes.
 > domain ever contains unknown actors, the answer is SROS2 / DDS Security, not more
 > tokens. See `docs/superpowers/specs/2026-08-29-ros2-arbitration-tier-design.md`.
 
-`set_gains` and `query_state` exist on the core's `CommandSink` but are still not
-exposed as ROS2 services.
+`/set_gains` (`rammp_arm_interfaces/srv/SetGains`) sets the **session default**
+compliance — what an `ImpedanceGains` left at `PROFILE_SESSION_DEFAULT` resolves to
+from then on. It takes a named profile or custom gains plus the arbitration
+token, and goes through the same Arbiter-gated `CommandSink` as every other
+command. It touches no live mode: a running impedance session keeps the tuning
+it opened with; the next bare impedance command picks the new default up.
+`query_state` still exists on the core's `CommandSink` without a ROS2 service.
 
 ### Streaming
 
@@ -206,31 +219,34 @@ Teleop and reactive control drive the arm through a **session**: you name a
 *controller* (a control law), and the driver replies with the *channels* (topics)
 to publish on.
 
-| Service            | Type              | Notes                                                                        |
-| ------------------ | ----------------- | ---------------------------------------------------------------------------- |
-| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below.                          |
-| `open_stream`      | `OpenStream`      | `controller, timeout_s, token` → `accepted, channels[], error_code, message` |
-| `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                  |
+| Service            | Type              | Notes                                                                                                                                                                                                      |
+| ------------------ | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below.                                                                                                                                                        |
+| `open_stream`      | `OpenStream`      | `controller, timeout_s, token, gains` → `accepted, channels[], error_code, message`. `gains` applies iff the controller is an impedance one, resolved AT OPEN; mid-session changes mean close-then-reopen. |
+| `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                                                                                                                                                |
 
-| Controller            | Channel                               | Available                                                                      |
-| --------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
-| `joint_position`      | `/setpoint/joint_position`            | yes                                                                            |
-| `joint_impedance`     | `/setpoint/joint_position`            | yes                                                                            |
-| `ee_pose_impedance`   | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                           |
-| `ee_pose_position`    | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                           |
-| `joint_torque`        | `/setpoint/joint_torque`              | yes                                                                            |
-| `joint_velocity`      | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact        |
-| `ee_twist`            | `/setpoint/twist`                     | yes — damped least squares with null-space posture                             |
-| `cartesian_impedance` | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
+| Controller                 | Channel                               | Available                                                                                 |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `joint_position`           | `/setpoint/joint_position`            | yes                                                                                       |
+| `joint_impedance`          | `/setpoint/joint_position`            | yes                                                                                       |
+| `ee_pose_impedance`        | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                                      |
+| `ee_pose_position`         | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                                      |
+| `joint_torque`             | `/setpoint/joint_torque`              | yes                                                                                       |
+| `joint_velocity`           | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact                   |
+| `joint_velocity_impedance` | `/setpoint/joint_velocity`            | with a core that supports (`kJointVelocity` × `kImpedance`) — the compliant velocity tier |
+| `ee_twist`                 | `/setpoint/twist`                     | yes — damped least squares with null-space posture                                        |
+| `ee_twist_impedance`       | `/setpoint/twist`                     | with a core that supports (`kEeTwist` × `kImpedance`) — the compliant twist tier          |
+| `cartesian_impedance`      | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind            |
 
 `available` is computed live from core's `pair_supported()`, so these rows light up
 when core grows the mode. That is not theoretical: `joint_velocity` and `ee_twist`
 flipped to available when core landed `JointVelocityMode`, with no change on this side
 beyond the test expectation.
 
-**Velocity and `ee_pose_position` are stiff.** Neither yields to contact — the servo
-chases the command at full authority, and nothing absorbs a mistake. `joint_impedance`
-and `ee_pose_impedance` are the compliant options.
+**`joint_velocity`, `ee_twist` and `ee_pose_position` are stiff.** None yields to
+contact — the servo chases the command at full authority, and nothing absorbs a
+mistake. `joint_impedance`, `ee_pose_impedance` and (where the core pin supports
+them) `joint_velocity_impedance` / `ee_twist_impedance` are the compliant options.
 
 Note that `SimTransport` is a static echo with no velocity plant, so a velocity or twist
 session commands correctly in sim but produces **no motion**. That the setpoints are

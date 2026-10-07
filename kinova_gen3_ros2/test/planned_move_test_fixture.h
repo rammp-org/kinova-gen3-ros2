@@ -53,9 +53,16 @@ struct FakeSupervisor : public kinova::interface::CommandSink {
     halted = true;
     halt_reason = why;
   }
+  // Records the request (spec + token) so the /set_gains service test can
+  // assert the mapping; the canned result lets it assert relay both ways.
+  bool got_gains = false;
+  kinova::interface::GainsRequest last_gains;
+  kinova::interface::GainsResult gains_result{true, ""};
   kinova::interface::GainsResult
-  on_set_gains(const kinova::interface::GainsRequest &) override {
-    return {};
+  on_set_gains(const kinova::interface::GainsRequest &r) override {
+    got_gains = true;
+    last_gains = r;
+    return gains_result;
   }
   // stamp_s > 0 marks the state as actually measured. The server refuses goals
   // when it is zero, because Supervisor::pump_loop only stores a snapshot after

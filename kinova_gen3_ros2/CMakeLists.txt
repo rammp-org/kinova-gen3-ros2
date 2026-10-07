@@ -62,7 +62,9 @@ add_library(stream_server src/stream_server.cpp)
 target_include_directories(stream_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(stream_server rclcpp rammp_arm_interfaces geometry_msgs std_msgs)
-target_link_libraries(stream_server kinova_lowlevel::kinova_lowlevel)
+# message_mapping: the ImpedanceGains conversion and its rejection text are the
+# action tier's seam too, so the streaming tier shares one copy.
+target_link_libraries(stream_server message_mapping kinova_lowlevel::kinova_lowlevel)
 
 # The ROS face of core's GripperSink: /setpoint/gripper in, /gripper_state out, plus the
 # REP 107 /diagnostics contribution. Holds only a GripperSink&.

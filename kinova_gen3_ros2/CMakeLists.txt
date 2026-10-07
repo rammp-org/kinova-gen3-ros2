@@ -62,7 +62,7 @@ add_library(stream_server src/stream_server.cpp)
 target_include_directories(stream_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(stream_server rclcpp rammp_arm_interfaces geometry_msgs std_msgs)
-# message_mapping: the GainsSpec conversion and its rejection text are the
+# message_mapping: the ImpedanceGains conversion and its rejection text are the
 # action tier's seam too, so the streaming tier shares one copy.
 target_link_libraries(stream_server message_mapping kinova_lowlevel::kinova_lowlevel)
 

@@ -162,7 +162,7 @@ TEST_F(GotoJointConfigTest, ImpedanceModeAndGainsReachTheTrajectoryGoal) {
 
   EXPECT_EQ(send_and_get_code(
                 node, kTarget, 1.0, /*control_mode=*/1,
-                rammp_arm_interfaces::msg::GainsSpec::PROFILE_SOFT),
+                rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_SOFT),
             result_code::kSuccessful);
   EXPECT_TRUE(sup.got_goal);
   EXPECT_EQ(sup.last_goal.control_mode, ControlModeKind::kImpedance);
@@ -191,7 +191,7 @@ TEST_F(GotoJointConfigTest, GainsOnAPositionGoalAreRefused) {
 
   EXPECT_EQ(send_and_get_code(
                 node, kTarget, 1.0, /*control_mode=*/0,
-                rammp_arm_interfaces::msg::GainsSpec::PROFILE_STIFF),
+                rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF),
             kGoalRejected);
   EXPECT_FALSE(sup.got_goal);
 }

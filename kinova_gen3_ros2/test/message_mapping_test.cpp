@@ -11,7 +11,7 @@ using namespace kinova_gen3_ros2;
 using kinova::interface::ControlModeKind;
 using kinova::interface::GainsProfile;
 using kinova::interface::Preemption;
-using GainsSpecMsg = rammp_arm_interfaces::msg::GainsSpec;
+using ImpedanceGainsMsg = rammp_arm_interfaces::msg::ImpedanceGains;
 
 static trajectory_msgs::msg::JointTrajectoryPoint pt(double v, double t) {
   trajectory_msgs::msg::JointTrajectoryPoint p;
@@ -42,7 +42,7 @@ TEST(MessageMapping, GoalImpedanceCustomGainsAndPathTol) {
   rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
   g.trajectory.points = {pt(0.0, 0.0), pt(0.1, 1.0)};
   g.control_mode = 1; // IMPEDANCE
-  g.gains.profile = GainsSpecMsg::PROFILE_CUSTOM;
+  g.gains.profile = ImpedanceGainsMsg::PROFILE_CUSTOM;
   for (int i = 0; i < 7; ++i)
     g.gains.custom.kq[i] = 60.0;
   g.gains.custom.zeta = 0.6;
@@ -61,7 +61,7 @@ TEST(MessageMapping, GoalImpedanceCustomGainsAndPathTol) {
 
 // THE bug this shape exists to kill: the old mapping set has_gains with the
 // message's zero-filled defaults on every impedance goal, so a client that
-// said nothing about gains asked for zero stiffness. A default GainsSpec must
+// said nothing about gains asked for zero stiffness. A default ImpedanceGains must
 // arrive as kSessionDefault with NO custom read.
 TEST(MessageMapping, DefaultGainsOnAnImpedanceGoalMeanSessionDefault) {
   rammp_arm_interfaces::action::ExecuteJointTrajectory::Goal g;
@@ -77,16 +77,16 @@ TEST(MessageMapping, DefaultGainsOnAnImpedanceGoalMeanSessionDefault) {
 
 TEST(GainsMapping, EveryProfileConstantMapsOntoCores) {
   const std::pair<uint8_t, GainsProfile> cases[] = {
-      {GainsSpecMsg::PROFILE_SESSION_DEFAULT, GainsProfile::kSessionDefault},
-      {GainsSpecMsg::PROFILE_SOFT, GainsProfile::kSoft},
-      {GainsSpecMsg::PROFILE_MEDIUM, GainsProfile::kMedium},
-      {GainsSpecMsg::PROFILE_STIFF, GainsProfile::kStiff},
-      {GainsSpecMsg::PROFILE_CUSTOM, GainsProfile::kCustom},
+      {ImpedanceGainsMsg::PROFILE_SESSION_DEFAULT, GainsProfile::kSessionDefault},
+      {ImpedanceGainsMsg::PROFILE_SOFT, GainsProfile::kSoft},
+      {ImpedanceGainsMsg::PROFILE_MEDIUM, GainsProfile::kMedium},
+      {ImpedanceGainsMsg::PROFILE_STIFF, GainsProfile::kStiff},
+      {ImpedanceGainsMsg::PROFILE_CUSTOM, GainsProfile::kCustom},
   };
   for (const auto &[byte, want] : cases) {
-    GainsSpecMsg m;
+    ImpedanceGainsMsg m;
     m.profile = byte;
-    EXPECT_EQ(to_gains_spec(m).profile, want) << static_cast<int>(byte);
+    EXPECT_EQ(to_impedance_gains(m).profile, want) << static_cast<int>(byte);
   }
 }
 
@@ -94,17 +94,17 @@ TEST(GainsMapping, EveryProfileConstantMapsOntoCores) {
 // driver reads custom iff kCustom, but the mapping keeps the contract literal
 // so a future reader of the struct cannot be misled by copied zeros.
 TEST(GainsMapping, NamedProfileLeavesCustomUnread) {
-  GainsSpecMsg m;
-  m.profile = GainsSpecMsg::PROFILE_STIFF;
+  ImpedanceGainsMsg m;
+  m.profile = ImpedanceGainsMsg::PROFILE_STIFF;
   for (int i = 0; i < 7; ++i)
     m.custom.kq[i] = 123.0; // garbage that must stay behind
-  const auto s = to_gains_spec(m);
+  const auto s = to_impedance_gains(m);
   EXPECT_EQ(s.profile, GainsProfile::kStiff);
   EXPECT_DOUBLE_EQ(s.custom.kq[0], 0.0); // core's default, not 123
 }
 
 TEST(GainsMapping, RejectionNamesTheProblem) {
-  GainsSpecMsg ok; // session default
+  ImpedanceGainsMsg ok; // session default
   EXPECT_FALSE(mode_gains_rejection(0, ok).has_value());
   EXPECT_FALSE(mode_gains_rejection(1, ok).has_value());
 
@@ -112,25 +112,25 @@ TEST(GainsMapping, RejectionNamesTheProblem) {
   EXPECT_TRUE(mode_gains_rejection(2, ok).has_value());
 
   // Unknown profile byte: never silently "session default".
-  GainsSpecMsg unk;
+  ImpedanceGainsMsg unk;
   unk.profile = 9;
   EXPECT_TRUE(mode_gains_rejection(1, unk).has_value());
 
   // Gains that cannot act are a caller bug (driver posture, with a message).
-  GainsSpecMsg stiff;
-  stiff.profile = GainsSpecMsg::PROFILE_STIFF;
+  ImpedanceGainsMsg stiff;
+  stiff.profile = ImpedanceGainsMsg::PROFILE_STIFF;
   EXPECT_TRUE(mode_gains_rejection(0, stiff).has_value());
   EXPECT_FALSE(mode_gains_rejection(1, stiff).has_value());
 
   // Custom out of bounds is refused with the driver's own bounds text --
   // zero-filled custom gains are exactly the #64 shape.
-  GainsSpecMsg zeros;
-  zeros.profile = GainsSpecMsg::PROFILE_CUSTOM;
+  ImpedanceGainsMsg zeros;
+  zeros.profile = ImpedanceGainsMsg::PROFILE_CUSTOM;
   EXPECT_TRUE(mode_gains_rejection(1, zeros).has_value());
 
   // And a custom spec inside the driver's bounds passes.
-  GainsSpecMsg good;
-  good.profile = GainsSpecMsg::PROFILE_CUSTOM;
+  ImpedanceGainsMsg good;
+  good.profile = ImpedanceGainsMsg::PROFILE_CUSTOM;
   for (int i = 0; i < 7; ++i) {
     good.custom.kq[i] = 60.0;
     good.custom.torque_limit[i] = kinova::interface::kTorqueLimitFloor[i];
@@ -199,7 +199,7 @@ TEST(MessageMapping, JointTrajectoryToPositionGoal) {
 TEST(MessageMapping, PlannerOverloadCarriesControlModeAndGains) {
   trajectory_msgs::msg::JointTrajectory traj;
   traj.points = {pt(0.0, 0.0), pt(0.3, 0.5)};
-  kinova::interface::GainsSpec gains;
+  kinova::interface::ImpedanceGains gains;
   gains.profile = GainsProfile::kSoft;
   const auto tg = to_trajectory_goal(traj, 0.5,
                                      ControlModeKind::kImpedance, gains);

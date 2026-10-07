@@ -197,12 +197,12 @@ TEST_F(StreamServerTest, OpenMapsTheControllerOntoCoresPair) {
 }
 
 // An impedance open carries its gains through to core, resolved at open.
-TEST_F(StreamServerTest, OpenPassesTheGainsSpecThrough) {
+TEST_F(StreamServerTest, OpenPassesTheImpedanceGainsThrough) {
   using Srv = rammp_arm_interfaces::srv::OpenStream;
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_impedance";
   req->timeout_s = 0.1;
-  req->gains.profile = rammp_arm_interfaces::msg::GainsSpec::PROFILE_STIFF;
+  req->gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF;
   auto resp = call<Srv>("open_stream", req);
   ASSERT_NE(resp, nullptr);
   EXPECT_TRUE(resp->accepted);
@@ -217,7 +217,7 @@ TEST_F(StreamServerTest, GainsOnANonImpedanceControllerAreRefusedLocally) {
   auto req = std::make_shared<Srv::Request>();
   req->controller = "joint_position";
   req->timeout_s = 0.1;
-  req->gains.profile = rammp_arm_interfaces::msg::GainsSpec::PROFILE_SOFT;
+  req->gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_SOFT;
   auto resp = call<Srv>("open_stream", req);
   ASSERT_NE(resp, nullptr);
   EXPECT_FALSE(resp->accepted);

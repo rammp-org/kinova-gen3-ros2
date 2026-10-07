@@ -265,7 +265,7 @@ private:
     kinova::interface::TrajectoryGoal tg =
         to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale,
                            to_control_mode(gh->get_goal()->control_mode),
-                           to_gains_spec(gh->get_goal()->gains));
+                           to_impedance_gains(gh->get_goal()->gains));
     tg.path_tolerance = kinova::JointVec::Constant(
         tg.control_mode == kinova::interface::ControlModeKind::kImpedance
             ? kGotoPathTolImpedanceRad

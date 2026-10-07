@@ -121,7 +121,7 @@ void Ros2Backend::on_set_gains(const std::shared_ptr<SetGains::Request> req,
     return;
   }
   GainsRequest r;
-  r.spec = to_gains_spec(req->spec);
+  r.spec = to_impedance_gains(req->spec);
   r.token = req->token; // uint8[16] IS interface::Token
   const GainsResult res = sink_->on_set_gains(r);
   resp->accepted = res.accepted;

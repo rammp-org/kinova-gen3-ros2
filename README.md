@@ -16,13 +16,13 @@ Design docs: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.
 
 | Package                | Type                     | Contents                                                                                |
 | ---------------------- | ------------------------ | --------------------------------------------------------------------------------------- |
-| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGains.msg`. Interface definitions only. |
+| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointGainValues.msg`. Interface definitions only. |
 | `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.     |
 
 ```
 rammp_arm_interfaces/
   action/ExecuteJointTrajectory.action
-  msg/JointImpedanceGains.msg
+  msg/JointGainValues.msg
 kinova_gen3_ros2/
   include/kinova_gen3_ros2/{ros2_backend,message_mapping}.h
   src/message_mapping.cpp     ROS2 msg <-> kinova::interface value types (no rclcpp)
@@ -78,7 +78,7 @@ control_msgs/JointTolerance[]    goal_tolerance      # empty => guard disabled
 builtin_interfaces/Duration      goal_time_tolerance
 uint8   control_mode             # 0 = POSITION, 1 = IMPEDANCE
 uint8   preemption               # 0 = QUEUE,    1 = LATEST_WINS
-GainsSpec gains                  # a compliance PROFILE (SESSION_DEFAULT/SOFT/MEDIUM/STIFF/CUSTOM);
+ImpedanceGains gains                  # a compliance PROFILE (SESSION_DEFAULT/SOFT/MEDIUM/STIFF/CUSTOM);
                                  # custom kq[7]/zeta/torque_limit[7] read iff CUSTOM. Compliance
                                  # iff IMPEDANCE; a non-default spec on a POSITION goal is refused.
 string  sender_id
@@ -110,7 +110,7 @@ just resolves a name to 7 joint angles first, from the `preset_names` /
 
 All three GoTo goals also carry `control_mode`
 (`CONTROL_MODE_POSITION`/`CONTROL_MODE_IMPEDANCE`, default position) and a
-`GainsSpec gains`: an impedance GoTo plans with cuRobo exactly as before and
+`ImpedanceGains gains`: an impedance GoTo plans with cuRobo exactly as before and
 executes the plan compliantly under the named gains. Gains on a position goal
 are refused at submission, not ignored.
 
@@ -206,7 +206,7 @@ token is ignored, so existing clients need no changes.
 > tokens. See `docs/superpowers/specs/2026-08-29-ros2-arbitration-tier-design.md`.
 
 `/set_gains` (`rammp_arm_interfaces/srv/SetGains`) sets the **session default**
-compliance — what a `GainsSpec` left at `PROFILE_SESSION_DEFAULT` resolves to
+compliance — what a `ImpedanceGains` left at `PROFILE_SESSION_DEFAULT` resolves to
 from then on. It takes a named profile or custom gains plus the arbitration
 token, and goes through the same Arbiter-gated `CommandSink` as every other
 command. It touches no live mode: a running impedance session keeps the tuning

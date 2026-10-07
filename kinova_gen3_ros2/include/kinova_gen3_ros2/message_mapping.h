@@ -1,7 +1,7 @@
 #pragma once
 #include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
 #include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
-#include "rammp_arm_interfaces/msg/gains_spec.hpp"
+#include "rammp_arm_interfaces/msg/impedance_gains.hpp"
 #include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
 #include "rammp_arm_interfaces/msg/gripper_state.hpp"
 #include "kinova_lowlevel/interface/value_types.h"
@@ -21,13 +21,13 @@ to_trajectory_goal(const ExecuteJointTrajectory::Goal &g);
 // never has to invent a meaning for one.
 kinova::interface::ControlModeKind to_control_mode(uint8_t m);
 
-// GainsSpec message -> core's GainsSpec. The default message (profile
+// ImpedanceGains message -> core's ImpedanceGains. The default message (profile
 // PROFILE_SESSION_DEFAULT) maps to kSessionDefault with NO custom read; the
 // custom fields are copied iff profile == PROFILE_CUSTOM. (The old shape set
 // has_gains with the message's zero-filled numbers on every impedance goal,
 // so "I didn't say" arrived as "zero stiffness".)
-kinova::interface::GainsSpec
-to_gains_spec(const rammp_arm_interfaces::msg::GainsSpec &m);
+kinova::interface::ImpedanceGains
+to_impedance_gains(const rammp_arm_interfaces::msg::ImpedanceGains &m);
 
 // Why this (control_mode, gains) pair is unacceptable, or nullopt. Mirrors
 // the driver's accept-time checks -- unknown bytes, gains on a non-impedance
@@ -36,7 +36,7 @@ to_gains_spec(const rammp_arm_interfaces::msg::GainsSpec &m);
 // streaming open, pass 1 for an impedance controller and 0 otherwise.
 std::optional<std::string>
 mode_gains_rejection(uint8_t control_mode,
-                     const rammp_arm_interfaces::msg::GainsSpec &g);
+                     const rammp_arm_interfaces::msg::ImpedanceGains &g);
 ExecuteJointTrajectory::Feedback
 to_feedback_msg(const kinova::interface::GoalId &id,
                 const kinova::interface::TrajectoryFeedback &fb);
@@ -50,7 +50,7 @@ to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
                    double speed_scale = 1.0,
                    kinova::interface::ControlModeKind control_mode =
                        kinova::interface::ControlModeKind::kPosition,
-                   const kinova::interface::GainsSpec &gains = {});
+                   const kinova::interface::ImpedanceGains &gains = {});
 
 // Why this speed_scale is unacceptable, or nullopt if it is fine. The driver
 // refuses the same range but its GoalResponse carries no message, so the

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # kinova_gen3_ros2/test/gains_cli.py
-"""Shared --profile/--kq/--zeta/--torque-limit flags -> GainsSpec.
+"""Shared --profile/--kq/--zeta/--torque-limit flags -> ImpedanceGains.
 
 Any custom flag makes the goal PROFILE_CUSTOM; the unset custom fields fall
 back to medium kq / zeta 0.5 / the ceiling torque limits, so a lone
 `--kq 60` is a valid goal and `--torque-limit 0` exercises the #64 floor
 rejection deliberately.
 """
-from rammp_arm_interfaces.msg import GainsSpec
+from rammp_arm_interfaces.msg import ImpedanceGains
 
 PROFILES = {
-    "default": GainsSpec.PROFILE_SESSION_DEFAULT,
-    "soft": GainsSpec.PROFILE_SOFT,
-    "medium": GainsSpec.PROFILE_MEDIUM,
-    "stiff": GainsSpec.PROFILE_STIFF,
+    "default": ImpedanceGains.PROFILE_SESSION_DEFAULT,
+    "soft": ImpedanceGains.PROFILE_SOFT,
+    "medium": ImpedanceGains.PROFILE_MEDIUM,
+    "stiff": ImpedanceGains.PROFILE_STIFF,
 }
 
 _KQ_MEDIUM = [80.0, 80.0, 80.0, 80.0, 30.0, 30.0, 30.0]
@@ -30,11 +30,11 @@ def add_gains_args(ap):
 
 
 def build_gains(args):
-    spec = GainsSpec()
+    spec = ImpedanceGains()
     if args.kq is None and args.zeta is None and args.torque_limit is None:
         spec.profile = PROFILES[args.profile]
         return spec
-    spec.profile = GainsSpec.PROFILE_CUSTOM
+    spec.profile = ImpedanceGains.PROFILE_CUSTOM
     spec.custom.kq = _seven(args.kq, _KQ_MEDIUM)
     spec.custom.zeta = args.zeta if args.zeta is not None else 0.5
     spec.custom.torque_limit = _seven(args.torque_limit, _TORQUE_CEIL)

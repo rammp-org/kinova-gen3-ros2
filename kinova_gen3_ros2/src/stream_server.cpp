@@ -5,7 +5,7 @@
 #include <functional>
 #include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/twist.hpp"
-#include "kinova_gen3_ros2/message_mapping.h" // to_gains_spec, mode_gains_rejection
+#include "kinova_gen3_ros2/message_mapping.h" // to_impedance_gains, mode_gains_rejection
 #include "kinova_lowlevel/interface/streaming_session.h" // pair_supported
 namespace kinova_gen3_ros2 {
 using namespace kinova::interface;
@@ -231,7 +231,7 @@ void StreamServer::on_open(const std::shared_ptr<OpenStream::Request> req,
   r.kind = row->kind;
   r.control_mode = row->mode;
   r.timeout_s = req->timeout_s;
-  r.gains = to_gains_spec(req->gains); // resolved and applied at open
+  r.gains = to_impedance_gains(req->gains); // resolved and applied at open
   r.token = req->token;
   const StreamOpenResult res =
       sink_.on_stream_open(r); // blocks the mode settle

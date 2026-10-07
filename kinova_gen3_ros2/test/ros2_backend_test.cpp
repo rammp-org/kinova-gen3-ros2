@@ -83,7 +83,7 @@ TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {
   backend.set_command_sink(&sup);
   auto goal = one_point_goal(1.0);
   goal.control_mode = 0;
-  goal.gains.profile = rammp_arm_interfaces::msg::GainsSpec::PROFILE_STIFF;
+  goal.gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF;
 
   auto client = rclcpp_action::create_client<Action>(
       node, "execute_joint_trajectory");
@@ -113,7 +113,7 @@ TEST_F(Ros2BackendTest, SetGainsMapsAndRelaysTheSinkVerdict) {
   ASSERT_TRUE(client->wait_for_service(5s));
 
   auto req = std::make_shared<Srv::Request>();
-  req->spec.profile = rammp_arm_interfaces::msg::GainsSpec::PROFILE_SOFT;
+  req->spec.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_SOFT;
   req->token.fill(0);
   req->token[0] = 0xEE;
   auto fut = client->async_send_request(req);

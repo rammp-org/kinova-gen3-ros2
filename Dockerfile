@@ -60,6 +60,20 @@ RUN mkdir -p src && vcs import src < /tmp/kinova_gen3.repos && \
     if [ -n "${CORE_REF}" ]; then git -C src/kinova-gen3-driver fetch --depth 1 origin "${CORE_REF}" && \
         git -C src/kinova-gen3-driver checkout FETCH_HEAD; fi
 
+# INTERFACES_REF is CI's escape hatch for the interfaces, the way CORE_REF is
+# for the driver: clone rammp-interfaces-ros2 at the given ref into src/,
+# where the colcon OVERLAY shadows the copy compiled into rammp-base (the
+# same mechanism the on-arm test workspace uses). Empty — the default, and
+# the release recipe — means the base image's copy is the interfaces pin,
+# exactly as kinova_gen3.repos documents.
+ARG INTERFACES_REF=
+RUN if [ -n "${INTERFACES_REF}" ]; then \
+      git clone --filter=blob:none \
+        https://github.com/rammp-org/rammp-interfaces-ros2.git src/rammp-interfaces-ros2 && \
+      git -C src/rammp-interfaces-ros2 fetch --depth 1 origin "${INTERFACES_REF}" && \
+      git -C src/rammp-interfaces-ros2 checkout FETCH_HEAD; \
+    fi
+
 # --- ROS deps (cached unless a package.xml changes) ---------------------------
 # --skip-keys pinocchio: the core's package.xml declares it, but rosdep would
 # resolve it to the apt 4.0.0 package and shadow the pinned wheel above.
@@ -135,7 +149,12 @@ RUN source /opt/ros/humble/setup.bash && \
       --packages-up-to kinova_gen3_ros2 \
       --cmake-args -DCMAKE_BUILD_TYPE=Release \
         "-DKINOVA_ENABLE_KORTEX=${KINOVA_ENABLE_KORTEX}" \
-        "-DKORTEX_HW_DIR=/opt/kortex/${KORTEX_SDK_DIR}"
+        "-DKORTEX_HW_DIR=/opt/kortex/${KORTEX_SDK_DIR}" && \
+    if [ -n "${INTERFACES_REF}" ]; then \
+      test -d install/rammp_arm_interfaces || \
+        { echo "INTERFACES_REF=${INTERFACES_REF} was set but the workspace did not build" \
+               "rammp_arm_interfaces -- the overlay did not take effect" >&2; exit 1; }; \
+    fi
 
 ENV URDF=/module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 

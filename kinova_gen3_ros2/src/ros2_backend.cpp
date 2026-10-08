@@ -224,6 +224,12 @@ void Ros2Backend::publish_state(const ArmState &s) {
   ee.twist.angular.x = s.ee_twist[3];
   ee.twist.angular.y = s.ee_twist[4];
   ee.twist.angular.z = s.ee_twist[5];
+  ee.wrench.force.x = s.ee_wrench[0]; // same [linear; angular] packing
+  ee.wrench.force.y = s.ee_wrench[1];
+  ee.wrench.force.z = s.ee_wrench[2];
+  ee.wrench.torque.x = s.ee_wrench[3];
+  ee.wrench.torque.y = s.ee_wrench[4];
+  ee.wrench.torque.z = s.ee_wrench[5];
   ee_pub_->publish(ee);
 
   fault_.store(s.fault);

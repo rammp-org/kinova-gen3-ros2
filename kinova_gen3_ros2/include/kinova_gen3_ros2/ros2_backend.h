@@ -59,6 +59,10 @@ private:
   // and ee_twist on every ArmState and we used to drop both, so a client
   // streaming EE poses had no way to read where the tool actually was.
   rclcpp::Publisher<rammp_arm_interfaces::msg::EeState>::SharedPtr ee_pub_;
+  // Topic decimation (state_publish_divisor): publish every Nth pump tick.
+  // publish_state runs on the pump thread only, so plain ints suffice.
+  int state_divisor_ = 2;
+  int state_tick_ = 0;
 
   // REP 107 hardware health. ArmState carries the arm's fault flag and we
   // dropped that too -- the arm could be faulted with nothing on the ROS

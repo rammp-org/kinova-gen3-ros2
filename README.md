@@ -44,7 +44,8 @@ The core defines three ports (`kinova_lowlevel/interface/ports.h`);
   *sampler* thread calls `publish_feedback()` / `settle()` to push feedback and
   terminal results out to the ROS2 goal handle.
 - **`StreamPort`** (implemented by `Ros2Backend`) — the Supervisor's *pump*
-  thread calls `publish_state()` (~100 Hz) to publish `/joint_states`.
+  thread calls `publish_state()` (~100 Hz); the backend publishes `/joint_states`
+  + `/ee_state` every `state_publish_divisor`-th tick (default 2, so ~50 Hz).
 - **`CommandSink`** (implemented by the Supervisor) — the backend's rclcpp
   callbacks call `on_trajectory_goal()` / `on_trajectory_accepted()` /
   `on_trajectory_cancel()` on inbound goals.
@@ -118,7 +119,7 @@ are refused at submission, not ignored.
 
 | Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
 | ---------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz.                                                                                                                                                                                                              |
+| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, decimated by `state_publish_divisor` (default 2: ~50 Hz).                                                                                                                                                                                                              |
 | `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
 | `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
 | `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |

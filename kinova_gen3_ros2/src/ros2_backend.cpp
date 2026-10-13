@@ -24,6 +24,14 @@ Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
   // same pump tick, so a subscriber matching one matches the other.
   ee_pub_ = node_->create_publisher<rammp_arm_interfaces::msg::EeState>(
       "ee_state", rclcpp::SensorDataQoS());
+  // Publish every Nth pump tick. Tasks consume /joint_states and /ee_state at
+  // tens of Hz; serializing them at the full pump rate buys nothing. 2 halves
+  // the 100 Hz pump to 50 Hz. Diagnostics still refresh every tick -- only the
+  // topic publishes are decimated.
+  state_divisor_ = static_cast<int>(
+      node_->declare_parameter("state_publish_divisor", 2));
+  if (state_divisor_ < 1)
+    state_divisor_ = 1;
 
   updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
   updater_->setHardwareID("kinova_gen3");
@@ -164,8 +172,18 @@ void Ros2Backend::settle(const GoalId &id, const TrajectoryResult &r) {
     gh->abort(msg);
 }
 
-// v1 free-running JointState stream (from the supervisor pump thread, ~100 Hz).
+// v1 free-running JointState stream (from the supervisor pump thread, ~100 Hz,
+// decimated to the topics by state_publish_divisor).
 void Ros2Backend::publish_state(const ArmState &s) {
+  // Health first, every tick: diagnostics freshness must not depend on the
+  // topic rate. Then the decimation gate -- pump thread only, no atomicity
+  // needed on the counter.
+  fault_.store(s.fault);
+  arm_stamp_s_.store(s.stamp_s);
+  ever_published_.store(true);
+  if (state_tick_++ % state_divisor_ != 0)
+    return;
+
   sensor_msgs::msg::JointState msg;
   msg.header.stamp = node_->now();
   msg.name = {"joint_1", "joint_2", "joint_3", "joint_4",
@@ -224,11 +242,13 @@ void Ros2Backend::publish_state(const ArmState &s) {
   ee.twist.angular.x = s.ee_twist[3];
   ee.twist.angular.y = s.ee_twist[4];
   ee.twist.angular.z = s.ee_twist[5];
+  ee.wrench.force.x = s.ee_wrench[0]; // same [linear; angular] packing
+  ee.wrench.force.y = s.ee_wrench[1];
+  ee.wrench.force.z = s.ee_wrench[2];
+  ee.wrench.torque.x = s.ee_wrench[3];
+  ee.wrench.torque.y = s.ee_wrench[4];
+  ee.wrench.torque.z = s.ee_wrench[5];
   ee_pub_->publish(ee);
-
-  fault_.store(s.fault);
-  arm_stamp_s_.store(s.stamp_s);
-  ever_published_.store(true);
 }
 
 void Ros2Backend::diagnostics(

@@ -24,8 +24,8 @@ three of the four action servers accept goals that can never succeed.
 
 | Topic             | Type                                    | Rate      | Meaning                                                                                 |
 | ----------------- | --------------------------------------- | --------- | --------------------------------------------------------------------------------------- |
-| `/joint_states`   | `sensor_msgs/JointState`                | ~100 Hz   | Seven arm joints plus `robotiq_85_left_knuckle_joint`. Best-effort QoS.                 |
-| `/ee_state`       | `rammp_arm_interfaces/EeState`          | ~100 Hz   | Tool pose and twist, `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`. |
+| `/joint_states`   | `sensor_msgs/JointState`                | ~50 Hz    | Seven arm joints plus `robotiq_85_left_knuckle_joint`. Best-effort QoS. Pump ticks decimated by `state_publish_divisor` (default 2). |
+| `/ee_state`       | `rammp_arm_interfaces/EeState`          | ~50 Hz    | Tool pose, twist and measured external wrench, `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`. |
 | `/control_status` | `rammp_common_interfaces/ControlStatus` | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.    |
 | `/stream_status`  | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                         |
 | `/gripper_state`  | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                             |

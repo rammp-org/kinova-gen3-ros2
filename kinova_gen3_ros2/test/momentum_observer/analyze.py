@@ -18,6 +18,7 @@ import numpy as np
 from observer import ArmModel, quasi_static_residual, run_observer
 
 MOVING_RAD_S = 0.05  # above this the arm counts as moving
+SETTLE_S = 0.5  # observer start-up transient, excluded from every statistic
 TAP_BEFORE_S, TAP_AFTER_S = 0.2, 0.8  # window around a marker that counts as the tap
 
 
@@ -46,28 +47,61 @@ def detect_tau_sign(model, q, qd, tau):
     return 1.0 if np.median(dots) >= 0 else -1.0
 
 
-def windows(t, qd, taps):
-    moving = np.abs(qd).max(axis=1) > MOVING_RAD_S
+def rest_offset(t, qd, sig):
+    """Per-joint median of sig over the first still stretch: the model error at the start pose.
+
+    Both estimators carry it (same g(q), same URDF), so it is subtracted from both
+    before any statistic. It is reported, not hidden: it IS the mass-model gap.
+    """
+    still = (np.abs(qd).max(axis=1) < 0.01) & (t > SETTLE_S)
+    first_move = np.flatnonzero(~still & (t > SETTLE_S))
+    if len(first_move):
+        still &= t < t[first_move[0]]
+    if still.sum() < 10:
+        still = t > SETTLE_S
+    return np.median(sig[still], axis=0)
+
+
+def windows(t, qd, taps, before=TAP_BEFORE_S, after=TAP_AFTER_S):
+    moving = (np.abs(qd).max(axis=1) > MOVING_RAD_S) & (t > SETTLE_S)
     tap = np.zeros(len(t), bool)
     for m in taps:
-        tap |= (t >= m - TAP_BEFORE_S) & (t <= m + TAP_AFTER_S)
+        tap |= (t >= m - before) & (t <= m + after)
     return moving, tap
 
 
 def summarize(name, sig, moving, tap, joints):
-    """RMS while moving with no tap, peak inside the tap windows, and their ratio."""
+    """RMS and peak while moving with no tap, peak inside the tap windows, and the peak ratio.
+
+    A detector thresholds on peaks, so the ratio that matters is tap peak over the
+    largest excursion the arm's own motion produced with nobody touching it.
+    """
     quiet = moving & ~tap
     out = {}
     for j in joints:
         rms = (
             float(np.sqrt(np.mean(sig[quiet, j] ** 2))) if quiet.any() else float("nan")
         )
+        qpeak = float(np.abs(sig[quiet, j]).max()) if quiet.any() else float("nan")
         peak = float(np.abs(sig[tap, j]).max()) if tap.any() else float("nan")
-        out[j] = (rms, peak, peak / rms if rms > 0 else float("nan"))
+        out[j] = (rms, qpeak, peak, peak / qpeak if qpeak > 0 else float("nan"))
     return out
 
 
-def write_summary(path, csv_path, gain, taps, qs_stats, ob_stats, joints, rate):
+def write_summary(
+    path,
+    csv_path,
+    gain,
+    taps,
+    qs_stats,
+    ob_stats,
+    joints,
+    rate,
+    before,
+    after,
+    qs_off,
+    ob_off,
+):
     lines = [
         f"# {os.path.basename(csv_path)}",
         "",
@@ -75,17 +109,26 @@ def write_summary(path, csv_path, gain, taps, qs_stats, ob_stats, joints, rate):
         "",
         "Motion RMS is the signal while the arm moves with no tap in progress: the part",
         "that is the arm's own inertia, not a push. Tap peak is the largest excursion",
-        f"within {TAP_BEFORE_S:g} s before to {TAP_AFTER_S:g} s after a marker. Ratio is tap peak",
-        "over motion RMS: how far a push stands out from the arm's own motion.",
+        f"within {before:g} s before to {after:g} s after a marker. Ratio is tap peak",
+        "over motion peak: how far a push stands out above the arm's own motion.",
         "",
-        "| Joint | Signal | Motion RMS, N.m | Tap peak, N.m | Ratio |",
-        "| --- | --- | ---: | ---: | ---: |",
+        "Rest offset is each signal's value with the arm still at the start pose, the",
+        "mass-model error there; it is subtracted from both before the other columns,",
+        "since both carry the same model. Motion peak is the largest excursion with",
+        "nobody touching the arm: the false-alarm floor a detector has to sit above.",
+        "",
+        "| Joint | Signal | Rest offset, N.m | Motion RMS, N.m | Motion peak, N.m | Tap peak, N.m | Ratio |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for j in joints:
-        for label, st in (("core g(q) - tau", qs_stats), ("observer", ob_stats)):
-            rms, peak, ratio = st[j]
+        for label, st, off in (
+            ("core g(q) - tau", qs_stats, qs_off),
+            ("observer", ob_stats, ob_off),
+        ):
+            rms, qpeak, peak, ratio = st[j]
             lines.append(
-                f"| {j + 1} | {label} | {rms:.2f} | {peak:.2f} | {ratio:.1f} |"
+                f"| {j + 1} | {label} | {off[j]:+.2f} | {rms:.2f} | {qpeak:.2f} "
+                f"| {peak:.2f} | {ratio:.1f} |"
             )
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -120,10 +163,12 @@ def plot(path, t, qd, qs, ob, taps, joints, light):
     ps.title(
         a1,
         "Core: g(q) − τ",
-        "Quasi-static residual as published on /ee_state; carries the arm's inertia",
+        "Quasi-static residual, rest offset removed; carries the arm's inertia",
     )
     ps.title(
-        a2, "Momentum observer", "Same q, q̇, τ; inertia and Coriolis accounted for"
+        a2,
+        "Momentum observer",
+        "Same q, q̇, τ, rest offset removed; inertia and Coriolis accounted for",
     )
     ps.page_title(fig, "External torque during a move")
     ps.save(fig, path)
@@ -136,7 +181,7 @@ def main():
     ap.add_argument(
         "--out", required=True, help="PNG path; the .md summary sits beside it"
     )
-    ap.add_argument("--gain", type=float, default=10.0, help="observer cutoff, rad/s")
+    ap.add_argument("--gain", type=float, default=20.0, help="observer cutoff, rad/s")
     ap.add_argument("--joints", default="2,4,6", help="1-based joints to plot, up to 6")
     ap.add_argument(
         "--tau-sign",
@@ -146,6 +191,18 @@ def main():
         help="torque sign convention; 0 (default) detects it from the still samples",
     )
     ap.add_argument("--light", action="store_true", help="light theme for slides")
+    ap.add_argument(
+        "--tap-before",
+        type=float,
+        default=TAP_BEFORE_S,
+        help="tap window before a marker, s",
+    )
+    ap.add_argument(
+        "--tap-after",
+        type=float,
+        default=TAP_AFTER_S,
+        help="tap window after a marker, s",
+    )
     args = ap.parse_args()
 
     joints = [int(s) - 1 for s in args.joints.split(",")]
@@ -167,13 +224,26 @@ def main():
     rate = 1.0 / np.median(np.diff(t))
     qs = np.array([quasi_static_residual(model, q[k], tau[k]) for k in range(len(t))])
     ob = run_observer(model, t, q, qd, tau, gain=args.gain)
-    moving, tap = windows(t, qd, taps)
+    qs_off, ob_off = rest_offset(t, qd, qs), rest_offset(t, qd, ob)
+    qs, ob = qs - qs_off, ob - ob_off
+    moving, tap = windows(t, qd, taps, args.tap_before, args.tap_after)
 
     stem = os.path.splitext(args.out)[0]
     qs_stats = summarize("core", qs, moving, tap, joints)
     ob_stats = summarize("observer", ob, moving, tap, joints)
     write_summary(
-        stem + ".md", args.csv, args.gain, taps, qs_stats, ob_stats, joints, rate
+        stem + ".md",
+        args.csv,
+        args.gain,
+        taps,
+        qs_stats,
+        ob_stats,
+        joints,
+        rate,
+        args.tap_before,
+        args.tap_after,
+        qs_off,
+        ob_off,
     )
     plot(args.out, t, qd, qs, ob, taps, joints, args.light)
     print(f"wrote {args.out} and {stem}.md")

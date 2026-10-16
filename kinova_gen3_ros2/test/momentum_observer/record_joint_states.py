@@ -15,6 +15,7 @@ fx fy fz tx ty tz (the /ee_state wrench core publishes, NaN if absent), marker.
 import argparse
 import csv
 import math
+import os
 import sys
 import threading
 import time
@@ -31,7 +32,7 @@ N = 7
 
 
 class Recorder(Node):
-    def __init__(self, out, duration):
+    def __init__(self, out, duration, marker_file=None):
         super().__init__("momentum_observer_recorder")
         self.f = open(out, "w", newline="")  # noqa: SIM115  (closed in close())
         self.w = csv.writer(self.f)
@@ -47,6 +48,7 @@ class Recorder(Node):
         self.rows = 0
         self.markers = 0
         self.pending_marker = False
+        self.marker_file = marker_file  # touch it from another shell to stamp a marker
         self.wrench = [math.nan] * 6
         self.create_subscription(JointState, "/joint_states", self.on_js, SENSOR_QOS)
         try:
@@ -59,7 +61,9 @@ class Recorder(Node):
             )
 
     def on_ee(self, m):
-        w = m.wrench
+        w = getattr(m, "wrench", None)  # absent before rammp-interfaces 1.2 (core #74)
+        if w is None:
+            return
         self.wrench = [
             w.force.x,
             w.force.y,
@@ -72,6 +76,9 @@ class Recorder(Node):
     def on_js(self, m):
         if len(m.position) < N or len(m.effort) < N:
             return
+        if self.marker_file and os.path.exists(self.marker_file):
+            os.remove(self.marker_file)
+            self.pending_marker = True
         stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
         if self.t0 is None:
             self.t0 = stamp
@@ -105,9 +112,13 @@ def main():
     ap.add_argument(
         "--duration", type=float, default=0.0, help="seconds; 0 runs until Ctrl-C"
     )
+    ap.add_argument(
+        "--marker-file",
+        help="a file whose appearance stamps a marker (for remote taps)",
+    )
     args = ap.parse_args()
     rclpy.init()
-    rec = Recorder(args.out, args.duration)
+    rec = Recorder(args.out, args.duration, args.marker_file)
     threading.Thread(target=stdin_markers, args=(rec,), daemon=True).start()
     print("recording; press Enter at each tap, Ctrl-C to stop", flush=True)
     try:

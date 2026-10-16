@@ -3,6 +3,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include <atomic>
@@ -21,7 +23,13 @@ public:
   using Action = rammp_arm_interfaces::action::ExecuteJointTrajectory;
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
-  explicit Ros2Backend(rclcpp::Node::SharedPtr node);
+  // joint_names: the model's seven arm joints in chain order, then the gripper
+  // joint -- joint_state_names() in robot_description.h. They are what
+  // /joint_states carries, and robot_state_publisher matches them BY NAME, so
+  // they come from the model rather than from this file. Throws
+  // std::invalid_argument unless there are exactly kNumJoints + 1.
+  Ros2Backend(rclcpp::Node::SharedPtr node,
+              std::vector<std::string> joint_names);
   void set_command_sink(kinova::interface::CommandSink *sink) { sink_ = sink; }
   // Null until bringup wires it -- and null is a real configuration, not an
   // omission: a robot with no gripper publishes seven joints exactly as before
@@ -75,6 +83,8 @@ private:
   std::atomic<bool> ever_published_{false};
   kinova::interface::CommandSink *sink_ = nullptr;
   kinova::interface::GripperSink *gripper_ = nullptr;
+  std::vector<std::string> arm_joint_names_; // kNumJoints, chain order
+  std::string gripper_joint_name_;
   std::mutex m_;
   // The goal's token, kept so cancel can replay it. A ROS action cancel carries
   // no payload (action_msgs/CancelGoal is one GoalInfo), so without this a

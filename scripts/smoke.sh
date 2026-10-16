@@ -18,16 +18,38 @@ PATTERN="${SMOKE_PATTERN:-kinova_gen3_node up}"
 
 IMAGE="${1:-kinova-gen3-ros2:humble}"
 NAME="rammp-smoke-$$"
+# The node reads its model from /arm/robot_description and exits without it, so
+# arm_state_publisher runs first, from the same image, on the level TEST fixture
+# bind-mounted where a robot's mount.yaml goes.
+MOUNT="$(cd "$(dirname "$0")/.." && pwd)/kinova_gen3_description/test/mounts/level.yaml"
+
+docker run -d --rm --name "$NAME-desc" --network host \
+  -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
+  -v "$MOUNT:/config/robot/mount.yaml:ro" "$IMAGE" \
+  ros2 launch kinova_gen3_description description.launch.py \
+  mount_file:=/config/robot/mount.yaml >/dev/null
+trap 'docker rm -f "$NAME" "$NAME-desc" >/dev/null 2>&1 || true' EXIT
 
 docker run -d --rm --name "$NAME" --network host \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" "$IMAGE" >/dev/null
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 
-sleep 5
+sleep 10
 
-if ! docker logs "$NAME" 2>&1 | grep -q "$PATTERN"; then
+# Capture, then grep. `docker logs | grep -q` under pipefail is a false FAIL:
+# grep -q exits at the first match, docker logs takes SIGPIPE (141) while still
+# writing, and pipefail reports the pipeline as failed -- certain when the match
+# is near the top of a long log, as the embodiment line is.
+desc_logs="$(docker logs "$NAME-desc" 2>&1)"
+if ! grep -q "embodiment: test_level" <<<"$desc_logs"; then
+  echo "FAIL: arm_state_publisher did not log its embodiment line"
+  tail -20 <<<"$desc_logs"
+  exit 1
+fi
+
+node_logs="$(docker logs "$NAME" 2>&1)"
+if ! grep -q "$PATTERN" <<<"$node_logs"; then
   echo "FAIL: no match for pattern '$PATTERN' in the container logs"
-  docker logs "$NAME" 2>&1 | tail -20
+  tail -20 <<<"$node_logs"
   exit 1
 fi
 
@@ -48,4 +70,20 @@ if [ "$elapsed" -ge 5 ]; then
   exit 1
 fi
 
-echo "PASS: matched '$PATTERN' in logs and exited on SIGTERM in ${elapsed}s"
+# A stop requested while the node is still waiting for its model is a clean
+# exit (0), and prompt -- not the 30 s timeout's exit 1. A domain no description
+# is on, so it waits; no --rm, so the exit code can be read.
+docker run -d --name "$NAME-nomodel" --network host \
+  -e ROS_DOMAIN_ID="$(( ${ROS_DOMAIN_ID:-0} + 1 ))" "$IMAGE" >/dev/null
+trap 'docker rm -f "$NAME" "$NAME-desc" "$NAME-nomodel" >/dev/null 2>&1 || true' EXIT
+sleep 3
+docker stop -t 5 "$NAME-nomodel" >/dev/null
+code="$(docker inspect -f '{{.State.ExitCode}}' "$NAME-nomodel")"
+if [ "$code" != "0" ]; then
+  echo "FAIL: stopped during the model wait, exited $code (expected 0)"
+  docker logs "$NAME-nomodel" 2>&1 | tail -20
+  exit 1
+fi
+
+echo "PASS: matched '$PATTERN' in logs and exited on SIGTERM in ${elapsed}s;" \
+  "a stop during the model wait exits 0"

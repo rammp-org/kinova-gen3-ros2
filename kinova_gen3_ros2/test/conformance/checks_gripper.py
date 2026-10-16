@@ -16,7 +16,7 @@ SEC = "gripper"
 SP_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1
 )
-KNUCKLE = "robotiq_85_left_knuckle_joint"
+KNUCKLE = "arm_robotiq_85_left_knuckle_joint"
 # Mirrors kKnuckleUpperRad in message_mapping.h: the knuckle's URDF upper limit, and
 # the scale factor between /gripper_state's normalized [0,1] position and the joint's
 # radians.

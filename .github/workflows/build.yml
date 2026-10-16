@@ -97,6 +97,18 @@ jobs:
             --build-arg INTERFACES_REF="${{ steps.refs.outputs.interfaces }}" \
             -t kinova-gen3-ros2:ci .
 
+      # The tests that gate the model -- parity against the hand-edited one, the
+      # mount, the description launch, the node's model wait and GoToEEPose's
+      # frame checks -- run in the image just built, so they see the same
+      # apt-resolved kortex/robotiq descriptions the deployed driver will.
+      - name: Unit, model and launch tests (in the image)
+        run: |
+          docker run --rm --network none kinova-gen3-ros2:ci bash -c \
+            "cd /module_ws && source install/setup.bash && \
+             colcon test --packages-select kinova_gen3_description kinova_gen3_ros2 \
+               --return-code-on-test-failure --event-handlers console_cohesion+ && \
+             colcon test-result --verbose"
+
       - name: Publishes, and exits on SIGTERM
         run: SMOKE_PATTERN="kinova_gen3_node up" ./scripts/smoke.sh kinova-gen3-ros2:ci
 

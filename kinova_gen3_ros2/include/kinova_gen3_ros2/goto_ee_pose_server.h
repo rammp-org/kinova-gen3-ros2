@@ -8,23 +8,34 @@ namespace kinova_gen3_ros2 {
 // Hosts GoToEEPose: validate -> cuRobo plan_to_pose -> feed the planned
 // trajectory into the shared CommandSink seam (same path as
 // ExecuteJointTrajectory) -> settle. The lifecycle lives in PlannedMoveServer;
-// only the frame check and the planner call are specific to this action.
+// only the frame checks and the planner call are specific to this action.
 class GoToEEPoseServer
     : public PlannedMoveServer<rammp_arm_interfaces::action::GoToEEPose> {
 public:
   using Action = rammp_arm_interfaces::action::GoToEEPose;
 
+  // `mount_tilt_deg` is the driver's model's (Dynamics::mount_tilt_deg()): on a
+  // tilted mount a plan whose header.frame_id is not arm_mount is refused.
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,
-                   rclcpp::CallbackGroup::SharedPtr cb_group)
+                   rclcpp::CallbackGroup::SharedPtr cb_group,
+                   double mount_tilt_deg)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner,
-                                  cb_group) {}
+                                  cb_group),
+        mount_tilt_deg_(mount_tilt_deg) {}
 
 protected:
+  std::optional<std::string>
+  check_plan(const CuroboPlanClient::Outcome &outcome) override {
+    if (auto why = pose_plan_frame_rejection(outcome.trajectory.header.frame_id,
+                                             mount_tilt_deg_))
+      return "GoToEEPose: " + *why;
+    return std::nullopt;
+  }
+
   std::optional<std::string> validate(const Action::Goal &goal) override {
-    if (goal.target.header.frame_id != "base_link")
-      return "GoToEEPose: frame_id '" + goal.target.header.frame_id +
-             "' != base_link";
+    if (auto why = ee_pose_frame_rejection(goal.target.header.frame_id))
+      return "GoToEEPose: " + *why;
     if (auto why = speed_scale_rejection(goal.speed_scale))
       return "GoToEEPose: " + *why;
     // Reject an unknown mode HERE rather than letting it reach the planner.
@@ -53,6 +64,9 @@ protected:
     planner_.plan(goal.target.pose, this->start_config(), goal.orientation_hold,
                   std::move(on_fb), std::move(on_done));
   }
+
+private:
+  double mount_tilt_deg_;
 };
 
 } // namespace kinova_gen3_ros2

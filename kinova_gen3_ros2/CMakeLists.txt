@@ -13,6 +13,7 @@ find_package(rammp_curobo_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
+find_package(urdf REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
@@ -48,6 +49,13 @@ ament_target_dependencies(ros2_backend rclcpp rclcpp_action rammp_arm_interfaces
   geometry_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
+# Reads the latched model arm_state_publisher renders, and derives the
+# /joint_states names from it. Used once, at startup, before the RT loop.
+add_library(robot_description src/robot_description.cpp)
+target_include_directories(robot_description PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(robot_description rclcpp std_msgs urdf)
+
 # The ROS face of core's ArbitrationSink: ownership services, /estop, /control_status
 # and the REP 107 /diagnostics contribution. Holds only an ArbitrationSink&.
 add_library(arbitration_server src/arbitration_server.cpp)
@@ -78,8 +86,8 @@ target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_low
 add_executable(kinova_gen3_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
-  ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
-  arbitration_server stream_server gripper_server kinova_lowlevel::kinova_lowlevel)
+  ros2_backend robot_description planned_move_servers goal_router curobo_plan_client
+  message_mapping arbitration_server stream_server gripper_server kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)
@@ -155,6 +163,9 @@ if(BUILD_TESTING)
     planned_move_servers goal_router curobo_plan_client message_mapping)
   ament_target_dependencies(goto_preset_integration_test
     rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
+  ament_add_gtest(robot_description_test test/robot_description_test.cpp)
+  target_link_libraries(robot_description_test robot_description)
+  ament_target_dependencies(robot_description_test rclcpp std_msgs)
 endif()
 
 ament_package()

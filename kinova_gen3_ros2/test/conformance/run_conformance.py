@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise every ROS control surface against a RUNNING kinova_gen3_node.
 
-    ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf ...     # or the real arm
+    ros2 launch kinova_gen3_description bringup.launch.py sim:=true mount_file:=<mount.yaml>   # or sim:=false ip:=<arm>
     python3 run_conformance.py
 
 Attaches to whatever node is up; never launches one. The arbitration mode is fixed at

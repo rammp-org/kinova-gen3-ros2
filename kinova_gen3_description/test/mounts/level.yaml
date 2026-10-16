@@ -1,0 +1,3 @@
+# Test fixture: a level arm (dojo-like). Not a default for anything.
+robot: test_level
+rpy_deg: [0.0, 0.0, 0.0]

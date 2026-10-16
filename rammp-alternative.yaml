@@ -1,7 +1,7 @@
 # The arm driver.
 #
 # The container is defined in deploy/compose.yaml, not inline: this module is
-# two containers, and the compose-file path is the only one sheppy interpolates
+# three containers (driver, arm_state_publisher, planner), and the compose-file path is the only one sheppy interpolates
 # ${VAR} on. See docs/interface.md for the actions and services this fragment
 # has no way to declare.
 id: kinova_gen3_driver
@@ -26,6 +26,8 @@ publishes:
   - /gripper_state
   - /diagnostics
 subscribes:
+  # Required: the model, latched, from arm_state_publisher (rammp-alternative.description.yaml).
+  - /arm/robot_description
   - /estop
   - /setpoint/joint_position
   - /setpoint/joint_velocity

@@ -41,10 +41,10 @@ except ImportError:
     _HAVE_ROS = False
 
 # /joint_states carries EIGHT entries -- the seven arm joints plus the gripper's
-# robotiq_85_left_knuckle_joint. The planner wants exactly the seven, so they are
+# arm_robotiq_85_left_knuckle_joint. The planner wants exactly the seven, so they are
 # picked BY NAME rather than by slicing the first seven, which only works by
 # luck of the current publish order.
-ARM_JOINTS = [f"joint_{i}" for i in range(1, 8)]
+ARM_JOINTS = [f"arm_joint_{i}" for i in range(1, 8)]
 
 # Gripper level, approach axis horizontal facing forward. Read off the arm.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Send a GoToEEPose goal (base_link target) and print feedback + result.
+"""Send a GoToEEPose goal (arm_mount target) and print feedback + result.
 
-The operator supplies a base_link tool pose. Pick a pose near the current tool
+The operator supplies an arm_mount tool pose. Pick a pose near the current tool
 pose for a safe local move; cuRobo plans collision-free from the live /joint_states.
 
 Optional constraints, one at a time — this is the single-shot companion to
@@ -46,7 +46,7 @@ def main():
         nargs=3,
         required=True,
         metavar=("X", "Y", "Z"),
-        help="target tool position in base_link (metres)",
+        help="target tool position in arm_mount (metres)",
     )
     ap.add_argument(
         "--quat",
@@ -92,7 +92,7 @@ def main():
         return 1
 
     goal = GoToEEPose.Goal()
-    goal.target.header.frame_id = "base_link"
+    goal.target.header.frame_id = "arm_mount"
     (
         goal.target.pose.position.x,
         goal.target.pose.position.y,
@@ -121,7 +121,7 @@ def main():
     rclpy.spin_until_future_complete(node, send)
     gh = send.result()
     if not gh.accepted:
-        node.get_logger().error("goal REJECTED (check frame_id == base_link)")
+        node.get_logger().error("goal REJECTED (check frame_id == arm_mount)")
         return 2
     res_future = gh.get_result_async()
     rclpy.spin_until_future_complete(node, res_future)

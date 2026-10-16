@@ -5,9 +5,10 @@ inputs and the outputs — and asserts the behaviour, rather than printing value
 human to eyeball.
 
 ```bash
-# 1. start the node yourself, with the mode you want to test
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf \
-  --ros-args -p arbitration_mode:=enforced
+# 1. start the node and its model yourself, with the mode you want to test
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true \
+  mount_file:=src/kinova_gen3_ros2/kinova_gen3_description/test/mounts/level.yaml \
+  arbitration_mode:=enforced
 
 # 2. attach
 python3 run_conformance.py                 # everything

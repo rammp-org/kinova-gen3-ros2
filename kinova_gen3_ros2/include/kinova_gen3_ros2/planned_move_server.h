@@ -104,6 +104,12 @@ protected:
   virtual void start_plan(const typename ActionT::Goal &goal,
                           CuroboPlanClient::FeedbackCb on_fb,
                           CuroboPlanClient::DoneCb on_done) = 0;
+  // A reason a SUCCESSFUL plan must not be executed (settles PLANNING_FAILED),
+  // or nullopt. Runs before the plan reaches the supervisor.
+  virtual std::optional<std::string>
+  check_plan(const CuroboPlanClient::Outcome &) {
+    return std::nullopt;
+  }
 
   CuroboPlanClient &planner_; // subclasses call plan() / plan_to_joints()
   rclcpp::Node::SharedPtr node_;
@@ -236,6 +242,13 @@ private:
     if (gh->is_canceling()) { // canceled during planning; plan raced ahead and
                               // succeeded
       settle_local(gh, kPreempted, "canceled during planning");
+      erase(id);
+      return;
+    }
+
+    if (auto why = check_plan(outcome)) {
+      RCLCPP_ERROR(node_->get_logger(), "%s", why->c_str());
+      settle_local(gh, kPlanningFailed, *why);
       erase(id);
       return;
     }

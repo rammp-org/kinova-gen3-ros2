@@ -1,8 +1,8 @@
-"""Start the driver and TF together.
+"""Start the driver and TF together, on one model.
 
-`urdf` defaults to this package's expanded model, so robot_state_publisher and the
-driver use the SAME model by default -- which is the point of the package. Point it
-elsewhere and you own keeping them consistent.
+description.launch.py renders the model from mount_file and publishes it on
+/arm/robot_description; the driver reads it from there. So robot_state_publisher and
+the driver cannot disagree -- which is the point of the package.
 """
 
 from launch import LaunchDescription
@@ -16,18 +16,13 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     share = FindPackageShare("kinova_gen3_description")
-    # The 7-DOF variant: core's Dynamics asserts nv == 7 and aborts on the
-    # articulated model. robot_state_publisher gets the articulated one.
-    default_urdf = PathJoinSubstitution([share, "urdf", "kinova_gen3_7dof.urdf"])
     sim = LaunchConfiguration("sim")
 
     description = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([share, "launch", "description.launch.py"])
         ),
-        launch_arguments={
-            "articulated": LaunchConfiguration("articulated"),
-        }.items(),
+        launch_arguments={"mount_file": LaunchConfiguration("mount_file")}.items(),
     )
 
     params = [
@@ -39,13 +34,9 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            # The model's gripper/camera/prefix are BUILD-time xacro args, expanded by
-            # CMakeLists; only the articulated/frozen choice is a launch-time one.
             DeclareLaunchArgument(
-                "articulated",
-                default_value="true",
-                description="13-DOF model with a moving gripper; needs the driver to publish "
-                "robotiq_85_left_knuckle_joint (the gripper tier does)",
+                "mount_file",
+                description="the robot's mount.yaml. Required: no default.",
             ),
             DeclareLaunchArgument(
                 "sim",
@@ -57,10 +48,8 @@ def generate_launch_description():
                 default_value="192.168.1.10",
                 description="arm IP; used only when sim:=false",
             ),
-            DeclareLaunchArgument("urdf", default_value=default_urdf),
-            # Must match the model above: Dynamics resolves this by name and throws if it is
-            # absent. The generated model drops the gen3_ prefix core still defaults to.
-            DeclareLaunchArgument("ee_frame", default_value="end_effector_link"),
+            # Dynamics resolves this by name and throws if it is absent from the model.
+            DeclareLaunchArgument("ee_frame", default_value="arm_end_effector_link"),
             DeclareLaunchArgument(
                 "arbitration_mode",
                 default_value="disabled",
@@ -76,13 +65,7 @@ def generate_launch_description():
                 executable="kinova_gen3_node",
                 output="screen",
                 condition=IfCondition(sim),
-                arguments=[
-                    "--sim",
-                    "--urdf",
-                    LaunchConfiguration("urdf"),
-                    "--ee-frame",
-                    LaunchConfiguration("ee_frame"),
-                ],
+                arguments=["--sim", "--ee-frame", LaunchConfiguration("ee_frame")],
                 parameters=params,
             ),
             Node(
@@ -93,8 +76,6 @@ def generate_launch_description():
                 arguments=[
                     "--ip",
                     LaunchConfiguration("ip"),
-                    "--urdf",
-                    LaunchConfiguration("urdf"),
                     "--ee-frame",
                     LaunchConfiguration("ee_frame"),
                 ],

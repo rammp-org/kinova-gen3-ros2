@@ -39,8 +39,8 @@ Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node,
   // tens of Hz; serializing them at the full pump rate buys nothing. 2 halves
   // the 100 Hz pump to 50 Hz. Diagnostics still refresh every tick -- only the
   // topic publishes are decimated.
-  state_divisor_ = static_cast<int>(
-      node_->declare_parameter("state_publish_divisor", 2));
+  state_divisor_ =
+      static_cast<int>(node_->declare_parameter("state_publish_divisor", 2));
   if (state_divisor_ < 1)
     state_divisor_ = 1;
 

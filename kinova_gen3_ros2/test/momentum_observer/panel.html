@@ -28,10 +28,12 @@
   <header class="ax-mast">
     <div>
       <h1>Momentum observer</h1>
-      <div class="ax-meta"><span id="host"></span><span id="live" class="ax-status">Idle</span><span id="mock" style="display:none">mock</span></div>
+      <div class="ax-meta"><span id="host"></span><span id="live" class="ax-status">Idle</span><span id="mock" style="display:none">mock</span><span id="src"></span></div>
     </div>
     <div style="display:flex;gap:8px">
       <button class="ax-btn" id="mode">Light mode</button>
+      <button class="ax-btn" id="armRec">Arm: recorder image</button>
+      <button class="ax-btn" id="armSheppy">Arm: sheppy</button>
       <button class="ax-btn" id="armRestart">Restart arm node</button>
     </div>
   </header>
@@ -126,6 +128,14 @@ guard($('analyze'), async () => {
   await api('/api/analyze', { name, gain: +$('gain').value });
   showReport(name, true);
 }, 'Analyzing');
+guard($('armRec'), async () => {
+  if (!confirm('Stop sheppy\'s arm container and start the recorder image? The arm holds position through the swap.')) return;
+  await api('/api/arm/recorder', { on: true });
+}, 'Swapping');
+guard($('armSheppy'), async () => {
+  if (!confirm('Stop the recorder container and hand the arm back to sheppy?')) return;
+  await api('/api/arm/recorder', { on: false });
+}, 'Swapping');
 guard($('armRestart'), async () => {
   if (!confirm('Restart the arm node with sheppy?')) return;
   await api('/api/arm/restart');
@@ -151,6 +161,7 @@ async function poll() {
     $('live').className = 'ax-status' + (st.recording ? ' live' : '');
     $('live').textContent = st.recording ? 'Recording' : (st.tour_running ? 'Arm moving' : 'Idle');
     $('mock').style.display = st.mock ? '' : 'none';
+    $('src').textContent = st.source === 'driver' ? '1 kHz driver recorder' : '/joint_states ~100 Hz';
     $('phase').textContent = st.sequence ? st.sequence.toUpperCase() : '';
     $('tap').classList.toggle('primary', st.recording);
     $('log').textContent = (st.tour_log || []).join('\n');

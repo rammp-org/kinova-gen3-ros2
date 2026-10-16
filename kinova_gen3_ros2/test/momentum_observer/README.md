@@ -77,6 +77,25 @@ the same tunnel or LAN (`--bind 0.0.0.0`) works as the tap clicker. The
 step-by-step panel exposes record, tour, and analyze separately. `--mock` runs
 the page with synthetic data and no ROS.
 
+## 1 kHz from the driver
+
+`/joint_states` is fed by the Supervisor's non-RT pump at about 100 Hz, so the
+topic cannot go faster. Branch `feat/feedback-recorder` (v1.1.0 plus one
+decorator in the RT loop) records every feedback frame to a CSV when two node
+parameters are set:
+
+```sh
+ros2 param set /kinova_gen3_node feedback_record_path /runs/run5.csv
+ros2 param set /kinova_gen3_node feedback_record true     # ... false to stop
+```
+
+`arm_recorder.sh start` stops sheppy's arm container and runs that image as
+`momentum-arm` with the manifest's flags plus `runs/` mounted at `/runs`;
+`arm_recorder.sh stop` hands the arm back with `sheppy restart arm`. Nothing in
+rammp-deployments changes. The panel has the same two buttons, and while the
+recorder container is up its Record and TAP buttons use the driver path: taps
+go to `<run>.markers` keyed by wall time and the analyzer merges them.
+
 No arm handy? `synthetic.py` writes a `run.csv` from the model with two injected
 elbow pushes, and `analyze.py` runs on it the same way. `test_observer.py` checks
 the observer recovers an injected push in motion; set `KINOVA_URDF` to a URDF

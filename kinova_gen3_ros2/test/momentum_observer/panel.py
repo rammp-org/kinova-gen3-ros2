@@ -27,6 +27,8 @@ import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(HERE, "runs")
+ARM_SH = os.path.join(HERE, "arm_recorder.sh")
+NODE = "/kinova_gen3_node"
 SAFE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
@@ -48,10 +50,14 @@ class State:
         self.last_report = None
         self.error = None
         self.rows_at_start = 0
+        self.source = "topic"  # "driver" while the recorder container is up
+        self._driver_rec = False
 
     def snapshot(self):
         with self.lock:
-            rec = self.recorder is not None and self.recorder.poll() is None
+            rec = (self.recorder is not None and self.recorder.poll() is None) or (
+                self.source == "driver" and self.run is not None and self._driver_rec
+            )
             tour = self.tour is not None and self.tour.poll() is None
             rows = 0
             if self.run:
@@ -72,6 +78,7 @@ class State:
                 "last_report": self.last_report,
                 "error": self.error,
                 "mock": self.mock,
+                "source": self.source,
                 "runs": sorted(f[:-5] for f in os.listdir(RUNS) if f.endswith(".html"))
                 if os.path.isdir(RUNS)
                 else [],
@@ -96,6 +103,19 @@ def start_record(name):
         marker = os.path.join(RUNS, name + ".TAP")
         if os.path.exists(marker):
             os.remove(marker)
+        if S.source == "driver":
+            # 1 kHz from inside the node: two parameter sets. The node writes
+            # /runs/<name>.csv, which is this runs/ dir through the volume.
+            _ros(["param", "set", NODE, "feedback_record_path", f"/runs/{name}.csv"])
+            _ros(["param", "set", NODE, "feedback_record", "true"])
+            S._driver_rec = True
+            S.recorder = None
+            S.run = name
+            S.markers = 0
+            S.error = None
+            with open(os.path.join(RUNS, name + ".markers"), "w"):
+                pass
+            return
         if S.mock:
             cmd = env_python() + [
                 os.path.join(HERE, "synthetic.py"),
@@ -130,8 +150,29 @@ def _q(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def _ros(args, timeout=15):
+    """ros2 <args> under the sourced env; raises with the tool's own message on failure."""
+    r = subprocess.run(
+        ["ros2", *args], capture_output=True, text=True, timeout=timeout, check=False
+    )
+    if r.returncode != 0 or "Setting parameter failed" in r.stdout:
+        raise RuntimeError((r.stdout + r.stderr).strip().splitlines()[-1])
+    return r.stdout
+
+
+def _wall():
+    return time.time()
+
+
 def stop_record():
     with S.lock:
+        if S.source == "driver" and S.run is not None:
+            try:
+                _ros(["param", "set", NODE, "feedback_record", "false"])
+            except Exception as e:  # noqa: BLE001
+                S.error = str(e)
+            S._driver_rec = False
+            return
         if S.recorder is None:
             return
         if S.recorder.poll() is None:
@@ -148,8 +189,12 @@ def tap(kind="tap"):
     with S.lock:
         if S.run is None:
             raise RuntimeError("not recording")
-        with open(os.path.join(RUNS, S.run + ".TAP"), "w") as f:
-            f.write(kind + "\n")
+        if S.source == "driver":
+            with open(os.path.join(RUNS, S.run + ".markers"), "a") as f:
+                f.write(f"{_wall():.6f} {kind}\n")
+        else:
+            with open(os.path.join(RUNS, S.run + ".TAP"), "w") as f:
+                f.write(kind + "\n")
         if kind == "tap":
             S.markers += 1
 
@@ -273,6 +318,20 @@ def arm_status_loop():
                 S.arm = "mock"
         elif os.path.isdir(dep):
             try:
+                which = subprocess.run(
+                    [ARM_SH, "status"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                ).stdout.strip()
+                with S.lock:
+                    S.source = "driver" if which == "recorder" else "topic"
+                if which == "recorder":
+                    with S.lock:
+                        S.arm = "recorder image"
+                    time.sleep(5)
+                    continue
                 r = subprocess.run(
                     ["sheppy", "status"],
                     check=False,
@@ -401,6 +460,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     ),
                     daemon=True,
                 ).start()
+            elif path == "/api/arm/recorder":
+                r = subprocess.run(
+                    [ARM_SH, "start" if body.get("on", True) else "stop"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    check=False,
+                )
+                if r.returncode != 0:
+                    raise RuntimeError((r.stdout + r.stderr).strip().splitlines()[-1])
             elif path == "/api/arm/restart":
                 dep = os.path.expanduser("~/rammp-deployments/december_2026")
                 subprocess.Popen(["sheppy", "restart", "arm"], cwd=dep)

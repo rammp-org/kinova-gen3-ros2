@@ -32,6 +32,18 @@ def load_csv(path):
     qd = np.array([[float(r[f"qd{i}"]) for i in range(1, 8)] for r in rows])
     tau = np.array([[float(r[f"tau{i}"]) for i in range(1, 8)] for r in rows])
     marker = np.array([int(float(r.get("marker", 0) or 0)) for r in rows])
+    # The in-driver recorder (1 kHz) cannot see taps; the panel writes them to a
+    # sidecar "<stem>.markers" as "<unix seconds> tap|phase", merged here by t_wall.
+    sidecar = os.path.splitext(path)[0] + ".markers"
+    if os.path.exists(sidecar) and "t_wall" in rows[0]:
+        wall = np.array([float(r["t_wall"]) for r in rows])
+        with open(sidecar) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                k = int(np.argmin(np.abs(wall - float(parts[0]))))
+                marker[k] = 2 if parts[1] == "phase" else 1
     phase = t[marker == 2]
     return t, q, qd, tau, t[marker == 1], (float(phase[0]) if len(phase) else None)
 

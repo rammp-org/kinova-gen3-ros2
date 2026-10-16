@@ -8,6 +8,7 @@
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
+#include "kinova_gen3_ros2/feedback_recorder.h"
 #include "kinova_gen3_ros2/ros2_backend.h"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
@@ -135,6 +136,10 @@ int main(int argc, char **argv) {
   // FeedbackTap.
   GripperController grip(*base);
   FeedbackTap tap(grip, snap);
+  // 1 kHz feedback to CSV on demand (parameters feedback_record_path /
+  // feedback_record below). Outermost decorator: it sees exactly what the RT
+  // loop sees, and is a no-op until armed.
+  kinova_gen3_ros2::FeedbackRecorder rec(tap);
 
   // Seed the reference rate limit from the URDF instead of taking
   // JointPositionParams' 0.5 rad/s default. That default is a conservative
@@ -166,9 +171,47 @@ int main(int argc, char **argv) {
   // than a guess.
   JointVelocityMode vel(dyn);
   SampleRing ring(1u << 16);
-  RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
+  RtExecutor exec(rec, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
   auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
+
+  // Feedback recorder control, parameters only (no new interface deps):
+  //   ros2 param set /kinova_gen3_node feedback_record_path /runs/run5.csv
+  //   ros2 param set /kinova_gen3_node feedback_record true    # start
+  //   ros2 param set /kinova_gen3_node feedback_record false   # stop
+  // The path is read when recording turns on. A path that cannot be opened
+  // rejects the parameter change, so the caller sees the failure.
+  node->declare_parameter<std::string>("feedback_record_path",
+                                       "/runs/feedback.csv");
+  node->declare_parameter<bool>("feedback_record", false);
+  auto rec_cb = node->add_on_set_parameters_callback(
+      [&rec, &node](const std::vector<rclcpp::Parameter> &params) {
+        rcl_interfaces::msg::SetParametersResult res;
+        res.successful = true;
+        for (const auto &p : params) {
+          if (p.get_name() != "feedback_record")
+            continue;
+          if (p.as_bool()) {
+            const auto path =
+                node->get_parameter("feedback_record_path").as_string();
+            if (!rec.start(path)) {
+              res.successful = false;
+              res.reason = "cannot open " + path;
+            } else {
+              RCLCPP_INFO(node->get_logger(), "feedback recorder: %s",
+                          path.c_str());
+            }
+          } else {
+            const auto rows = rec.stop();
+            RCLCPP_INFO(node->get_logger(),
+                        "feedback recorder: %llu rows, %llu dropped -> %s",
+                        static_cast<unsigned long long>(rows),
+                        static_cast<unsigned long long>(rec.dropped()),
+                        rec.path().c_str());
+          }
+        }
+        return res;
+      });
   auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node);
 
   // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with
@@ -328,6 +371,7 @@ int main(int argc, char **argv) {
   exec.run(g_stop); // RT loop on the main thread; returns when g_stop set
 
   sup.stop();
+  rec.stop();
   base->safe_shutdown();
   ex.cancel();
   ros_spin.join();

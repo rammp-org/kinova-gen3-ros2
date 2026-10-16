@@ -32,6 +32,20 @@ def load_csv(path):
     return t, q, qd, tau, t[marker == 1]
 
 
+def detect_tau_sign(model, q, qd, tau):
+    """+1 if tau is in the command convention (~ +g at rest), -1 if reaction-signed.
+
+    Core v1.2.0 forwards KORTEX's raw torque, which reads ~ -g(q) at rest; core dev
+    (the EE-wrench change, #74) flips it at the transport. The two differ only in
+    sign, and a still sample tells them apart: the dot product of tau and g(q).
+    """
+    still = np.abs(qd).max(axis=1) < 0.02
+    if still.sum() < 10:
+        still = np.ones(len(q), bool)
+    dots = [float(tau[k] @ model.gravity(q[k])) for k in np.flatnonzero(still)]
+    return 1.0 if np.median(dots) >= 0 else -1.0
+
+
 def windows(t, qd, taps):
     moving = np.abs(qd).max(axis=1) > MOVING_RAD_S
     tap = np.zeros(len(t), bool)
@@ -127,9 +141,9 @@ def main():
     ap.add_argument(
         "--tau-sign",
         type=float,
-        default=1.0,
-        choices=[1.0, -1.0],
-        help="flip once if the arm's torque convention proves inverted",
+        default=0.0,
+        choices=[0.0, 1.0, -1.0],
+        help="torque sign convention; 0 (default) detects it from the still samples",
     )
     ap.add_argument("--light", action="store_true", help="light theme for slides")
     args = ap.parse_args()
@@ -140,7 +154,16 @@ def main():
 
     model = ArmModel(args.urdf)
     t, q, qd, tau, taps = load_csv(args.csv)
-    tau = tau * args.tau_sign
+    sign = args.tau_sign or detect_tau_sign(model, q, qd, tau)
+    print(
+        f"torque sign {sign:+.0f}: "
+        + (
+            "command convention (~ +g at rest)"
+            if sign > 0
+            else "reaction-signed (core v1.2.0 raw KORTEX)"
+        )
+    )
+    tau = tau * sign
     rate = 1.0 / np.median(np.diff(t))
     qs = np.array([quasi_static_residual(model, q[k], tau[k]) for k in range(len(t))])
     ob = run_observer(model, t, q, qd, tau, gain=args.gain)

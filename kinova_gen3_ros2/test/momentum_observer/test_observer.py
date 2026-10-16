@@ -55,3 +55,14 @@ def test_both_agree_at_rest():
     qs = quasi_static_residual(model, q, tau)
     assert np.allclose(r[-1], qs, atol=0.05)
     assert abs(qs[3] - 2.0) < 1e-9
+
+
+def test_sign_detection_from_still_samples():
+    from analyze import detect_tau_sign
+
+    model = ArmModel(URDF)
+    q = np.array([0.0, 0.26, 3.14, -2.27, 0.0, 0.96, 1.57])
+    n = 40
+    g = np.tile(model.gravity(q), (n, 1))
+    assert detect_tau_sign(model, np.tile(q, (n, 1)), np.zeros((n, 7)), g) == 1.0
+    assert detect_tau_sign(model, np.tile(q, (n, 1)), np.zeros((n, 7)), -g) == -1.0

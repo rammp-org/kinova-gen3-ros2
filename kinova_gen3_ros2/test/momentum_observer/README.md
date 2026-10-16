@@ -68,7 +68,9 @@ pose-dependent bias to both; the ratio is the number to compare.
 - `/joint_states` is decimated to about 50 Hz. The observer gain defaults to
   10 rad/s, which is as fast as that rate allows. A hand tap shows; a hard impact
   is smeared. The 1 kHz version belongs in core's RT loop, next to `FeedbackTap`.
-- If the torque convention on the arm turns out inverted, pass `--tau-sign -1`
-  once rather than editing the model.
+- The sign of the measured torque depends on the core version. Core v1.2.0,
+  which this branch pins, forwards KORTEX's raw torque, about -g(q) at rest; core
+  `dev` flips it at the transport. `analyze.py` detects the sign from the still
+  samples and prints which it found. `--tau-sign` overrides it.
 - Joint 1 carries no gravity torque on a level mount, so its residual is
   mostly sensor offset.

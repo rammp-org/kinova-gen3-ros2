@@ -50,6 +50,16 @@ description package's tests already use Pinocchio, so the container has it.
    the observer. `run.md` is a table of motion RMS (the signal while the arm
    moves with no tap), tap peak, and their ratio, for both estimators.
 
+For a page instead of a PNG:
+
+```sh
+python3 report.py --csv run.csv --urdf /tmp/arm.urdf --out run.html --notes notes.md
+```
+
+`run.html` is self-contained: tiles, the three traces with a crosshair tooltip,
+the summary and per-tap tables, and a notes column from `--notes`. The style
+files under `web/` are vendored from alex-style-guide.
+
 No arm handy? `synthetic.py` writes a `run.csv` from the model with two injected
 elbow pushes, and `analyze.py` runs on it the same way. `test_observer.py` checks
 the observer recovers an injected push in motion; set `KINOVA_URDF` to a URDF

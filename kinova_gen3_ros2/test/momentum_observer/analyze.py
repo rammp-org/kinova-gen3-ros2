@@ -174,6 +174,42 @@ def plot(path, t, qd, qs, ob, taps, joints, light):
     ps.save(fig, path)
 
 
+def compute(
+    csv_path, urdf, gain=20.0, tau_sign=0.0, before=TAP_BEFORE_S, after=TAP_AFTER_S
+):
+    """Everything the plot, the table and the HTML report share. One dict, no plotting."""
+    model = ArmModel(urdf)
+    t, q, qd, tau, taps = load_csv(csv_path)
+    sign = tau_sign or detect_tau_sign(model, q, qd, tau)
+    tau = tau * sign
+    rate = 1.0 / np.median(np.diff(t))
+    qs = np.array([quasi_static_residual(model, q[k], tau[k]) for k in range(len(t))])
+    ob = run_observer(model, t, q, qd, tau, gain=gain)
+    qs_off, ob_off = rest_offset(t, qd, qs), rest_offset(t, qd, ob)
+    qs, ob = qs - qs_off, ob - ob_off
+    moving, tap = windows(t, qd, taps, before, after)
+    return {
+        "csv": csv_path,
+        "urdf": urdf,
+        "gain": gain,
+        "sign": sign,
+        "rate": rate,
+        "t": t,
+        "q": q,
+        "qd": qd,
+        "tau": tau,
+        "taps": taps,
+        "qs": qs,
+        "ob": ob,
+        "qs_off": qs_off,
+        "ob_off": ob_off,
+        "moving": moving,
+        "tap": tap,
+        "before": before,
+        "after": after,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--csv", required=True)
@@ -209,43 +245,35 @@ def main():
     if len(joints) > 6 or any(j < 0 or j > 6 for j in joints):
         sys.exit("--joints: up to six values in 1..7")
 
-    model = ArmModel(args.urdf)
-    t, q, qd, tau, taps = load_csv(args.csv)
-    sign = args.tau_sign or detect_tau_sign(model, q, qd, tau)
+    r = compute(
+        args.csv, args.urdf, args.gain, args.tau_sign, args.tap_before, args.tap_after
+    )
     print(
-        f"torque sign {sign:+.0f}: "
+        f"torque sign {r['sign']:+.0f}: "
         + (
             "command convention (~ +g at rest)"
-            if sign > 0
+            if r["sign"] > 0
             else "reaction-signed (core v1.2.0 raw KORTEX)"
         )
     )
-    tau = tau * sign
-    rate = 1.0 / np.median(np.diff(t))
-    qs = np.array([quasi_static_residual(model, q[k], tau[k]) for k in range(len(t))])
-    ob = run_observer(model, t, q, qd, tau, gain=args.gain)
-    qs_off, ob_off = rest_offset(t, qd, qs), rest_offset(t, qd, ob)
-    qs, ob = qs - qs_off, ob - ob_off
-    moving, tap = windows(t, qd, taps, args.tap_before, args.tap_after)
-
     stem = os.path.splitext(args.out)[0]
-    qs_stats = summarize("core", qs, moving, tap, joints)
-    ob_stats = summarize("observer", ob, moving, tap, joints)
+    qs_stats = summarize("core", r["qs"], r["moving"], r["tap"], joints)
+    ob_stats = summarize("observer", r["ob"], r["moving"], r["tap"], joints)
     write_summary(
         stem + ".md",
         args.csv,
         args.gain,
-        taps,
+        r["taps"],
         qs_stats,
         ob_stats,
         joints,
-        rate,
+        r["rate"],
         args.tap_before,
         args.tap_after,
-        qs_off,
-        ob_off,
+        r["qs_off"],
+        r["ob_off"],
     )
-    plot(args.out, t, qd, qs, ob, taps, joints, args.light)
+    plot(args.out, r["t"], r["qd"], r["qs"], r["ob"], r["taps"], joints, args.light)
     print(f"wrote {args.out} and {stem}.md")
 
 

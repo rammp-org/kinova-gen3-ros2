@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Compare the generated model against the hand-edited one it replaces.
+"""Compare the rendered model against the hand-edited one it replaced, and pin the mount.
 
 Gravity compensation, cuRobo, the in-loop IK and the DLS twist solve all read these
-numbers, and RViz looking correct proves nothing about any of them. So the swap is
+numbers, and RViz looking correct proves nothing about any of them. So the model is
 gated here rather than by eye.
 
-Two differences are KNOWN and deliberate; everything else must match exactly.
+Two differences from the hand-edited model are KNOWN and deliberate; everything else
+about the arm must match exactly.
 
-  1. The gripper articulates. The old model froze every Robotiq joint to type="fixed",
-     so Pinocchio lumped the whole gripper into joint_7 and the model had 7 movable
-     joints. The generated one has 13. That is the point of the change.
+  1. The gripper articulates (13 DOF). The driver reduces it to the seven arm joints
+     itself, locking the rest at q = 0 -- reproduced here with buildReducedModel.
 
   2. 0.436 kg is missing at the wrist -- a RealSense D415 (0.072 kg) and a 0.5 kg
      custom camera mount that the c3pzero author added and upstream cannot know about.
      Deferred by decision, and PINNED by test_known_wrist_mass_delta below so it cannot
      drift or be forgotten: add the camera back and that test fails, telling you to.
-
-Everything about the arm proper -- link masses, kinematics -- must be identical, and is.
 """
 
 import os
@@ -24,49 +22,62 @@ import os
 import numpy as np
 import pinocchio as pin
 import pytest
+from kinova_gen3_render import embodiment_line, load_mount, render
 
-NEW = os.environ["KINOVA_NEW_URDF"]  # articulated gripper, 13 DOF, for RViz/TF
-SEVEN = os.environ["KINOVA_7DOF_URDF"]  # gripper frozen, 7 DOF, for the driver
+HERE = os.path.dirname(os.path.abspath(__file__))
+LEVEL = os.path.join(HERE, "mounts", "level.yaml")
+TILTED = os.path.join(HERE, "mounts", "tilted.yaml")
 OLD = os.environ["KINOVA_OLD_URDF"]
-OLD_EE, NEW_EE = "gen3_end_effector_link", "end_effector_link"
-ARM = [f"joint_{i}" for i in range(1, 8)]
+OLD_EE, NEW_EE = "gen3_end_effector_link", "arm_end_effector_link"
+OLD_ARM = [f"gen3_joint_{i}" for i in range(1, 8)]
+ARM = [f"arm_joint_{i}" for i in range(1, 8)]
+GRIPPER_JOINT = "arm_robotiq_85_left_knuckle_joint"
 TOL = 1e-9
-# The wrist camera + mount the generated model omits. Pinned deliberately: see the
-# module docstring.
 KNOWN_WRIST_MASS_DELTA_KG = 0.436
 N_SAMPLES = 500
 
-
-def _load(path):
-    model = pin.buildModelFromUrdf(path)
-    return model, model.createData()
-
-
-@pytest.fixture(scope="module")
-def models():
-    """Compare the old model against the 7-DOF variant, not the articulated one.
-
-    Both have the gripper lumped into the wrist, so this is a like-for-like comparison
-    of the thing the DRIVER loads. The articulated model is checked separately for DOF
-    only -- Pinocchio would not accept a shared q vector across 7 and 13 DOF anyway."""
-    return _load(OLD), _load(SEVEN)
+# cuRobo v0.7.8, src/curobo/content/assets/robot/kinova/kinova_gen3_7dof.urdf, verbatim:
+#   <joint name="end_effector" type="fixed">
+#     <origin rpy="3.14159265358979 1.09937075168372E-32 0" xyz="0 0 -0.0615250000000001"/>
+#     <parent link="bracelet_link"/> <child link="end_effector_link"/>
+#   <joint name="tool_frame_joint" type="fixed">
+#     <origin rpy="0 0 0" xyz="0 0 0.120"/>
+#     <parent link="end_effector_link"/> <child link="tool_frame"/>
+CUROBO_BRACELET_TO_EE = pin.SE3(
+    pin.rpy.rpyToMatrix(3.14159265358979, 1.09937075168372e-32, 0.0),
+    np.array([0.0, 0.0, -0.0615250000000001]),
+)
+CUROBO_EE_TO_TOOL = pin.SE3(np.eye(3), np.array([0.0, 0.0, 0.120]))
 
 
-def _set_arm(model, q, angles, prefix=""):
-    """Write the seven arm angles into q by JOINT NAME.
+def _model(mount_file):
+    xml, _ = render(mount_file)
+    return pin.buildModelFromXML(xml)
 
-    Not by slicing: the two models have different nq (11 vs 21) and different joint
-    counts, so any assumption about layout would compare different joints to each other
-    and quietly report agreement.
-    """
-    for name, a in zip(ARM, angles):
-        jid = model.getJointId(prefix + name)
-        idx = model.joints[jid].idx_q
-        if model.joints[jid].nq == 2:  # continuous joint, packed (cos, sin)
-            q[idx], q[idx + 1] = np.cos(a), np.sin(a)
+
+def _reduce_to_arm(model):
+    """What the driver does: lock every joint that is not an arm joint at q = 0."""
+    lock = [model.getJointId(n) for n in model.names[1:] if n not in ARM]
+    return pin.buildReducedModel(model, lock, pin.neutral(model))
+
+
+def _set_arm(model, angles, names):
+    """Write the seven arm angles into q BY JOINT NAME (continuous joints are packed
+    (cos, sin), so slicing would compare different joints and report agreement)."""
+    q = pin.neutral(model)
+    for name, a in zip(names, angles):
+        j = model.joints[model.getJointId(name)]
+        if j.nq == 2:
+            q[j.idx_q], q[j.idx_q + 1] = np.cos(a), np.sin(a)
         else:
-            q[idx] = a
+            q[j.idx_q] = a
     return q
+
+
+def _placement(model, q, frame):
+    data = model.createData()
+    pin.framesForwardKinematics(model, data, q)
+    return data.oMf[model.getFrameId(frame)]
 
 
 def _arm_configs(n, seed=0):
@@ -74,47 +85,63 @@ def _arm_configs(n, seed=0):
     return [rng.uniform(-np.pi, np.pi, len(ARM)) for _ in range(n)]
 
 
-def test_arm_link_masses_are_identical(models):
-    """The invariant that matters: the arm proper is the same robot."""
-    (old_m, _), (new_m, _) = models
-    for name in ARM[:-1]:  # joint_7 carries the wrist delta; see below
-        o = old_m.inertias[old_m.getJointId("gen3_" + name)].mass
-        n = new_m.inertias[new_m.getJointId(name)].mass
-        assert abs(o - n) < TOL, f"{name} body mass {o:.6f} != {n:.6f} kg"
+@pytest.fixture(scope="module")
+def level():
+    return _model(LEVEL)
 
 
-def test_forward_kinematics_matches(models):
-    """Mass differences do not move frames. If FK disagrees, the two models are not the
-    same kinematic chain and nothing else in this file matters."""
-    (old_m, old_d), (new_m, new_d) = models
-    old_id, new_id = old_m.getFrameId(OLD_EE), new_m.getFrameId(NEW_EE)
+@pytest.fixture(scope="module")
+def tilted():
+    return _model(TILTED)
+
+
+@pytest.fixture(scope="module")
+def old():
+    return pin.buildModelFromUrdf(OLD)
+
+
+def test_root_is_arm_mount_and_everything_is_prefixed(level):
+    assert level.frames[1].name == "arm_mount", level.frames[1].name
+    unprefixed = [f.name for f in level.frames[1:] if not f.name.startswith("arm_")]
+    assert unprefixed == [], f"frames without the arm_ prefix: {unprefixed}"
+
+
+def test_articulated_with_the_gripper_joint(level):
+    assert level.nv == 13, f"expected the 13-DOF articulated model, got nv={level.nv}"
+    assert level.existJointName(GRIPPER_JOINT)
+
+
+def test_no_ros2_control_block():
+    xml, _ = render(LEVEL)
+    assert "ros2_control" not in xml
+
+
+def test_reduced_model_is_seven_dof_in_chain_order(level):
+    seven = _reduce_to_arm(level)
+    assert seven.nv == 7
+    assert list(seven.names[1:]) == ARM
+
+
+def test_arm_link_masses_are_identical(level, old):
+    for o, n in zip(OLD_ARM[:-1], ARM[:-1]):  # joint_7 carries the wrist delta
+        mo = old.inertias[old.getJointId(o)].mass
+        mn = level.inertias[level.getJointId(n)].mass
+        assert abs(mo - mn) < TOL, f"{n} body mass {mo:.6f} != {mn:.6f} kg"
+
+
+def test_level_mount_forward_kinematics_matches_old_model(level, old):
+    """Identity mount: arm_mount IS arm_base_link, so every number is unchanged."""
+    seven = _reduce_to_arm(level)
     worst = 0.0
-    for angles in _arm_configs(N_SAMPLES):
-        q_old = _set_arm(old_m, pin.neutral(old_m), angles, prefix="gen3_")
-        q_new = _set_arm(new_m, pin.neutral(new_m), angles)
-        pin.forwardKinematics(old_m, old_d, q_old)
-        pin.updateFramePlacement(old_m, old_d, old_id)
-        pin.forwardKinematics(new_m, new_d, q_new)
-        pin.updateFramePlacement(new_m, new_d, new_id)
-        worst = max(
-            worst,
-            float(
-                np.linalg.norm(
-                    old_d.oMf[old_id].translation - new_d.oMf[new_id].translation
-                )
-            ),
-        )
+    for a in _arm_configs(N_SAMPLES):
+        po = _placement(old, _set_arm(old, a, OLD_ARM), OLD_EE)
+        pn = _placement(seven, _set_arm(seven, a, ARM), NEW_EE)
+        worst = max(worst, float(np.linalg.norm(po.translation - pn.translation)))
     assert worst < TOL, f"EE position differs by up to {worst:.6e} m"
 
 
-def test_known_wrist_mass_delta(models):
-    """Pin the deferred camera, so it cannot be silently forgotten.
-
-    If someone adds the wrist camera and mount back to the xacro, this fails and says
-    so -- which is the point. Update the constant then, do not widen it.
-    """
-    (old_m, _), (new_m, _) = models
-    delta = sum(i.mass for i in old_m.inertias) - sum(i.mass for i in new_m.inertias)
+def test_known_wrist_mass_delta(level, old):
+    delta = sum(i.mass for i in old.inertias) - sum(i.mass for i in level.inertias)
     assert abs(delta - KNOWN_WRIST_MASS_DELTA_KG) < 1e-3, (
         f"total-mass delta is {delta:.6f} kg, expected {KNOWN_WRIST_MASS_DELTA_KG:.6f} "
         "(the omitted wrist camera + mount). If you added the camera back, set "
@@ -122,32 +149,61 @@ def test_known_wrist_mass_delta(models):
     )
 
 
-def test_driver_model_is_seven_dof(models):
-    """Core's Dynamics asserts nv == kNumJoints == 7 and aborts otherwise:
-        Dynamics: URDF nv=13 != kNumJoints=7 (wrong URDF for this build)
-    JointVec is a fixed-size 7-vector, so this is not negotiable."""
-    (old_m, _), (seven_m, _) = models
-    assert old_m.nv == 7, f"old model unexpectedly has {old_m.nv} DOF"
+def test_tool_frame_matches_curobo(level):
+    """cuRobo positions every PlanToPose goal at tool_frame; ours must be the same
+    point, measured from the bracelet (the last moving body), so a difference in
+    either fixed joint shows up."""
+    q = pin.neutral(level)
+    ours = _placement(level, q, "arm_bracelet_link").inverse() * _placement(
+        level, q, "arm_tool_frame"
+    )
+    theirs = CUROBO_BRACELET_TO_EE * CUROBO_EE_TO_TOOL
+    assert np.allclose(ours.translation, theirs.translation, atol=1e-9)
+    assert np.allclose(ours.rotation, theirs.rotation, atol=1e-9)
+
+
+def test_tilted_mount_leans_arm_base_forward(tilted):
+    """+30 deg about Y: arm_base_link's +Z points along (0.5, 0, 0.866) in arm_mount."""
+    z = _placement(tilted, pin.neutral(tilted), "arm_base_link").rotation[:, 2]
+    assert np.allclose(z, [0.5, 0.0, np.sqrt(3) / 2], atol=1e-12), z
+
+
+def test_tilted_forward_kinematics_is_the_level_one_rotated(level, tilted):
+    """The mount only rotates: FK in arm_mount = R_y(30 deg) * FK of the level arm."""
+    R = pin.rpy.rpyToMatrix(0.0, np.radians(30.0), 0.0)
+    for a in _arm_configs(50):
+        pl = _placement(level, _set_arm(level, a, ARM), "arm_tool_frame")
+        pt = _placement(tilted, _set_arm(tilted, a, ARM), "arm_tool_frame")
+        assert np.allclose(pt.translation, R @ pl.translation, atol=1e-12)
+        assert np.allclose(pt.rotation, R @ pl.rotation, atol=1e-12)
+
+
+def test_embodiment_line_names_the_robot_and_the_rotation():
     assert (
-        seven_m.nv == 7
-    ), f"the driver's model has {seven_m.nv} DOF; core's Dynamics will refuse it"
+        embodiment_line(load_mount(TILTED))
+        == "embodiment: test_tilted (mount rpy_deg [0.0, 30.0, 0.0])"
+    )
 
 
-def test_rviz_model_is_articulated():
-    """...while robot_state_publisher needs the fingers to MOVE, which is the whole
-    reason two models are generated from one xacro."""
-    art = pin.buildModelFromUrdf(NEW)
-    assert art.nv > 7, "gripper is frozen in the articulated model; RViz cannot move it"
-    assert art.existJointName(
-        "robotiq_85_left_knuckle_joint"
-    ), "the actuated gripper joint is missing"
+@pytest.mark.parametrize(
+    "body, why",
+    [
+        ("robot: x\n", "missing keys ['rpy_deg']"),
+        ("robot: x\nrpy_deg: [0, 30, 0]\nxyz: [0, 0, 1]\n", "unknown keys ['xyz']"),
+        ("robot: x\nrpy_deg: [0, 30]\n", "rpy_deg must be three finite numbers"),
+        ("robot: x\nrpy_deg: [0, .nan, 0]\n", "rpy_deg must be three finite numbers"),
+        ("robot: x\nrpy_deg: [0, '30', 0]\n", "rpy_deg must be three finite numbers"),
+        ("- 1\n- 2\n", "expected a mapping"),
+    ],
+)
+def test_a_bad_mount_file_is_refused_by_name(tmp_path, body, why):
+    p = tmp_path / "mount.yaml"
+    p.write_text(body)
+    with pytest.raises(ValueError, match=str(p)) as e:
+        render(str(p))
+    assert why in str(e.value)
 
 
-def test_freezing_the_gripper_preserves_its_mass():
-    """Freezing must drop DEGREES OF FREEDOM, not mass. Pinocchio lumps a fixed joint's
-    body into its parent, so the wrist still carries the gripper -- which is what
-    gravity compensation depends on."""
-    art = pin.buildModelFromUrdf(NEW)
-    seven = pin.buildModelFromUrdf(SEVEN)
-    a, s = sum(i.mass for i in art.inertias), sum(i.mass for i in seven.inertias)
-    assert abs(a - s) < TOL, f"freezing changed total mass: {a:.6f} vs {s:.6f} kg"
+def test_a_missing_mount_file_is_an_error(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        render(str(tmp_path / "nope.yaml"))

@@ -8,39 +8,63 @@
   robotiq_description in Humble). Composing load_arm and robotiq_gripper directly
   sidesteps the version skew and costs nothing; the shim adds no geometry.
 
-  Joints come out UNPREFIXED: joint_1 .. joint_7, which is what Ros2Backend publishes
-  on /joint_states and what every other Kinova stack uses. The gen3_ prefix in the old
-  hand-edited model came from a Clearpath mobile-base workspace and meant nothing here.
+  Every link and joint carries the arm_ prefix (arm_joint_1 .. arm_joint_7,
+  arm_base_link, ...): the chair owns base_link (REP-105). The root is arm_mount,
+  gravity-aligned on level ground and sharing arm_base_link's origin; the only thing
+  between them is the mount rotation read from mount_file.
 -->
 <robot name="kinova_gen3" xmlns:xacro="http://ros.org/wiki/xacro">
 
   <xacro:arg name="gripper" default="robotiq_2f_85"/>   <!-- robotiq_2f_85 | none -->
   <xacro:arg name="camera"  default="true"/>            <!-- wrist vision module -->
-  <xacro:arg name="prefix"  default=""/>                <!-- for a future mobile base -->
+  <!-- REQUIRED. xacro:arg cannot be declared without a default, so the empty default
+       is caught below rather than silently rendering a level arm. -->
+  <xacro:arg name="mount_file" default=""/>
+  <xacro:property name="prefix" value="arm_"/>
 
-  <link name="world"/>
+  <xacro:if value="${not '$(arg mount_file)'}">
+    ${xacro.fatal('kinova_gen3.urdf.xacro: mount_file is required (a mount.yaml with robot and rpy_deg)')}
+  </xacro:if>
+  <!-- rpy_deg: orientation of arm_base_link in arm_mount, in degrees. -->
+  <xacro:property name="mount" value="${xacro.load_yaml('$(arg mount_file)')}"/>
+  <xacro:property name="mount_rpy" value="${mount['rpy_deg']}"/>
+
+  <link name="arm_mount"/>
 
   <xacro:include filename="$(find kortex_description)/arms/gen3/7dof/urdf/gen3_macro.xacro"/>
   <xacro:include filename="$(find robotiq_description)/urdf/robotiq_2f_85_macro.urdf.xacro"/>
 
   <!-- load_arm REQUIRES connection parameters because it emits a ros2_control block we
        do not want and cannot opt out of. They are dummies: nothing here connects to an
-       arm, and the block is stripped from the expanded URDF at build time. See
-       scripts/strip_ros2_control.py for why that matters. -->
-  <xacro:load_arm parent="world" dof="7" vision="$(arg camera)" prefix="$(arg prefix)"
+       arm, and the block is stripped when the model is rendered (kinova_gen3_render.py
+       says why that matters). -->
+  <xacro:load_arm parent="arm_mount" dof="7" vision="$(arg camera)" prefix="${prefix}"
       robot_ip="0.0.0.0" username="admin" password="admin"
       port="10000" port_realtime="10001"
       session_inactivity_timeout_ms="6000" connection_inactivity_timeout_ms="2000"
-      gripper_joint_name="$(arg prefix)robotiq_85_left_knuckle_joint"
+      gripper_joint_name="${prefix}robotiq_85_left_knuckle_joint"
       use_internal_bus_gripper_comm="false">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="0 0 0"
+            rpy="${radians(mount_rpy[0])} ${radians(mount_rpy[1])} ${radians(mount_rpy[2])}"/>
   </xacro:load_arm>
+
+  <!-- cuRobo positions every PlanToPose goal at tool_frame. Same transform as
+       tool_frame_joint in cuRobo v0.7.8's bundled kinova_gen3_7dof.urdf
+       (src/curobo/content/assets/robot/kinova/kinova_gen3_7dof.urdf), whose
+       end_effector_link sits where upstream's does. Upstream kortex_description has
+       no tool frame. test_tool_frame_matches_curobo pins it. -->
+  <link name="${prefix}tool_frame"/>
+  <joint name="${prefix}tool_frame_joint" type="fixed">
+    <origin xyz="0 0 0.120" rpy="0 0 0"/>
+    <parent link="${prefix}end_effector_link"/>
+    <child link="${prefix}tool_frame"/>
+  </joint>
 
   <!-- include_ros2_control=false: the gripper macro DOES offer the opt-out the arm
        macro lacks, so this half emits geometry only. -->
   <xacro:if value="${'$(arg gripper)' == 'robotiq_2f_85'}">
-    <xacro:robotiq_gripper name="RobotiqGripper" prefix="$(arg prefix)"
-        parent="$(arg prefix)end_effector_link" include_ros2_control="false">
+    <xacro:robotiq_gripper name="RobotiqGripper" prefix="${prefix}"
+        parent="${prefix}end_effector_link" include_ros2_control="false">
       <origin xyz="0 0 0" rpy="0 0 0"/>
     </xacro:robotiq_gripper>
   </xacro:if>

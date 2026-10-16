@@ -65,6 +65,8 @@ except ImportError:
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
 # Same orientation at both ends -- see the module docstring for why that is the
 # whole point.
+# Read off a LEVEL mount (dojo); in arm_mount on a tilted one (flatbot) these
+# are different arm-relative poses -- re-read them there.
 POSE_A = {"name": "A", "pos": [0.45, -0.25, 0.25], "quat": list(GRIPPER_LEVEL)}
 POSE_B = {"name": "B", "pos": [0.45, 0.25, 0.50], "quat": list(GRIPPER_LEVEL)}
 

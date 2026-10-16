@@ -38,6 +38,8 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
+# Validated on a LEVEL mount (dojo) only; on a tilted one (flatbot) the same box
+# is a different arm-relative region -- re-check it there.
 # Workspace box in arm_mount (metres) for random EE sampling — a conservative
 # region in FRONT of the arm. Tune for your cell. Quat is xyzw; [1,0,0,0] points
 # the tool down (tool_frame Z -> -Z base).

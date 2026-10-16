@@ -43,8 +43,6 @@ services:
     image: kinova-gen3-ros2:kortex
     network_mode: host
     ipc: host
-    environment:
-      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
     volumes:
       - ${RAMMP_ROBOT_DIR}:/config/robot:ro
     command:

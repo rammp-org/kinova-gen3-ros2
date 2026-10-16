@@ -15,21 +15,24 @@ It exposes four control tiers: trajectory execution, planned moves, arbitration
 (who is allowed to command the arm), and setpoint streaming. Without it, nothing
 in the system can move the arm.
 
-**This module is two containers.** The `go_to_*` actions are clients of the cuRobo
-planner's actions, so `deploy/compose.yaml` declares both the driver and
-[`rammp-curobo`](https://github.com/rammp-org/RAMMP-CuRobo). Run the driver alone and
-three of the four action servers accept goals that can never succeed.
+**This module is three containers.** The driver reads the arm's model from
+`/arm/robot_description`, which `arm_state_publisher` (this image's
+`kinova_gen3_description`) renders from the robot's `mount.yaml`; without it the driver
+exits after 30 s. The `go_to_*` actions are clients of the cuRobo planner's actions, so
+`deploy/compose.yaml` declares the driver, `arm_state_publisher` and
+[`rammp-curobo`](https://github.com/rammp-org/RAMMP-CuRobo). Run the driver without the
+planner and three of the four action servers accept goals that can never succeed.
 
 ## Publishes
 
-| Topic             | Type                                    | Rate      | Meaning                                                                                                                              |
-| ----------------- | --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `/joint_states`   | `sensor_msgs/JointState`                | ~50 Hz    | Seven arm joints plus `robotiq_85_left_knuckle_joint`. Best-effort QoS. Pump ticks decimated by `state_publish_divisor` (default 2). |
-| `/ee_state`       | `rammp_arm_interfaces/EeState`          | ~50 Hz    | Tool pose, twist and measured external wrench, `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`.                    |
-| `/control_status` | `rammp_common_interfaces/ControlStatus` | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.                                                 |
-| `/stream_status`  | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                                                                      |
-| `/gripper_state`  | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                          |
-| `/diagnostics`    | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Three REP 107 tasks: `Arbitration`, `Arm`, `Gripper`.                                                                                |
+| Topic             | Type                                    | Rate      | Meaning                                                                                                                                                                                                                         |
+| ----------------- | --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/joint_states`   | `sensor_msgs/JointState`                | ~50 Hz    | Seven arm joints (`arm_joint_1`…`arm_joint_7`, named by the model) plus `arm_robotiq_85_left_knuckle_joint`. Best-effort QoS. Pump ticks decimated by `state_publish_divisor` (default 2).                                      |
+| `/ee_state`       | `rammp_arm_interfaces/EeState`          | ~50 Hz    | Pose of `--ee-frame` (default `arm_end_effector_link`, the flange; `arm_tool_frame` is 0.120 m beyond it) in `arm_mount`, twist and measured external wrench `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`. |
+| `/control_status` | `rammp_common_interfaces/ControlStatus` | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.                                                                                                                                            |
+| `/stream_status`  | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                                                                                                                                                                 |
+| `/gripper_state`  | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                                                                                                                     |
+| `/diagnostics`    | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Three REP 107 tasks: `Arbitration`, `Arm`, `Gripper`.                                                                                                                                                                           |
 
 `/joint_states` and `/ee_state` are best-effort, so CLI subscribers must match:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -46,15 +49,16 @@ holding something" is backwards.
 
 ## Subscribes
 
-| Topic                      | Type                            | Required | Meaning                                                       |
-| -------------------------- | ------------------------------- | -------- | ------------------------------------------------------------- |
-| `/estop`                   | `rammp_common_interfaces/EStop` | no       | Broadcast stop. Any node may publish. Volatile, deliberately. |
-| `/setpoint/joint_position` | `JointSetpoint`                 | no       | Joint angles, rad                                             |
-| `/setpoint/joint_velocity` | `JointSetpoint`                 | no       | Joint rates, rad/s                                            |
-| `/setpoint/joint_torque`   | `JointSetpoint`                 | no       | Joint torques, N·m                                            |
-| `/setpoint/pose`           | `PoseSetpoint`                  | no       | Tool pose, base frame                                         |
-| `/setpoint/twist`          | `TwistSetpoint`                 | no       | Tool twist, base frame                                        |
-| `/setpoint/gripper`        | `GripperSetpoint`               | no       | `position`, `speed`, `force`                                  |
+| Topic                      | Type                            | Required | Meaning                                                                                                                                                                                       |
+| -------------------------- | ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/arm/robot_description`   | `std_msgs/String`               | **yes**  | The arm's model (URDF), latched, from `arm_state_publisher`. Read once at startup (30 s timeout, then exit 1); a different model published later logs an ERROR until the driver is restarted. |
+| `/estop`                   | `rammp_common_interfaces/EStop` | no       | Broadcast stop. Any node may publish. Volatile, deliberately.                                                                                                                                 |
+| `/setpoint/joint_position` | `JointSetpoint`                 | no       | Joint angles, rad                                                                                                                                                                             |
+| `/setpoint/joint_velocity` | `JointSetpoint`                 | no       | Joint rates, rad/s                                                                                                                                                                            |
+| `/setpoint/joint_torque`   | `JointSetpoint`                 | no       | Joint torques, N·m                                                                                                                                                                            |
+| `/setpoint/pose`           | `PoseSetpoint`                  | no       | Tool pose, `arm_mount`                                                                                                                                                                        |
+| `/setpoint/twist`          | `TwistSetpoint`                 | no       | Tool twist, `arm_mount` axes                                                                                                                                                                  |
+| `/setpoint/gripper`        | `GripperSetpoint`               | no       | `position`, `speed`, `force`                                                                                                                                                                  |
 
 Setpoints are absolute and latest-wins, best-effort depth 1. A setpoint applies only
 while a matching stream session is open and its token matches.

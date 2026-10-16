@@ -79,7 +79,8 @@ sim: build                 ## Run the node in sim, foreground
 # native sim end-to-end, but against the containerized node.
 e2e: build                 ## Sim integration check (success + path-tolerance abort)
 	$(call desc_up,kinova_gen3_e2e_desc,$(SIM_MOUNT),$(IMAGE))
-	$(RUN) -d --name kinova_gen3_e2e $(IMAGE) $(NODE) --sim $(NODE_ARGS)
+	$(RUN) -d --name kinova_gen3_e2e $(IMAGE) $(NODE) --sim $(NODE_ARGS) || \
+	  { docker rm -f kinova_gen3_e2e_desc >/dev/null; exit 1; }
 	@sleep 8
 	@set -e; trap 'docker rm -f kinova_gen3_e2e kinova_gen3_e2e_desc >/dev/null' EXIT; \
 	  docker exec kinova_gen3_e2e /ros_entrypoint.sh python3 $(CLIENT) \

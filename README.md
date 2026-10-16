@@ -150,14 +150,15 @@ report: the gripper's `force` is a current ceiling on the command side, and
 
 ### Subscribed topics
 
-| Topic                      | Type                                 | QoS                    | Notes                                                                                                                               |
-| -------------------------- | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
-| `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint angles, **rad**.                                                                                                              |
-| `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint rates, **rad/s**.                                                                                                             |
-| `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint torques, **N·m**.                                                                                                             |
-| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1   | Target tool pose, base frame.                                                                                                       |
-| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1   | Target tool twist, base frame, `[linear; angular]`.                                                                                 |
+| Topic                      | Type                                 | QoS                       | Notes                                                                                                                                                                    |
+| -------------------------- | ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/arm/robot_description`   | `std_msgs/String`                    | reliable, transient-local | **Required.** The arm's model, from `arm_state_publisher`. Read once at startup (30 s, then exit 1); see [One model, rendered at launch](#one-model-rendered-at-launch). |
+| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile**    | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**.                                      |
+| `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint angles, **rad**.                                                                                                                                                   |
+| `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint rates, **rad/s**.                                                                                                                                                  |
+| `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint torques, **N·m**.                                                                                                                                                  |
+| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1      | Target tool pose, base frame.                                                                                                                                            |
+| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1      | Target tool twist, base frame, `[linear; angular]`.                                                                                                                      |
 
 The three `JointSetpoint` topics share one message shape and the **topic** carries the units.
 All six are subscribed unconditionally, but a setpoint is only applied while a matching
@@ -305,7 +306,8 @@ description, then the node.
 
 `kinova_gen3_description` holds the robot model and the launch plumbing. Every robot
 declares its arm mount in `mount.yaml`: `robot: <name>` and `rpy_deg: [r, p, y]`, the
-orientation of `arm_base_link` in `arm_mount`, in degrees. In rammp-deployments that is
+orientation of `arm_base_link` in `arm_mount`, in degrees, fixed-axis X-Y-Z as URDF's
+`<origin rpy>` (R = Rz(y)·Ry(p)·Rx(r)). In rammp-deployments that is
 `config/robots/<robot>/mount.yaml`, and containers see it at `/config/robot/mount.yaml`.
 `mount_file` has **no default**. A default would silently render a level arm on a
 tilted one, and gravity compensation would then be wrong by the tilt.
@@ -325,18 +327,34 @@ The first line the description logs is the active robot:
 `kinova_gen3_render.py` and stripping `kortex_description`'s `<ros2_control>` block. It
 then runs `robot_state_publisher` with `robot_description` remapped to
 **`/arm/robot_description`** (latched: RELIABLE + TRANSIENT_LOCAL). `/tf` and
-`/joint_states` stay global. The driver reads that topic once at startup and builds its
-dynamics from it, and cuRobo does the same, so the driver, TF and the planner cannot
-disagree. Nothing is rendered at build time, and the image holds no URDF file.
+`/joint_states` stay global. The driver reads that topic once at startup, builds its
+dynamics from it and logs `model from /arm/robot_description: mount tilt N deg ...` (the
+tilt read from the model). Nothing is rendered at build time, and the image holds no URDF
+file.
+
+- **A different model published later is not applied.** The driver keeps the one it
+  started with and logs an ERROR each time another arrives (an `arm_state_publisher`
+  restarted with another mount, or a second publisher). Restart the driver with it.
+
+- **cuRobo does not read this topic yet** (RAMMP-CuRobo#20): it plans in its own arm
+  base. On a level mount that is `arm_mount`. On a tilted one, `GoToEEPose` refuses any
+  plan whose joint names are not the model's (`arm_joint_N`), which is how a planner that
+  builds from this topic answers, rather than move the arm by the tilt. Joint-space goals
+  are unaffected.
 
 - Root `arm_mount`: Z against gravity when the chair is level, X forward, origin at the
   arm's base. All Cartesian I/O is in this frame: `/ee_state`, `GoToEEPose`,
-  `/setpoint/pose`, `/setpoint/twist`. On dojo the mount is identity and every number
+  `/setpoint/pose`, `/setpoint/twist`. `/ee_state` is the pose of `--ee-frame`
+  (`arm_end_effector_link`, the flange); `GoToEEPose` positions `arm_tool_frame`, 0.120 m
+  beyond it. On dojo the mount is identity and every number
   is unchanged. On flatbot and gen_1_5 it is +30° about Y.
+
 - Every name carries the `arm_` prefix (`arm_joint_1`…`arm_joint_7`, `arm_base_link`, …),
   because the chair owns `base_link` (REP-105).
+
 - `arm_tool_frame` sits 0.120 m along `arm_end_effector_link`'s +Z. That is cuRobo
   v0.7.8's `tool_frame`, where every `PlanToPose` goal is positioned.
+
 - The model has 13 DOF. The driver reduces it to the seven arm joints itself,
   locking the gripper at q = 0, which keeps the gripper's mass at the wrist.
   `robot_state_publisher` derives the five mimic joints from
@@ -365,6 +383,10 @@ which throws if the frame is absent.
   the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
   the resulting 0.572 kg difference so it cannot be forgotten; if the physical arm
   carries them, gravity compensation is under-modelled by that much at the wrist.
+- The **joint limits are Kinova's** (j2/j4/j6 ±2.24/±2.57/±2.09 rad). The hand-edited
+  model the driver used before had ±2.41/±2.66/±2.23, and today's cuRobo still plans with
+  those: a plan through the difference is clamped by the driver and can abort with
+  `PATH_TOLERANCE_VIOLATED`. They move together when cuRobo reads this model.
 - The model's `camera` xacro arg (Kinova's built-in vision module) defaults to `false`:
   RAMMP's arms do not have one. The vision bracelet is 0.136 kg heavier.
 - Model configuration is not exposed at launch: `prefix` is a fixed xacro property

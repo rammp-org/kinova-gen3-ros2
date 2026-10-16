@@ -52,6 +52,8 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
+# Validated on a LEVEL mount (dojo) only. In arm_mount the same numbers are a
+# different arm-relative arc on a tilted one (flatbot): re-check them there.
 # The ring, in arm_mount metres. A tour sweeps an arc in FRONT of the arm at two
 # heights, so each leg moves the tool a long way in both y and z. Conservative
 # enough to stay inside the Gen3's comfortable envelope, big enough to see.

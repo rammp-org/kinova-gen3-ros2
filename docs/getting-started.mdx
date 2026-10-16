@@ -27,23 +27,41 @@ container, and this image does not contain it** — it holds only the cuRobo mes
 definitions, not cuRobo. The driver is a *client* of the planner, which needs a GPU
 and has no business inside a real-time container.
 
-Everything below runs on the driver alone. The `go_to_*` actions do not — see
+Everything below runs on the driver plus `arm_state_publisher`, which publishes the
+arm's model the driver reads. The `go_to_*` actions also need the planner — see
 [Planned moves need both containers](#planned-moves-need-both-containers).
+
+`<tag>` is an image that contains `kinova_gen3_description`: the first release after
+1.1.0 (1.1.0 does not), or `nightly` until then.
 
 ## 1. Start the arm
 
+Put your robot's `mount.yaml` in `./robot/` (`robot: <name>`, `rpy_deg: [r, p, y]`,
+degrees; `[0, 0, 0]` for a level arm). There is no default: it sets the gravity
+direction. Start the model first, then the driver:
+
 ```sh
+docker run --rm -d --name arm_state_publisher --network host --ipc host \
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -v "$PWD/robot:/config/robot:ro" \
+  ghcr.io/rammp-org/kinova-gen3-ros2:<tag> \
+  ros2 launch kinova_gen3_description description.launch.py \
+  mount_file:=/config/robot/mount.yaml
+
 docker run --rm -it --network host --ipc host \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  ghcr.io/rammp-org/kinova-gen3-ros2:1.1.0
+  ghcr.io/rammp-org/kinova-gen3-ros2:<tag>
 ```
 
 You should see:
 
 ```
+[kinova_gen3_node]: model from /arm/robot_description: mount tilt 0.0 deg from vertical, ...
 [kinova_gen3_node]: kinova_gen3_node up (sim); arbitration=disabled;
   actions: /execute_joint_trajectory, /go_to_ee_pose, ...
 ```
+
+The tilt must match your arm (`30.0` on flatbot and gen_1_5). Without
+`arm_state_publisher` the driver waits 30 s for the model and exits 1.
 
 <Callout type="warning">
 The published image is **arm64 only** — it builds on `rammp-base`, which is
@@ -149,7 +167,7 @@ Save this as `compose.yaml`:
 ```yaml
 services:
   kinova_gen3_driver:
-    image: ghcr.io/rammp-org/kinova-gen3-ros2:1.1.0
+    image: ghcr.io/rammp-org/kinova-gen3-ros2:<tag>
     network_mode: host
     ipc: host                      # DDS shared-memory transport
     cap_add: [SYS_NICE]            # permits sched_setscheduler...
@@ -165,7 +183,7 @@ services:
   # The arm's model and TF. The driver reads /arm/robot_description at startup and
   # exits without it.
   arm_state_publisher:
-    image: ghcr.io/rammp-org/kinova-gen3-ros2:1.1.0
+    image: ghcr.io/rammp-org/kinova-gen3-ros2:<tag>
     network_mode: host
     ipc: host
     environment:

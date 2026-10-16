@@ -22,6 +22,23 @@
 - **The model's bracelet is the no-vision one** (0.364 kg, was the 0.500 kg vision
   variant). The xacro's `camera` arg now defaults to `false`; RAMMP's arms have no
   Kinova vision module. On abra, gravity comp with it holds joints 2 and 4 at 0.00 °/s.
+- **The driver's model changes with its source**, from the hand-edited
+  `models/gen3_7dof_2f85.urdf` to the upstream composition. The wrist is **0.572 kg
+  lighter** (no D415 + mount: put a real wrist camera's mass in the model), and the
+  **j2/j4/j6 position limits tighten to Kinova's ±2.24/±2.57/±2.09 rad** (were
+  ±2.41/±2.66/±2.23). Today's cuRobo still plans with the old limits, so a plan through
+  the difference can abort with `PATH_TOLERANCE_VIOLATED` until cuRobo reads this model.
+  `test_model_parity.py` pins both.
+- **On a tilted mount, `GoToEEPose` refuses a plan that is not in `arm_mount`.** Today's
+  cuRobo plans in its own arm base and answers in `joint_1..7`; a planner that built its
+  model from `/arm/robot_description` answers in the model's `arm_joint_1..7`. When the
+  model's mount is more than 0.5° from level and the names differ, the goal settles
+  `PLANNING_FAILED` naming the mismatch, instead of moving the arm by the tilt. Level
+  mounts (dojo) and joint-space goals are unaffected.
+- The node logs the model it uses at startup (`model from /arm/robot_description: mount tilt N deg ...`, read from the model), and an ERROR whenever a different model is
+  published on the topic later; it keeps the startup one until restarted.
+- `/arm/robot_description` is a required subscription in the driver's fragment and in
+  `docs/interface.md`.
 - The image now contains `kinova_gen3_description`, so `arm_state_publisher` runs from
   it. The released 1.1.0 image did not, although the deployment manifest already ran
   `description.launch.py` from it.

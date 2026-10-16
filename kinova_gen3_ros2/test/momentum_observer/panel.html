@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Momentum observer · panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Condensed:wght@500;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>/*INLINE tokens.css*/</style>
+<style>
+  body { margin: 0; }
+  .ax-page { max-width: 1180px; }
+  .controls { display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .row label { font: 11px var(--ax-font-mono); color: var(--ax-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .ax-input { width: 120px; }
+  .ax-input.short { width: 64px; }
+  .tapbtn { font-size: 18px; padding: 18px 28px; }
+  .phase { font: 500 14px var(--ax-font-mono); color: var(--ax-accent); min-height: 20px; }
+  .log { font: 11px var(--ax-font-mono); color: var(--ax-muted); white-space: pre; max-height: 120px; overflow: auto; }
+  iframe { width: 100%; height: 1500px; border: 1px solid var(--ax-border); background: var(--ax-bg); }
+  .err { color: var(--ax-critical); font: 12px var(--ax-font-mono); }
+</style>
+<script>/*INLINE ax-charts.js*/</script>
+<script>/*INLINE ax-fx.js*/</script>
+</head>
+<body class="ax">
+<main class="ax-page">
+  <header class="ax-mast">
+    <div>
+      <h1>Momentum observer</h1>
+      <div class="ax-meta"><span id="host"></span><span id="live" class="ax-status">Idle</span><span id="mock" style="display:none">mock</span></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="ax-btn" id="mode">Light mode</button>
+      <button class="ax-btn" id="armRestart">Restart arm node</button>
+    </div>
+  </header>
+
+  <section class="ax-tiles">
+    <div class="ax-tile"><div class="ax-label">Arm node</div><div class="ax-value" id="arm">…</div><div class="ax-sub">sheppy status</div></div>
+    <div class="ax-tile"><div class="ax-label">Joint states</div><div class="ax-value" id="hz">0<small>Hz</small></div><div class="ax-sub">/joint_states rate</div></div>
+    <div class="ax-tile"><div class="ax-label">Recorded rows</div><div class="ax-value" id="rows">0</div><div class="ax-sub" id="runname">no run</div></div>
+    <div class="ax-tile"><div class="ax-label">Taps marked</div><div class="ax-value" id="markers">0</div><div class="ax-sub">this run</div></div>
+  </section>
+
+  <section class="controls">
+    <div class="ax-panel">
+      <h2>One-button test</h2>
+      <div class="ax-cap">Record, one baseline loop with nobody touching the arm, then loops you tap during, then the report. The arm moves.</div>
+      <div class="row">
+        <label>Run</label><input class="ax-input" id="seqName" placeholder="run2">
+        <label>Loops</label><input class="ax-input short" id="seqLoops" value="2">
+        <label>Speed</label><input class="ax-input short" id="seqSpeed" value="0.6">
+        <button class="ax-btn primary" id="seq" data-fx="sparks">Run full test</button>
+      </div>
+      <div class="phase" id="phase"></div>
+      <div class="row">
+        <button class="ax-btn primary tapbtn" id="tap">TAP</button>
+        <span class="ax-muted" style="font-size:12px">Press at the instant you poke the arm. Works from a phone.</span>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+    <div class="ax-panel">
+      <h2>Step by step</h2>
+      <div class="ax-cap">The same pieces, one at a time.</div>
+      <div class="row">
+        <input class="ax-input" id="recName" placeholder="run name">
+        <button class="ax-btn" id="recStart" data-fx="orbit">Record</button>
+        <button class="ax-btn" id="recStop">Stop</button>
+      </div>
+      <div class="row">
+        <label>Loops</label><input class="ax-input short" id="tourLoops" value="1">
+        <label>Speed</label><input class="ax-input short" id="tourSpeed" value="0.6">
+        <button class="ax-btn" id="tour">Run tour</button>
+      </div>
+      <div class="row">
+        <select class="ax-input" id="runSel"></select>
+        <label>Gain</label><input class="ax-input short" id="gain" value="20">
+        <button class="ax-btn" id="analyze">Analyze</button>
+        <a class="ax-btn" id="open" href="#" target="_blank">Open page</a>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </section>
+
+  <section class="ax-panel" id="reportPanel">
+    <h2>Latest report</h2>
+    <div class="ax-cap" id="reportCap">No report yet. Run a test above.</div>
+    <iframe id="report" style="display:none"></iframe>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+$('host').textContent = location.host;
+let st = {}, lastReport = null, lastRunsKey = '';
+
+async function api(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'failed');
+  return j;
+}
+function guard(btn, fn, label) {
+  btn.onclick = async () => {
+    $('err').textContent = '';
+    axBusy(btn, true, label);
+    try { await fn(); } catch (e) { $('err').textContent = e.message; }
+    finally { axBusy(btn, false); }
+  };
+}
+
+guard($('seq'), async () => {
+  if (!confirm('This moves the arm through the tour. E-stop in reach?')) return;
+  await api('/api/sequence', { name: $('seqName').value || undefined, loops: +$('seqLoops').value, speed: +$('seqSpeed').value });
+}, 'Running');
+$('tap').onclick = async () => { try { await api('/api/tap'); } catch (e) { $('err').textContent = e.message; } };
+guard($('recStart'), () => api('/api/record/start', { name: $('recName').value || undefined }), 'Starting');
+guard($('recStop'), () => api('/api/record/stop'), 'Stopping');
+guard($('tour'), async () => {
+  if (!confirm('This moves the arm through the tour. E-stop in reach?')) return;
+  await api('/api/tour', { loops: +$('tourLoops').value, speed: +$('tourSpeed').value });
+}, 'Starting');
+guard($('analyze'), async () => {
+  const name = $('runSel').value; if (!name) throw new Error('no run selected');
+  await api('/api/analyze', { name, gain: +$('gain').value });
+  showReport(name, true);
+}, 'Analyzing');
+guard($('armRestart'), async () => {
+  if (!confirm('Restart the arm node with sheppy?')) return;
+  await api('/api/arm/restart');
+}, 'Restarting');
+
+function showReport(name, force) {
+  if (!name || (name === lastReport && !force)) return;
+  lastReport = name;
+  $('report').style.display = '';
+  $('report').src = `/runs/${name}.html?t=${Date.now()}`;
+  $('reportCap').textContent = `${name}.html`;
+  $('open').href = `/runs/${name}.html`;
+}
+
+async function poll() {
+  try {
+    st = await (await fetch('/api/status')).json();
+    $('arm').textContent = st.arm;
+    axSet($('hz'), st.rate_hz, { digits: 0 });
+    axSet($('rows'), st.rows);
+    axSet($('markers'), st.markers);
+    $('runname').textContent = st.run ? st.run + '.csv' : 'no run';
+    $('live').className = 'ax-status' + (st.recording ? ' live' : '');
+    $('live').textContent = st.recording ? 'Recording' : (st.tour_running ? 'Arm moving' : 'Idle');
+    $('mock').style.display = st.mock ? '' : 'none';
+    $('phase').textContent = st.sequence ? st.sequence.toUpperCase() : '';
+    $('tap').classList.toggle('primary', st.recording);
+    $('log').textContent = (st.tour_log || []).join('\n');
+    if (st.error) $('err').textContent = st.error;
+    const key = (st.runs || []).join(',');
+    if (key !== lastRunsKey) {
+      lastRunsKey = key;
+      $('runSel').innerHTML = (st.runs || []).map(r => `<option>${r}</option>`).join('');
+      if (st.last_report) $('runSel').value = st.last_report;
+    }
+    // runs that have a csv but no report yet can still be analyzed: list those too
+    if (st.run && ![...$('runSel').options].some(o => o.value === st.run)) {
+      const o = document.createElement('option'); o.textContent = st.run; $('runSel').appendChild(o);
+    }
+    showReport(st.last_report);
+  } catch (e) { $('live').textContent = 'No server'; }
+  setTimeout(poll, 1000);
+}
+poll();
+
+$('mode').onclick = e => {
+  const light = document.documentElement.dataset.mode !== 'light';
+  document.documentElement.dataset.mode = light ? 'light' : '';
+  e.target.textContent = light ? 'Dark mode' : 'Light mode';
+};
+</script>
+</body>
+</html>

@@ -60,6 +60,23 @@ python3 report.py --csv run.csv --urdf /tmp/arm.urdf --out run.html --notes note
 the summary and per-tap tables, and a notes column from `--notes`. The style
 files under `web/` are vendored from alex-style-guide.
 
+## Panel
+
+Buttons instead of commands. On the arm computer:
+
+```sh
+source env.sh
+python3 panel.py --port 8766
+```
+
+Then from your laptop `ssh -L 8766:localhost:8766 abra` and open
+`http://localhost:8766/`. One button runs the whole test: record, a baseline
+loop with nobody touching the arm, the loops you tap during, then the report,
+which appears on the page. A large TAP button stamps the marker, so a phone on
+the same tunnel or LAN (`--bind 0.0.0.0`) works as the tap clicker. The
+step-by-step panel exposes record, tour, and analyze separately. `--mock` runs
+the page with synthetic data and no ROS.
+
 No arm handy? `synthetic.py` writes a `run.csv` from the model with two injected
 elbow pushes, and `analyze.py` runs on it the same way. `test_observer.py` checks
 the observer recovers an injected push in motion; set `KINOVA_URDF` to a URDF

@@ -19,7 +19,9 @@ from observer import ArmModel, quasi_static_residual, run_observer
 
 MOVING_RAD_S = 0.05  # above this the arm counts as moving
 SETTLE_S = 0.5  # observer start-up transient, excluded from every statistic
-TAP_BEFORE_S, TAP_AFTER_S = 0.2, 0.8  # window around a marker that counts as the tap
+# Window around a marker that counts as the tap. Measured on abra: the poke lands
+# 0.15 to 0.30 s BEFORE the button press (reaction time), so the window leads.
+TAP_BEFORE_S, TAP_AFTER_S = 0.6, 0.6
 
 
 def load_csv(path):
@@ -195,7 +197,7 @@ def baseline_map(t, q, qd, sig, phase, radius=0.03):
     its residual. Both estimators get the identical correction. Samples with no
     baseline neighbour within `radius` rad (RMS over joints) are left alone.
     """
-    base = t < phase
+    base = (t < phase) & (t > SETTLE_S)  # skip the observer's start-up transient
     if base.sum() < 10:
         return sig.copy(), np.zeros(len(t), bool)
     feat = np.hstack(

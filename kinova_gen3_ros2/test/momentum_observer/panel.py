@@ -255,7 +255,7 @@ def sequence(name, loops, speed):
         time.sleep(1)
         stop_record()
         phase("analyzing")
-        analyze(name, 20.0, 0.2, 0.8)
+        analyze(name, 20.0, 0.6, 0.6)
         phase(None)
     except Exception as e:  # noqa: BLE001  (reported to the page, not swallowed)
         stop_record()

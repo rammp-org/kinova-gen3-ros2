@@ -15,6 +15,7 @@ install(PROGRAMS scripts/kinova_gen3_render.py DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  find_package(launch_testing_ament_cmake REQUIRED)
   # PYTEST_DISABLE_PLUGIN_AUTOLOAD: a stale anyio plugin in ~/.local on the Jetson
   # breaks pytest's entrypoint autoload outright (ModuleNotFoundError: _pytest.scope).
   # APPEND_ENV, not ENV, for the paths: the tests need ROS's own python path (xacro,
@@ -29,6 +30,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(model_parity test/test_model_parity.py
     ${_test_env}
     KINOVA_OLD_URDF=${CMAKE_CURRENT_SOURCE_DIR}/../../kinova-gen3-driver/models/gen3_7dof_2f85.urdf)
+  ament_add_pytest_test(description_log test/test_description_log.py ${_test_env})
+  add_launch_test(test/test_description_launch.py TARGET description_launch ${_test_env})
 endif()
 
 ament_package()

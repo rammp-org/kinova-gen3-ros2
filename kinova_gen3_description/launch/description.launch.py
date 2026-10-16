@@ -1,60 +1,53 @@
-"""Publish /robot_description and run robot_state_publisher.
+"""Render the arm's model for one robot and run robot_state_publisher on it.
 
 Deliberately contains nothing arm-specific and starts no driver, so a client that wants
 only TF -- a planner, a perception node, RViz -- can include it without owning the arm.
 
+mount_file is REQUIRED and has no default: it is the robot's mount.yaml (the rotation
+of arm_base_link in arm_mount), and a default would silently render a level arm on a
+tilted robot. The model is rendered HERE, at launch, and published on
+/arm/robot_description (latched); the driver and cuRobo read it from there, so all
+three use one model by construction.
+
 robot_state_publisher DOES derive <mimic> joints -- verified 2026-09-03 with a two-joint
 URDF: publishing only the driver joint moved the mimic link by exactly -0.6 rad for a
-+0.6 rad drive. The articulated model has 13 movable joints but only EIGHT independent
-ones (seven arm plus robotiq_85_left_knuckle_joint); RSP derives the other five.
-
-The driver publishes that knuckle joint as of the gripper tier, so `articulated` now
-defaults to true. It is safe on a gripper-less build: the joint is not in the model and
-RSP ignores joint states for joints it does not know.
++0.6 rad drive. The model has 13 movable joints but only EIGHT independent ones (seven
+arm plus arm_robotiq_85_left_knuckle_joint), all of which the driver publishes.
 """
 
+from kinova_gen3_render import embodiment_line, render
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch_ros.substitutions import FindPackageShare
 
 
-def _rsp(model_file, condition):
-    share = FindPackageShare("kinova_gen3_description")
-    path = PathJoinSubstitution([share, "urdf", model_file])
-    return Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        output="screen",
-        condition=condition,
-        # value_type=str is required: without it launch_ros guesses the type of the
-        # Command substitution and robot_state_publisher receives a mangled or empty
-        # description, failing as silently as the bug this package exists to fix.
-        parameters=[
-            {
-                "robot_description": ParameterValue(
-                    Command(["cat ", path]), value_type=str
-                )
-            }
-        ],
-    )
+def _rsp(context):
+    xml, mount = render(LaunchConfiguration("mount_file").perform(context))
+    return [
+        LogInfo(msg=embodiment_line(mount)),
+        Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            output="screen",
+            # value_type=str: without it launch_ros guesses the type of the string
+            # and robot_state_publisher can receive a mangled description.
+            parameters=[{"robot_description": ParameterValue(xml, value_type=str)}],
+            # The model belongs to the arm; /tf and /joint_states stay global.
+            remappings=[("robot_description", "/arm/robot_description")],
+        ),
+    ]
 
 
 def generate_launch_description():
-    articulated = LaunchConfiguration("articulated")
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "articulated",
-                default_value="true",
-                description="use the 13-DOF model with a moving gripper. Requires the driver to "
-                "publish robotiq_85_left_knuckle_joint (the gripper tier does); "
-                "robot_state_publisher derives the five mimic joints itself.",
+                "mount_file",
+                description="the robot's mount.yaml (in containers "
+                "/config/robot/mount.yaml). Required: no default.",
             ),
-            _rsp("kinova_gen3_7dof.urdf", UnlessCondition(articulated)),
-            _rsp("kinova_gen3.urdf", IfCondition(articulated)),
+            OpaqueFunction(function=_rsp),
         ]
     )

@@ -140,7 +140,11 @@ any of what follows.
 
 ### Doing it yourself
 
-Off-fleet, run both with compose. Put your robot's mount.yaml in ./robot/ (robot: <name>, rpy_deg: [r, p, y]); there is no default. Save this as `compose.yaml`:
+Off-fleet, run both with compose.
+
+Put your robot's `mount.yaml` in `./robot/` (`robot: <name>`, `rpy_deg: [r, p, y]`); there is no default.
+
+Save this as `compose.yaml`:
 
 ```yaml
 services:
@@ -174,7 +178,6 @@ services:
       - kinova_gen3_description
       - description.launch.py
       - mount_file:=/config/robot/mount.yaml
-
 
   curobo_planner:
     image: rammp-curobo:jp6        # owned by rammp-org/RAMMP-CuRobo
@@ -274,7 +277,7 @@ ros2 launch kinova_gen3_description bringup.launch.py sim:=true \
   mount_file:=src/kinova_gen3_ros2/kinova_gen3_description/test/mounts/level.yaml
 ```
 
-Same banner as the container. Swap `--sim` for `--ip <arm-address>` for real
+Same banner as the container. Swap `sim:=true` for `sim:=false ip:=<arm-address>` for real
 hardware — but that needs the KORTEX build below.
 
 If you script this, note that `install/setup.bash` reads `COLCON_TRACE` unguarded,

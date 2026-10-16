@@ -44,8 +44,8 @@ The core defines three ports (`kinova_lowlevel/interface/ports.h`);
   *sampler* thread calls `publish_feedback()` / `settle()` to push feedback and
   terminal results out to the ROS2 goal handle.
 - **`StreamPort`** (implemented by `Ros2Backend`) — the Supervisor's *pump*
-  thread calls `publish_state()` (~100 Hz); the backend publishes `/joint_states`
-  - `/ee_state` every `state_publish_divisor`-th tick (default 2, so ~50 Hz).
+  thread calls `publish_state()` (~100 Hz); the backend publishes
+  `/joint_states` and `/ee_state` every `state_publish_divisor`-th tick (default 2, so ~50 Hz).
 - **`CommandSink`** (implemented by the Supervisor) — the backend's rclcpp
   callbacks call `on_trajectory_goal()` / `on_trajectory_accepted()` /
   `on_trajectory_cancel()` on inbound goals.
@@ -297,8 +297,9 @@ yet; messages are dropped with a throttled warning.
 
 ### Launch files
 
-There are none. The node takes plain CLI args and is started with `ros2 run`;
-adding a launch file has not been needed yet.
+`description.launch.py` (required `mount_file`) renders the model and runs
+`robot_state_publisher`. `bringup.launch.py` (required `mount_file`) starts the
+description, then the node.
 
 ## Robot model and TF
 
@@ -364,9 +365,8 @@ which throws if the frame is absent.
   the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
   the resulting 0.436 kg difference so it cannot be forgotten; if the physical arm
   carries them, gravity compensation is under-modelled by that much at the wrist.
-- The **gripper joint is not published**, so the gripper renders at its default opening.
-- Model configuration (`gripper`, `camera`, `prefix`) is a **build-time** xacro arg, not
-  a launch argument.
+- Model configuration (`gripper`, `camera`, `prefix`) is an xacro arg of the model
+  rendered at launch from `mount_file`, not a launch argument.
 
 ## Node arguments
 

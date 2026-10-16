@@ -168,6 +168,48 @@ def test_bracelet_is_the_no_vision_one():
     assert "bracelet_no_vision_link" in xml
 
 
+# Kinova's published ranges (128.9 / 147.8 / 120.3 deg), from upstream
+# kortex_description. The hand-edited model this replaced had +/-2.41 / 2.66 / 2.23,
+# so the driver's position limits TIGHTEN with this model; pinned so an upstream
+# change cannot move them unnoticed.
+KINOVA_LIMITS_RAD = {"arm_joint_2": 2.24, "arm_joint_4": 2.57, "arm_joint_6": 2.09}
+
+
+def test_joint_limits_are_kinovas(level):
+    for name, lim in KINOVA_LIMITS_RAD.items():
+        j = level.joints[level.getJointId(name)]
+        assert level.lowerPositionLimit[j.idx_q] == pytest.approx(-lim), name
+        assert level.upperPositionLimit[j.idx_q] == pytest.approx(lim), name
+
+
+def test_arm_link_inertials_are_identical(level, old):
+    """Mass alone misses a moved COM or a changed inertia; gravity reads both."""
+    for o, n in zip(OLD_ARM[:-1], ARM[:-1]):  # joint_7 carries the wrist delta
+        io, i_n = old.inertias[old.getJointId(o)], level.inertias[level.getJointId(n)]
+        assert np.allclose(io.lever, i_n.lever, atol=TOL), n
+        assert np.allclose(io.inertia, i_n.inertia, atol=TOL), n
+
+
+def test_multi_axis_rpy_is_fixed_axis_xyz(tmp_path):
+    """URDF <origin rpy>: fixed-axis X-Y-Z, R = Rz(y) Ry(p) Rx(r), in degrees here."""
+    p = tmp_path / "mount.yaml"
+    p.write_text("robot: test_multi\nrpy_deg: [10, 20, 30]\n")
+    m = _model(str(p))
+    R = _placement(m, pin.neutral(m), "arm_base_link").rotation
+    want = pin.rpy.rpyToMatrix(*np.radians([10.0, 20.0, 30.0]))
+    assert np.allclose(R, want, atol=1e-12), R
+
+
+def test_radians_in_the_degrees_field_warn(tmp_path, capsys):
+    p = tmp_path / "mount.yaml"
+    p.write_text("robot: x\nrpy_deg: [0, 0.5236, 0]\n")
+    load_mount(str(p))
+    assert "radians?" in capsys.readouterr().err
+    p.write_text("robot: x\nrpy_deg: [0, 30, 0]\n")
+    load_mount(str(p))
+    assert capsys.readouterr().err == ""
+
+
 def test_known_wrist_mass_delta(level, old):
     delta = sum(i.mass for i in old.inertias) - sum(i.mass for i in level.inertias)
     assert abs(delta - KNOWN_WRIST_MASS_DELTA_KG) < 1e-3, (
@@ -222,6 +264,8 @@ def test_embodiment_line_names_the_robot_and_the_rotation():
         ("robot: x\nrpy_deg: [0, .nan, 0]\n", "rpy_deg must be three finite numbers"),
         ("robot: x\nrpy_deg: [0, '30', 0]\n", "rpy_deg must be three finite numbers"),
         ("- 1\n- 2\n", "expected a mapping"),
+        ("robot: ''\nrpy_deg: [0, 30, 0]\n", "robot must be a non-empty name"),
+        ("robot: 3\nrpy_deg: [0, 30, 0]\n", "robot must be a non-empty name"),
     ],
 )
 def test_a_bad_mount_file_is_refused_by_name(tmp_path, body, why):

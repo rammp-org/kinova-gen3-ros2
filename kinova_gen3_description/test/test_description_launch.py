@@ -77,12 +77,19 @@ class TestDescription(unittest.TestCase):
         self.assertNotIn("ros2_control", got[0])
 
     def test_not_published_on_the_global_topic(self):
-        # Wait until the remapped topic exists, so "absent" is not just "too early".
+        # Wait until robot_state_publisher PUBLISHES the remapped topic, so "absent"
+        # is not just "too early". (Topic names alone would be satisfied by another
+        # test's subscription on this same node.)
         def names():
             return dict(self.node.get_topic_names_and_types())
 
         self.assertTrue(
-            self._spin_until(lambda: "/arm/robot_description" in names(), 10.0)
+            self._spin_until(
+                lambda: self.node.get_publishers_info_by_topic(
+                    "/arm/robot_description"
+                ),
+                10.0,
+            )
         )
         self.assertNotIn("/robot_description", names())
 

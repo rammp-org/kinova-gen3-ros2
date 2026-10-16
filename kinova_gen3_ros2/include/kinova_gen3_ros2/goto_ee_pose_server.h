@@ -22,9 +22,8 @@ public:
 
 protected:
   std::optional<std::string> validate(const Action::Goal &goal) override {
-    if (goal.target.header.frame_id != "base_link")
-      return "GoToEEPose: frame_id '" + goal.target.header.frame_id +
-             "' != base_link";
+    if (auto why = ee_pose_frame_rejection(goal.target.header.frame_id))
+      return "GoToEEPose: " + *why;
     if (auto why = speed_scale_rejection(goal.speed_scale))
       return "GoToEEPose: " + *why;
     // Reject an unknown mode HERE rather than letting it reach the planner.

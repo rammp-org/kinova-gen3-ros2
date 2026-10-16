@@ -57,6 +57,11 @@ to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
 // reason is produced here. Callers log it server-side: an action rejection has
 // no payload, so the client sees a bare rejection (see kinova-gen3-ros2#39).
 std::optional<std::string> speed_scale_rejection(double s);
+
+// Why a GoToEEPose target in `frame_id` is unacceptable, or nullopt. Goals are
+// in arm_mount: gravity-aligned on level ground, origin at the arm's base.
+// base_link -- the old contract -- gets a message of its own saying so.
+std::optional<std::string> ee_pose_frame_rejection(const std::string &frame_id);
 GoToEEPose::Feedback
 to_goto_feedback_msg(const kinova::interface::TrajectoryFeedback &fb);
 GoToEEPose::Result

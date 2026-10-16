@@ -422,3 +422,20 @@ TEST(MessageMapping, PlannerOverloadCarriesAnExplicitSpeedScale) {
   traj.points[0].positions.assign(7, 0.0);
   EXPECT_DOUBLE_EQ(to_trajectory_goal(traj, 0.3).speed_scale, 0.3);
 }
+
+// GoToEEPose targets are in arm_mount (gravity-aligned on level ground). base_link
+// gets its own message because it was the old contract and every un-migrated
+// client sends it; the client only sees "rejected", so this text is for the log.
+TEST(MessageMapping, EePoseFrameMustBeArmMount) {
+  EXPECT_EQ(ee_pose_frame_rejection("arm_mount"), std::nullopt);
+  EXPECT_EQ(ee_pose_frame_rejection("base_link"),
+            std::optional<std::string>(
+                "frame_id 'base_link' is no longer accepted: Cartesian goals "
+                "are in 'arm_mount' (gravity-aligned); arm_base_link is tilted "
+                "30° on flatbot and gen_1_5"));
+  EXPECT_EQ(ee_pose_frame_rejection("arm_base_link"),
+            std::optional<std::string>("frame_id 'arm_base_link' != arm_mount"));
+  // A default-constructed goal: the client forgot the header.
+  EXPECT_EQ(ee_pose_frame_rejection(""),
+            std::optional<std::string>("frame_id '' != arm_mount"));
+}

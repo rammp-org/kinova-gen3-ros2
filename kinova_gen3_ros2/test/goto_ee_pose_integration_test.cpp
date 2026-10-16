@@ -192,7 +192,7 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   ex.add_node(node);
   std::thread spin([&] { ex.spin(); });
 
-  const int code = send_and_get_code(node, "base_link");
+  const int code = send_and_get_code(node, "arm_mount");
   EXPECT_EQ(code, result_code::kSuccessful);
   EXPECT_TRUE(sup.got_goal);
   EXPECT_EQ(sup.last_goal.trajectory.points.size(), 3u);
@@ -200,6 +200,35 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
 
   ex.cancel();
   spin.join();
+}
+
+// The old frame is refused at the goal gate, before any planning: an
+// un-migrated client must not have its base_link numbers silently read in
+// arm_mount (they differ by 30° on flatbot).
+TEST_F(GotoServerTest, ABaseLinkGoalIsRejectedBeforePlanning) {
+  auto node = std::make_shared<rclcpp::Node>("goto_it_base_link");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  GoToEEPose::Goal goal;
+  goal.target.header.frame_id = "base_link";
+  auto gh_fut = client->async_send_goal(goal);
+  ASSERT_EQ(gh_fut.wait_for(5s), std::future_status::ready);
+  EXPECT_EQ(gh_fut.get(), nullptr); // rejected
+  EXPECT_FALSE(sup.got_goal);
 }
 
 // A cancel accepted while the server is handing the planned trajectory to the
@@ -229,7 +258,7 @@ TEST_F(GotoServerTest, CancelDuringHandoverStillReachesTheSupervisor) {
   auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
   ASSERT_TRUE(client->wait_for_action_server(5s));
   GoToEEPose::Goal goal;
-  goal.target.header.frame_id = "base_link";
+  goal.target.header.frame_id = "arm_mount";
   auto gh_fut = client->async_send_goal(goal);
   ASSERT_EQ(gh_fut.wait_for(5s), std::future_status::ready);
   auto gh = gh_fut.get();
@@ -276,7 +305,7 @@ TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
   ex.add_node(node);
   SpinThread spin(ex);
 
-  const int code = send_and_get_code(node, "base_link");
+  const int code = send_and_get_code(node, "arm_mount");
   EXPECT_EQ(code, result_code::kSuccessful);
 
   const std::vector<double> seen = fake.last_start_joints();
@@ -312,7 +341,7 @@ TEST_F(GotoServerTest, GoalIsRefusedWhenNoJointStateHasBeenMeasuredYet) {
   auto client = rclcpp_action::create_client<GoToEEPose>(node, "go_to_ee_pose");
   ASSERT_TRUE(client->wait_for_action_server(5s));
   GoToEEPose::Goal goal;
-  goal.target.header.frame_id = "base_link";
+  goal.target.header.frame_id = "arm_mount";
   auto fut = client->async_send_goal(goal);
   ASSERT_EQ(fut.wait_for(5s), std::future_status::ready);
   EXPECT_FALSE(fut.get())
@@ -342,7 +371,7 @@ TEST_F(GotoServerTest, PlanSuccessWithMalformedWidthSettlesPlanningFailed) {
   ex.add_node(node);
   std::thread spin([&] { ex.spin(); });
 
-  const int code = send_and_get_code(node, "base_link");
+  const int code = send_and_get_code(node, "arm_mount");
   EXPECT_EQ(code, result_code::kPlanningFailed);
   EXPECT_FALSE(sup.got_goal);
 
@@ -365,7 +394,7 @@ TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
   ex.add_node(node);
   std::thread spin([&] { ex.spin(); });
 
-  const int code = send_and_get_code(node, "base_link");
+  const int code = send_and_get_code(node, "arm_mount");
   EXPECT_EQ(code, result_code::kPlanningFailed);
   EXPECT_FALSE(sup.got_goal);
 
@@ -418,7 +447,7 @@ TEST_F(GotoServerTest, CancelDuringPlanningThenPlanSucceedsSettlesPreempted) {
                                                          client_grp);
   ASSERT_TRUE(client->wait_for_action_server(5s));
   GoToEEPose::Goal goal;
-  goal.target.header.frame_id = "base_link";
+  goal.target.header.frame_id = "arm_mount";
 
   std::promise<int> code_promise;
   auto code_future = code_promise.get_future();
@@ -483,7 +512,7 @@ int send_goal(rclcpp::Node::SharedPtr node, const GoToEEPose::Goal &goal) {
 
 GoToEEPose::Goal base_goal() {
   GoToEEPose::Goal g;
-  g.target.header.frame_id = "base_link";
+  g.target.header.frame_id = "arm_mount";
   return g;
 }
 

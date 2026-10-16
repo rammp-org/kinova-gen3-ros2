@@ -182,6 +182,17 @@ std::optional<std::string> speed_scale_rejection(double s) {
   return std::nullopt;
 }
 
+std::optional<std::string> ee_pose_frame_rejection(const std::string &frame_id) {
+  if (frame_id == "arm_mount")
+    return std::nullopt;
+  if (frame_id == "base_link")
+    return std::string(
+        "frame_id 'base_link' is no longer accepted: Cartesian goals are in "
+        "'arm_mount' (gravity-aligned); arm_base_link is tilted 30° on flatbot "
+        "and gen_1_5");
+  return "frame_id '" + frame_id + "' != arm_mount";
+}
+
 GoToEEPose::Feedback to_goto_feedback_msg(const TrajectoryFeedback &fb) {
   GoToEEPose::Feedback m;
   m.phase = "executing";

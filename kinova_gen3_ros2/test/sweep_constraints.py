@@ -240,7 +240,7 @@ def main():
 
     def goal_for(pose, hold="none", speed=1.0):
         g = GoToEEPose.Goal()
-        g.target.header.frame_id = "base_link"
+        g.target.header.frame_id = "arm_mount"
         (
             g.target.pose.position.x,
             g.target.pose.position.y,

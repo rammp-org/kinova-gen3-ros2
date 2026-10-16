@@ -52,7 +52,7 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
-# The ring, in base_link metres. A tour sweeps an arc in FRONT of the arm at two
+# The ring, in arm_mount metres. A tour sweeps an arc in FRONT of the arm at two
 # heights, so each leg moves the tool a long way in both y and z. Conservative
 # enough to stay inside the Gen3's comfortable envelope, big enough to see.
 RING_RADIUS = 0.50  # forward reach of the arc
@@ -127,7 +127,7 @@ def _send_one(node, client, pose, args, sender_id, hold):
     """Send one GoToEEPose goal; return its integer error_code (or a synthetic
     negative for reject/no-result). Blocks until the goal settles."""
     goal = GoToEEPose.Goal()
-    goal.target.header.frame_id = "base_link"
+    goal.target.header.frame_id = "arm_mount"
     (
         goal.target.pose.position.x,
         goal.target.pose.position.y,

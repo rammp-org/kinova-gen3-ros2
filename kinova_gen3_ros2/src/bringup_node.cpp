@@ -4,6 +4,7 @@
 #include <csignal>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -125,18 +126,26 @@ int main(int argc, char **argv) {
                    "description.launch.py mount_file:=<robot>/mount.yaml",
                    kinova_gen3_ros2::kRobotDescriptionTopic,
                    static_cast<long long>(kDescriptionTimeout.count()));
+    // SIGTERM (docker stop) during the wait is a requested stop: exit 0. Read
+    // before shutdown(), which would make ok() false either way.
+    const bool interrupted = !rclcpp::ok();
     rclcpp::shutdown();
-    return 1;
+    return interrupted ? 0 : 1;
   }
   // Core reduces the 13-DOF model to the seven joints on the chain to
   // ee_frame, locking the gripper at q = 0 -- which lumps its mass into the
   // wrist exactly as the old frozen model did.
-  Dynamics dyn(UrdfXml{*urdf_xml}, ee_frame),
-      pump_dyn(UrdfXml{*urdf_xml}, ee_frame);
+  // Built inside the try: Dynamics throws on a model it cannot use (ee_frame
+  // absent, e.g. an unprefixed model on the topic), and that must reach the
+  // FATAL below rather than std::terminate. Emplaced once and never reset, so
+  // every reference taken below stays valid for the process lifetime.
+  std::optional<Dynamics> dyn, pump_dyn;
   std::vector<std::string> js_names;
   try {
+    dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
+    pump_dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
     js_names =
-        kinova_gen3_ros2::joint_state_names(*urdf_xml, dyn.joint_names());
+        kinova_gen3_ros2::joint_state_names(*urdf_xml, dyn->joint_names());
   } catch (const std::exception &e) {
     RCLCPP_FATAL(node->get_logger(), "%s", e.what());
     rclcpp::shutdown();
@@ -184,20 +193,20 @@ int main(int argc, char **argv) {
   if (max_ref_speed > 0.0)
     pos_params.max_ref_speed.setConstant(max_ref_speed);
   else
-    dyn.velocity_limits(pos_params.max_ref_speed);
-  JointPositionMode pos(dyn, pos_params);
-  JointImpedanceMode imp(dyn);
+    dyn->velocity_limits(pos_params.max_ref_speed);
+  JointPositionMode pos(*dyn, pos_params);
+  JointImpedanceMode imp(*dyn);
   // The Supervisor holds all three modes because the streaming tier can open a
   // session in any of them. This node drives only trajectories (position and
   // impedance), so tau is never entered here -- but the supervisor needs it to
   // construct, and it defaults to gravity compensation with no tau_ff set.
-  JointTorqueMode tau(dyn);
+  JointTorqueMode tau(*dyn);
   // The Supervisor holds every mode a streaming session can open in. Velocity
   // mode is STIFF by contract -- it tracks the commanded rate and does not
   // yield to contact -- and its max_qd is seeded from the URDF when left
   // non-finite, so the default here is already the hardware's rating rather
   // than a guess.
-  JointVelocityMode vel(dyn);
+  JointVelocityMode vel(*dyn);
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
@@ -259,7 +268,7 @@ int main(int argc, char **argv) {
   deps.vel = &vel;
   deps.exec = &exec;
   deps.snap = &snap;
-  deps.pump_dyn = &pump_dyn;
+  deps.pump_dyn = &*pump_dyn;
   deps.stream =
       backend.get();     // Ros2Backend publishes /joint_states + /ee_state
   deps.action = &router; // GoalRouter demuxes the single ActionServerPort

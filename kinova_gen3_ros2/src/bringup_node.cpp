@@ -1,5 +1,6 @@
 // kinova_gen3_ros2/src/bringup_node.cpp
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <map>
 #include <memory>
@@ -9,6 +10,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "kinova_gen3_ros2/ros2_backend.h"
+#include "kinova_gen3_ros2/robot_description.h"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
@@ -40,6 +42,11 @@ namespace {
 std::atomic<bool> g_stop{false};
 void on_sigint(int) { g_stop.store(true); }
 
+// How long to wait for arm_state_publisher's model. sheppy starts containers
+// concurrently, so it may come up a little after us; the topic is latched, so
+// order does not matter within this window.
+constexpr std::chrono::seconds kDescriptionTimeout{30};
+
 // Build the GoToPreset registry from ROS params: `preset_names` lists the
 // presets, `presets.<name>` gives each one's 7 joint angles (rad). `home`
 // defaults to the cuRobo retract configuration so a stock node has one usable
@@ -69,13 +76,11 @@ std::map<std::string, std::vector<double>> load_presets(rclcpp::Node &node) {
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  std::string urdf = "models/gen3_7dof_2f85.urdf", ip;
-  // Dynamics resolves the EE frame BY NAME and throws if it is absent, so the
-  // default has to match whichever model is loaded. Core's own default is
-  // gen3_end_effector_link, matching the hand-edited models/ URDF its tests
-  // use; kinova_gen3_description generates end_effector_link. Overridable
-  // rather than hard-coded so both models work from this one binary.
-  std::string ee_frame = "gen3_end_effector_link";
+  std::string ip;
+  // Dynamics resolves the EE frame BY NAME and throws if it is absent. The
+  // model comes from /arm/robot_description, where every link carries the arm_
+  // prefix. Always passed explicitly: core's own default names its test model.
+  std::string ee_frame = "arm_end_effector_link";
   bool use_sim = false;
   int cpu = -1, prio = 80;
   double rate = 1000.0;
@@ -92,8 +97,6 @@ int main(int argc, char **argv) {
       use_sim = true;
     else if (a == "--ip")
       ip = nxt();
-    else if (a == "--urdf")
-      urdf = nxt();
     else if (a == "--cpu")
       cpu = std::stoi(nxt());
     else if (a == "--ee-frame")
@@ -108,7 +111,37 @@ int main(int argc, char **argv) {
       max_ref_speed = std::stod(nxt());
   }
 
-  Dynamics dyn(urdf, ee_frame), pump_dyn(urdf, ee_frame);
+  // The model, from arm_state_publisher, BEFORE anything real-time exists: the
+  // RT loop must never wait on DDS. It was rendered from the robot's mount
+  // file, so gravity compensation, FK and the Jacobian are all in arm_mount.
+  auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
+  const auto urdf_xml =
+      kinova_gen3_ros2::wait_for_robot_description(node, kDescriptionTimeout);
+  if (!urdf_xml) {
+    if (rclcpp::ok()) // a SIGTERM during the wait is a clean stop, not this
+      RCLCPP_FATAL(node->get_logger(),
+                   "no model on %s after %lld s. It is published by "
+                   "arm_state_publisher: ros2 launch kinova_gen3_description "
+                   "description.launch.py mount_file:=<robot>/mount.yaml",
+                   kinova_gen3_ros2::kRobotDescriptionTopic,
+                   static_cast<long long>(kDescriptionTimeout.count()));
+    rclcpp::shutdown();
+    return 1;
+  }
+  // Core reduces the 13-DOF model to the seven joints on the chain to
+  // ee_frame, locking the gripper at q = 0 -- which lumps its mass into the
+  // wrist exactly as the old frozen model did.
+  Dynamics dyn(UrdfXml{*urdf_xml}, ee_frame),
+      pump_dyn(UrdfXml{*urdf_xml}, ee_frame);
+  std::vector<std::string> js_names;
+  try {
+    js_names =
+        kinova_gen3_ros2::joint_state_names(*urdf_xml, dyn.joint_names());
+  } catch (const std::exception &e) {
+    RCLCPP_FATAL(node->get_logger(), "%s", e.what());
+    rclcpp::shutdown();
+    return 1;
+  }
   std::unique_ptr<Transport> base;
   if (use_sim) {
     JointFeedback init;
@@ -168,8 +201,8 @@ int main(int argc, char **argv) {
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
-  auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
-  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node);
+  auto backend =
+      std::make_shared<kinova_gen3_ros2::Ros2Backend>(node, js_names);
 
   // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with
   // no setter, so a dynamic parameter would appear to work and silently do
@@ -192,10 +225,9 @@ int main(int argc, char **argv) {
                             : interface::ArbitrationMode::kDisabled;
   const double estop_clear_max_age_s =
       node->declare_parameter("estop_clear_max_age_s", 1.0);
-  // "Expected" cannot be inferred from the node's own model: it loads the
-  // FROZEN 7-DOF URDF, in which the Robotiq joints are type="fixed", so its
-  // model never has a gripper regardless of the hardware. A robot genuinely
-  // built without one sets this false.
+  // "Expected" cannot be inferred from the node's own model: core reduces it to
+  // the seven arm joints, so it never has a gripper DOF regardless of the
+  // hardware. A robot genuinely built without one sets this false.
   const bool expect_gripper = node->declare_parameter("expect_gripper", true);
 
   // Router demuxes the Supervisor's single ActionServerPort by GoalId; the

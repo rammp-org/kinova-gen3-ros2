@@ -2,6 +2,7 @@
 #include "kinova_gen3_ros2/ros2_backend.h"
 #include <functional>
 #include <limits>
+#include <stdexcept>
 #include "kinova_lowlevel/joint_types.h"
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -10,7 +11,17 @@ using namespace kinova::interface;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
-Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
+Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node,
+                         std::vector<std::string> joint_names)
+    : node_(node) {
+  if (joint_names.size() != static_cast<size_t>(kinova::kNumJoints) + 1)
+    throw std::invalid_argument(
+        "Ros2Backend: need " + std::to_string(kinova::kNumJoints) +
+        " arm joint names then the gripper joint, got " +
+        std::to_string(joint_names.size()));
+  gripper_joint_name_ = joint_names.back();
+  joint_names.pop_back();
+  arm_joint_names_ = std::move(joint_names);
   server_ = rclcpp_action::create_server<Action>(
       node_, "execute_joint_trajectory",
       std::bind(&Ros2Backend::handle_goal, this, _1, _2),
@@ -186,8 +197,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
 
   sensor_msgs::msg::JointState msg;
   msg.header.stamp = node_->now();
-  msg.name = {"joint_1", "joint_2", "joint_3", "joint_4",
-              "joint_5", "joint_6", "joint_7"};
+  msg.name = arm_joint_names_;
   msg.position.resize(kinova::kNumJoints);
   msg.velocity.resize(kinova::kNumJoints);
   msg.effort.resize(kinova::kNumJoints);
@@ -215,7 +225,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
     // conformance suite's same-pump-tick invariant covers joint_states and
     // ee_state, not this column.
     const auto g = gripper_->on_query_gripper();
-    msg.name.push_back("robotiq_85_left_knuckle_joint");
+    msg.name.push_back(gripper_joint_name_);
     msg.position.push_back(gripper_to_knuckle_rad(g.position));
     // NaN, never 0: sensor_msgs' convention for "no measurement". Zero would be
     // indistinguishable from "not moving" / "no load". Core has no gripper

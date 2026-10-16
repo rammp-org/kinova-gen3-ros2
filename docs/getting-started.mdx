@@ -194,7 +194,7 @@ KINOVA_ARM_IP=192.168.1.10 docker compose up
 
 Three things here are load-bearing and not stylistic:
 
-- **`ipc: host` and `network_mode: host`** on *both* — without them the two
+- **`ipc: host` and `network_mode: host`** on all three — without them the two
   containers cannot see each other's DDS traffic, and neither can your shell.
 - **`cap_add: SYS_NICE` *and* the `ulimits`.** The capability permits
   `sched_setscheduler`; the rlimits are what let it succeed. `--privileged` raises

@@ -24,10 +24,9 @@ std::string urdf_with(const std::string &joint) {
          "<axis xyz='0 0 1'/><limit lower='0' upper='0.8' effort='1' "
          "velocity='1'/></joint></robot>";
 }
-const std::vector<std::string> kArm = {"arm_joint_1", "arm_joint_2",
-                                       "arm_joint_3", "arm_joint_4",
-                                       "arm_joint_5", "arm_joint_6",
-                                       "arm_joint_7"};
+const std::vector<std::string> kArm = {
+    "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6", "arm_joint_7"};
 rclcpp::Publisher<std_msgs::msg::String>::SharedPtr
 latched_publisher(const rclcpp::Node::SharedPtr &n) {
   return n->create_publisher<std_msgs::msg::String>(

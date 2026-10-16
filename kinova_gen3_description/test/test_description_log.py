@@ -10,7 +10,9 @@ from launch import LaunchContext
 from launch.actions import LogInfo
 from launch_ros.actions import Node
 
-TILTED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mounts", "tilted.yaml")
+TILTED = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "mounts", "tilted.yaml"
+)
 
 
 def _launch_module():

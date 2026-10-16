@@ -29,9 +29,9 @@ joint_state_names(const std::string &urdf_xml,
     throw std::runtime_error(std::string(kRobotDescriptionTopic) +
                              " is not a parseable URDF");
   if (!model.getJoint(kGripperJoint))
-    throw std::runtime_error(std::string(kRobotDescriptionTopic) +
-                             " has no joint '" + kGripperJoint +
-                             "': is arm_state_publisher serving the arm_ model?");
+    throw std::runtime_error(
+        std::string(kRobotDescriptionTopic) + " has no joint '" +
+        kGripperJoint + "': is arm_state_publisher serving the arm_ model?");
   arm_joints.emplace_back(kGripperJoint);
   return arm_joints;
 }

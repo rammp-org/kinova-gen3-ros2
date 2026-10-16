@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
@@ -110,6 +111,15 @@ int main(int argc, char **argv) {
       rate = std::stod(nxt());
     else if (a == "--max-ref-speed")
       max_ref_speed = std::stod(nxt());
+    else if (a == "--urdf") {
+      // Removed: a stale flag must not look like the operator chose the model.
+      std::fprintf(stderr,
+                   "--urdf was removed: the model comes from "
+                   "/arm/robot_description (published by arm_state_publisher / "
+                   "description.launch.py mount_file:=<mount.yaml>)\n");
+      rclcpp::shutdown();
+      return 2;
+    }
   }
 
   // The model, from arm_state_publisher, BEFORE anything real-time exists: the

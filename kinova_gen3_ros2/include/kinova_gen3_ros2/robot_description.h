@@ -13,7 +13,8 @@ namespace kinova_gen3_ros2 {
 // with TF or with cuRobo -- including about the mount rotation, which is what
 // gravity compensation depends on.
 inline constexpr char kRobotDescriptionTopic[] = "/arm/robot_description";
-// The 2F-85's one actuated joint; robot_state_publisher derives its five mimics.
+// The 2F-85's one actuated joint; robot_state_publisher derives its five
+// mimics.
 inline constexpr char kGripperJoint[] = "arm_robotiq_85_left_knuckle_joint";
 
 // Block until one message arrives on kRobotDescriptionTopic (RELIABLE +
@@ -29,7 +30,6 @@ wait_for_robot_description(const rclcpp::Node::SharedPtr &node,
 // std::runtime_error naming the joint if the URDF does not declare it:
 // robot_state_publisher matches by NAME, and a name it does not know freezes
 // that part of TF silently.
-std::vector<std::string>
-joint_state_names(const std::string &urdf_xml,
-                  std::vector<std::string> arm_joints);
+std::vector<std::string> joint_state_names(const std::string &urdf_xml,
+                                           std::vector<std::string> arm_joints);
 } // namespace kinova_gen3_ros2

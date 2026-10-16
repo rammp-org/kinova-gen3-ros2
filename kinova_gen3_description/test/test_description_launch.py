@@ -20,7 +20,9 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 
-TILTED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mounts", "tilted.yaml")
+TILTED = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "mounts", "tilted.yaml"
+)
 LATCHED = QoSProfile(
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
@@ -33,7 +35,11 @@ def generate_test_description():
     desc = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
-                [FindPackageShare("kinova_gen3_description"), "launch", "description.launch.py"]
+                [
+                    FindPackageShare("kinova_gen3_description"),
+                    "launch",
+                    "description.launch.py",
+                ]
             )
         ),
         launch_arguments={"mount_file": TILTED}.items(),
@@ -88,7 +94,9 @@ class TestDescription(unittest.TestCase):
         def lookup():
             try:
                 tf.append(
-                    buf.lookup_transform("arm_mount", "arm_base_link", rclpy.time.Time())
+                    buf.lookup_transform(
+                        "arm_mount", "arm_base_link", rclpy.time.Time()
+                    )
                 )
             except Exception:
                 pass

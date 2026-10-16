@@ -6,8 +6,8 @@ scripts in this folder; the page polls status once a second and embeds the
 latest report. Stdlib only, plus rclpy for the live joint-state rate.
 
   source env.sh
-  python3 panel.py --port 8766            # then  ssh -L 8766:localhost:8766 abra
-  python3 panel.py --port 8766 --mock     # no ROS, no arm: synthetic runs, for UI work
+  python3 panel.py --port 8790            # then  ssh -L 8790:localhost:8790 abra
+  python3 panel.py --port 8790 --mock     # no ROS, no arm: synthetic runs, for UI work
 
 The tour button MOVES THE ARM. The page asks before it does, and the
 e-stop is still the only real safety.
@@ -412,7 +412,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 def main():
     global S
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--port", type=int, default=8766)
+    ap.add_argument("--port", type=int, default=8790)
     ap.add_argument(
         "--bind",
         default="127.0.0.1",
@@ -430,6 +430,15 @@ def main():
     threading.Thread(target=arm_status_loop, daemon=True).start()
     threading.Thread(target=rate_loop, daemon=True).start()
     srv = http.server.ThreadingHTTPServer((args.bind, args.port), Handler)
+
+    # rclpy installs its own SIGTERM/SIGINT handling once the rate thread starts;
+    # make a plain kill still stop the recorder and exit.
+    def _stop(signum, frame):
+        stop_record()
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
     print(
         f"panel on http://{args.bind}:{args.port}/  (mock={args.mock}, urdf={args.urdf})",
         flush=True,

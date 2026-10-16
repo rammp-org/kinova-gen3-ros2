@@ -66,11 +66,11 @@ Buttons instead of commands. On the arm computer:
 
 ```sh
 source env.sh
-python3 panel.py --port 8766
+python3 panel.py --port 8790
 ```
 
-Then from your laptop `ssh -L 8766:localhost:8766 abra` and open
-`http://localhost:8766/`. One button runs the whole test: record, a baseline
+Then from your laptop `ssh -L 8790:localhost:8790 abra` and open
+`http://localhost:8790/`. One button runs the whole test: record, a baseline
 loop with nobody touching the arm, the loops you tap during, then the report,
 which appears on the page. A large TAP button stamps the marker, so a phone on
 the same tunnel or LAN (`--bind 0.0.0.0`) works as the tap clicker. The

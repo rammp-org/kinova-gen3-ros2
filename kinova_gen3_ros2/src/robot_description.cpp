@@ -16,7 +16,7 @@ wait_for_robot_description(const rclcpp::Node::SharedPtr &node,
   ex.add_node(node);
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (!xml && rclcpp::ok() && std::chrono::steady_clock::now() < deadline)
-    ex.spin_some(std::chrono::milliseconds(50));
+    ex.spin_once(std::chrono::milliseconds(50));
   ex.remove_node(node);
   return xml;
 }

@@ -1,6 +1,7 @@
 // kinova_gen3_ros2/include/kinova_gen3_ros2/robot_description.h
 #pragma once
 #include <chrono>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -24,6 +25,14 @@ inline constexpr char kGripperJoint[] = "arm_robotiq_85_left_knuckle_joint";
 std::optional<std::string>
 wait_for_robot_description(const rclcpp::Node::SharedPtr &node,
                            std::chrono::milliseconds timeout);
+
+// Keep listening after startup: call `on_change` for every message on
+// kRobotDescriptionTopic whose XML differs from `in_use` (the latched copy of
+// the model in use arrives again on subscribe and is ignored). Hold the
+// returned subscription for as long as it should watch. Not on the RT path.
+rclcpp::SubscriptionBase::SharedPtr
+watch_robot_description(const rclcpp::Node::SharedPtr &node, std::string in_use,
+                        std::function<void()> on_change);
 
 // The names /joint_states carries: `arm_joints` (the model's arm joints in
 // chain order -- Dynamics::joint_names()) followed by kGripperJoint. Throws

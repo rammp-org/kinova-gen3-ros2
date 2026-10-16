@@ -157,10 +157,37 @@ int main(int argc, char **argv) {
     js_names =
         kinova_gen3_ros2::joint_state_names(*urdf_xml, dyn->joint_names());
   } catch (const std::exception &e) {
-    RCLCPP_FATAL(node->get_logger(), "%s", e.what());
+    RCLCPP_FATAL(node->get_logger(), "model on %s: %s",
+                 kinova_gen3_ros2::kRobotDescriptionTopic, e.what());
     rclcpp::shutdown();
     return 1;
   }
+  // The driver's own record of the model it compensates with. The embodiment
+  // line is in arm_state_publisher's log; this one is in ours, and the tilt is
+  // read from the model, so a wrong robot shows here before torque is on.
+  {
+    std::string names;
+    for (const auto &n : dyn->joint_names())
+      names += (names.empty() ? "" : ",") + n;
+    RCLCPP_INFO(
+        node->get_logger(),
+        "model from %s: mount tilt %.1f deg from vertical, ee_frame %s, "
+        "joints [%s]",
+        kinova_gen3_ros2::kRobotDescriptionTopic, dyn->mount_tilt_deg(),
+        ee_frame.c_str(), names.c_str());
+  }
+  // The model is read once. A different one appearing later
+  // (arm_state_publisher restarted with another mount, a second publisher)
+  // would move TF -- and a restarted cuRobo -- away from the gravity this
+  // driver keeps using, so say so, every time, until the driver is restarted.
+  auto description_watch = kinova_gen3_ros2::watch_robot_description(
+      node, *urdf_xml, [logger = node->get_logger()] {
+        RCLCPP_ERROR(logger,
+                     "a DIFFERENT model was published on %s; this driver is "
+                     "still using the one it started with (TF may now disagree "
+                     "with its gravity). Restart the driver.",
+                     kinova_gen3_ros2::kRobotDescriptionTopic);
+      });
   std::unique_ptr<Transport> base;
   if (use_sim) {
     JointFeedback init;
@@ -246,7 +273,10 @@ int main(int argc, char **argv) {
       node->declare_parameter("estop_clear_max_age_s", 1.0);
   // "Expected" cannot be inferred from the node's own model: core reduces it to
   // the seven arm joints, so it never has a gripper DOF regardless of the
-  // hardware. A robot genuinely built without one sets this false.
+  // hardware. A robot genuinely built without one sets this false -- but its
+  // model must still declare arm_robotiq_85_left_knuckle_joint, which
+  // joint_state_names() requires: a gripper:=none render cannot start the node
+  // today (gripper is not a launch argument, so no deployment renders one).
   const bool expect_gripper = node->declare_parameter("expect_gripper", true);
 
   // Router demuxes the Supervisor's single ActionServerPort by GoalId; the
@@ -263,7 +293,8 @@ int main(int argc, char **argv) {
   // be declared before `sup` so they outlive it (the router hands it their
   // ports).
   kinova_gen3_ros2::GoToEEPoseServer goto_server(node, router, planner,
-                                                 cb_group);
+                                                 cb_group, dyn->joint_names(),
+                                                 dyn->mount_tilt_deg());
   kinova_gen3_ros2::GoToJointConfigServer jc_server(node, router, planner,
                                                     cb_group);
   kinova_gen3_ros2::GoToPresetServer preset_server(
@@ -323,6 +354,11 @@ int main(int argc, char **argv) {
   // unblocks the RT loop (exec.run) blocking the main thread.
   std::signal(SIGINT, on_sigint);
   std::signal(SIGTERM, on_sigint);
+  // A signal that landed before the two lines above went to rclcpp's handler:
+  // the context is down (no /estop, no services) and g_stop was never set. Do
+  // not connect to the arm into that; it was a requested stop.
+  if (!rclcpp::ok())
+    return 0;
   tap.connect();
   tap.set_servoing_low_level();
   sup.start();

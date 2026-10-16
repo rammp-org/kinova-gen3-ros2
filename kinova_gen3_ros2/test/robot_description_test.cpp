@@ -1,4 +1,5 @@
 // The driver's model arrives on /arm/robot_description, not as a file.
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <stdexcept>
@@ -13,6 +14,7 @@
 using namespace std::chrono_literals;
 using kinova_gen3_ros2::joint_state_names;
 using kinova_gen3_ros2::wait_for_robot_description;
+using kinova_gen3_ros2::watch_robot_description;
 
 namespace {
 // Smallest URDF urdf::Model accepts, with one named revolute joint.
@@ -104,4 +106,37 @@ TEST(JointStateNames, AModelWithoutTheGripperJointIsRefusedByName) {
 
 TEST(JointStateNames, GarbageIsRefused) {
   EXPECT_THROW(joint_state_names("not xml", kArm), std::runtime_error);
+}
+
+// After startup the driver keeps listening: the latched copy of its own model
+// is not a change; a different model is, every time it is published.
+TEST_F(RobotDescriptionTest, OnlyADifferentModelIsReportedAsAChange) {
+  auto pub_node = std::make_shared<rclcpp::Node>("fake_asp_watch");
+  auto pub = latched_publisher(pub_node);
+  std_msgs::msg::String m;
+  m.data = "model A";
+  pub->publish(m);
+
+  auto node = std::make_shared<rclcpp::Node>("driver_watch");
+  std::atomic<int> changes{0};
+  auto watch = watch_robot_description(node, "model A", [&] { ++changes; });
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(node);
+  auto spin_for = [&](std::chrono::milliseconds d) {
+    const auto end = std::chrono::steady_clock::now() + d;
+    while (std::chrono::steady_clock::now() < end)
+      ex.spin_once(20ms);
+  };
+  spin_for(500ms);
+  EXPECT_EQ(changes.load(), 0); // the latched copy of the model in use
+
+  m.data = "model B";
+  pub->publish(m);
+  spin_for(500ms);
+  EXPECT_EQ(changes.load(), 1);
+
+  pub->publish(m); // still different: still reported
+  spin_for(500ms);
+  EXPECT_EQ(changes.load(), 2);
+  ex.remove_node(node);
 }

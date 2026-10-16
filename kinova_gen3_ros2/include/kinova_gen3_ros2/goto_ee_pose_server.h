@@ -1,6 +1,8 @@
 #pragma once
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 #include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/planned_move_server.h"
 namespace kinova_gen3_ros2 {
@@ -8,19 +10,33 @@ namespace kinova_gen3_ros2 {
 // Hosts GoToEEPose: validate -> cuRobo plan_to_pose -> feed the planned
 // trajectory into the shared CommandSink seam (same path as
 // ExecuteJointTrajectory) -> settle. The lifecycle lives in PlannedMoveServer;
-// only the frame check and the planner call are specific to this action.
+// only the frame checks and the planner call are specific to this action.
 class GoToEEPoseServer
     : public PlannedMoveServer<rammp_arm_interfaces::action::GoToEEPose> {
 public:
   using Action = rammp_arm_interfaces::action::GoToEEPose;
 
+  // `model_joints` and `mount_tilt_deg` come from the driver's model
+  // (Dynamics::joint_names(), mount_tilt_deg()): with them a plan from a
+  // planner that does not plan in arm_mount is refused on a tilted mount.
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,
-                   rclcpp::CallbackGroup::SharedPtr cb_group)
+                   rclcpp::CallbackGroup::SharedPtr cb_group,
+                   std::vector<std::string> model_joints, double mount_tilt_deg)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner,
-                                  cb_group) {}
+                                  cb_group),
+        model_joints_(std::move(model_joints)),
+        mount_tilt_deg_(mount_tilt_deg) {}
 
 protected:
+  std::optional<std::string>
+  check_plan(const CuroboPlanClient::Outcome &outcome) override {
+    if (auto why = pose_plan_frame_rejection(outcome.trajectory.joint_names,
+                                             model_joints_, mount_tilt_deg_))
+      return "GoToEEPose: " + *why;
+    return std::nullopt;
+  }
+
   std::optional<std::string> validate(const Action::Goal &goal) override {
     if (auto why = ee_pose_frame_rejection(goal.target.header.frame_id))
       return "GoToEEPose: " + *why;
@@ -52,6 +68,10 @@ protected:
     planner_.plan(goal.target.pose, this->start_config(), goal.orientation_hold,
                   std::move(on_fb), std::move(on_done));
   }
+
+private:
+  std::vector<std::string> model_joints_;
+  double mount_tilt_deg_;
 };
 
 } // namespace kinova_gen3_ros2

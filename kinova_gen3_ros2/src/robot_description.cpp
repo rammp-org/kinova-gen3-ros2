@@ -21,6 +21,18 @@ wait_for_robot_description(const rclcpp::Node::SharedPtr &node,
   return xml;
 }
 
+rclcpp::SubscriptionBase::SharedPtr
+watch_robot_description(const rclcpp::Node::SharedPtr &node, std::string in_use,
+                        std::function<void()> on_change) {
+  return node->create_subscription<std_msgs::msg::String>(
+      kRobotDescriptionTopic, rclcpp::QoS(1).reliable().transient_local(),
+      [in_use = std::move(in_use), on_change = std::move(on_change)](
+          std_msgs::msg::String::ConstSharedPtr m) {
+        if (m->data != in_use)
+          on_change();
+      });
+}
+
 std::vector<std::string>
 joint_state_names(const std::string &urdf_xml,
                   std::vector<std::string> arm_joints) {

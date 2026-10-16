@@ -2,7 +2,9 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/gains.h" // kTorqueLimitFloor
 #include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
@@ -440,4 +442,23 @@ TEST(MessageMapping, EePoseFrameMustBeArmMount) {
   // A default-constructed goal: the client forgot the header.
   EXPECT_EQ(ee_pose_frame_rejection(""),
             std::optional<std::string>("frame_id '' != arm_mount"));
+}
+
+TEST(MessageMapping, APosePlanMustBeInArmMountOnATiltedMount) {
+  const std::vector<std::string> model = {
+      "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
+      "arm_joint_5", "arm_joint_6", "arm_joint_7"};
+  const std::vector<std::string> stale = {"joint_1", "joint_2", "joint_3",
+                                          "joint_4", "joint_5", "joint_6",
+                                          "joint_7"};
+  // Level: arm_base_link IS arm_mount, so any planner is right.
+  EXPECT_EQ(pose_plan_frame_rejection(stale, model, 0.0), std::nullopt);
+  EXPECT_EQ(pose_plan_frame_rejection(stale, model, 0.4), std::nullopt);
+  // Tilted: only a planner that names the model's joints plans in arm_mount.
+  EXPECT_EQ(pose_plan_frame_rejection(model, model, 30.0), std::nullopt);
+  const auto why = pose_plan_frame_rejection(stale, model, 30.0);
+  ASSERT_TRUE(why.has_value());
+  EXPECT_NE(why->find("30.0"), std::string::npos) << *why;
+  EXPECT_NE(why->find("/arm/robot_description"), std::string::npos) << *why;
+  EXPECT_TRUE(pose_plan_frame_rejection({}, model, 30.0).has_value());
 }

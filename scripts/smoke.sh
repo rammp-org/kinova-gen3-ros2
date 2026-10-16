@@ -35,15 +35,21 @@ docker run -d --rm --name "$NAME" --network host \
 
 sleep 10
 
-if ! docker logs "$NAME-desc" 2>&1 | grep -q "embodiment: test_level"; then
+# Capture, then grep. `docker logs | grep -q` under pipefail is a false FAIL:
+# grep -q exits at the first match, docker logs takes SIGPIPE (141) while still
+# writing, and pipefail reports the pipeline as failed -- certain when the match
+# is near the top of a long log, as the embodiment line is.
+desc_logs="$(docker logs "$NAME-desc" 2>&1)"
+if ! grep -q "embodiment: test_level" <<<"$desc_logs"; then
   echo "FAIL: arm_state_publisher did not log its embodiment line"
-  docker logs "$NAME-desc" 2>&1 | tail -20
+  tail -20 <<<"$desc_logs"
   exit 1
 fi
 
-if ! docker logs "$NAME" 2>&1 | grep -q "$PATTERN"; then
+node_logs="$(docker logs "$NAME" 2>&1)"
+if ! grep -q "$PATTERN" <<<"$node_logs"; then
   echo "FAIL: no match for pattern '$PATTERN' in the container logs"
-  docker logs "$NAME" 2>&1 | tail -20
+  tail -20 <<<"$node_logs"
   exit 1
 fi
 

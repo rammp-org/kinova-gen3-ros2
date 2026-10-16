@@ -45,8 +45,9 @@ def sweep(model, duration=8.0, rate=RATE, noise_nm=0.0, seed=0):
     return t, q, qd, tau, ext, push
 
 
-def write_csv(path, t, q, qd, tau, push):
+def write_csv(path, t, q, qd, tau, push, phase_at=None):
     starts = np.flatnonzero(np.diff(push.astype(int)) == 1) + 1
+    phase_k = int(np.argmin(np.abs(t - phase_at))) if phase_at is not None else -1
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(
@@ -63,7 +64,7 @@ def write_csv(path, t, q, qd, tau, push):
                 + [f"{v:.6f}" for v in qd[k]]
                 + [f"{v:.4f}" for v in tau[k]]
                 + ["nan"] * 6
-                + [1 if k in starts else 0]
+                + [2 if k == phase_k else (1 if k in starts else 0)]
             )
 
 

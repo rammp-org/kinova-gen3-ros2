@@ -9,7 +9,8 @@ were.
   python3 record_joint_states.py --out run.csv --duration 60
 
 Columns: t, q1..q7 (rad), qd1..qd7 (rad/s), tau1..tau7 (N.m, measured),
-fx fy fz tx ty tz (the /ee_state wrench core publishes, NaN if absent), marker.
+fx fy fz tx ty tz (the /ee_state wrench core publishes, NaN if absent), marker
+(1 = tap, 2 = phase boundary between the baseline loop and the tap loops).
 """
 
 import argparse
@@ -77,16 +78,23 @@ class Recorder(Node):
         if len(m.position) < N or len(m.effort) < N:
             return
         if self.marker_file and os.path.exists(self.marker_file):
+            with open(self.marker_file) as f:
+                kind = f.read().strip()
             os.remove(self.marker_file)
-            self.pending_marker = True
+            # "phase" separates the baseline loop from the tap loops; it is NOT a tap.
+            self.pending_marker = 2 if kind == "phase" else 1
         stamp = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
         if self.t0 is None:
             self.t0 = stamp
-        marker = 1 if self.pending_marker else 0
+        marker = int(self.pending_marker or 0)
         if marker:
             self.pending_marker = False
-            self.markers += 1
-            print(f"marker {self.markers} at t={stamp - self.t0:.3f}", flush=True)
+            if marker == 1:
+                self.markers += 1
+            print(
+                f"{'tap' if marker == 1 else 'phase'} marker at t={stamp - self.t0:.3f}",
+                flush=True,
+            )
         self.w.writerow(
             [f"{stamp - self.t0:.4f}"]
             + [f"{v:.6f}" for v in m.position[:N]]

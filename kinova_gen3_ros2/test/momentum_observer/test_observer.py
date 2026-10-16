@@ -66,3 +66,36 @@ def test_sign_detection_from_still_samples():
     g = np.tile(model.gravity(q), (n, 1))
     assert detect_tau_sign(model, np.tile(q, (n, 1)), np.zeros((n, 7)), g) == 1.0
     assert detect_tau_sign(model, np.tile(q, (n, 1)), np.zeros((n, 7)), -g) == -1.0
+
+
+def test_phase_marker_is_not_a_tap(tmp_path):
+    """A marker of 2 is the baseline/tap boundary, never a tap."""
+    from analyze import load_csv
+    from synthetic import sweep, write_csv
+
+    model = ArmModel(URDF)
+    t, q, qd, tau, _, push = sweep(model, duration=4.0)
+    path = tmp_path / "r.csv"
+    write_csv(path, t, q, qd, tau, push, phase_at=2.0)
+    _, _, _, _, taps, phase = load_csv(path)
+    assert phase == 2.0
+    assert all(abs(m - 2.0) > 1e-6 for m in taps)
+
+
+def test_baseline_map_removes_pose_dependent_bias():
+    """A bias that is a function of pose survives the observer; the baseline map removes it."""
+    from analyze import baseline_map
+
+    model = ArmModel(URDF)
+    t, q, qd, tau, _, _push = sweep(model, duration=6.0)
+    bias = 1.5 * np.sin(q[:, 3])[:, None] * np.array([0, 1, 0, 1, 0, 0, 0])
+    r = run_observer(model, t, q, qd, tau - bias, gain=20.0)
+    # The sweep has a 1.5 s period; a 2 s baseline covers every pose once with no
+    # push in it (the first push starts at 2.4 s). The window after it skips the
+    # pushes and the observer's decay tail behind each one.
+    phase = 2.0
+    fixed, matched = baseline_map(t, q, qd, r, phase)
+    after = (t >= 3.0) & (t < 5.0) & matched
+    assert matched[t >= phase].mean() > 0.9
+    assert np.abs(fixed[after, 3]).max() < 0.4
+    assert np.abs(r[after, 3]).max() > 1.0

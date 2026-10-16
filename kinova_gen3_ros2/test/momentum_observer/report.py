@@ -51,6 +51,23 @@ def per_tap(r, joints):
     return rows
 
 
+def _slow(sig, r, w=29):
+    """RMS of the smoothed signal while moving in the tap loops, taps excluded: the pose-dependent part."""
+    t, qd = r["t"], r["qd"]
+    k = np.ones(w) / w
+    sm = np.column_stack(
+        [np.convolve(sig[:, j], k, mode="same") for j in range(sig.shape[1])]
+    )
+    sel = (np.abs(qd).max(axis=1) > 0.05) & (t >= (r["phase"] or 0)) & ~r["tap"]
+    if not sel.any():
+        sel = (np.abs(qd).max(axis=1) > 0.05) & (t >= (r["phase"] or 0))
+    return (
+        float(np.sqrt((sm[sel][:, [1, 3, 5]] ** 2).mean()))
+        if sel.any()
+        else float("nan")
+    )
+
+
 def build(r, joints, notes):
     t, qd, qs, ob = r["t"], r["qd"], r["qs"], r["ob"]
     stride = max(1, int(np.ceil(len(t) / MAX_POINTS)))
@@ -62,7 +79,16 @@ def build(r, joints, notes):
         "qs": [[round(float(v), 3) for v in qs[idx, j]] for j in joints],
         "ob": [[round(float(v), 3) for v in ob[idx, j]] for j in joints],
     }
+    has_bs = r["ob_bs"] is not None
+    if has_bs:
+        series["obbs"] = [
+            [round(float(v), 3) for v in r["ob_bs"][idx, j]] for j in joints
+        ]
     marks = [{"i": int(np.argmin(np.abs(td - m))), "label": "tap"} for m in r["taps"]]
+    if r["phase"] is not None:
+        marks.append(
+            {"i": int(np.argmin(np.abs(td - r["phase"]))), "label": "tap loops start"}
+        )
     tlim = max(np.abs(qs[:, joints]).max(), np.abs(ob[:, joints]).max(), 0.5)
     data = {
         "names": names,
@@ -75,6 +101,12 @@ def build(r, joints, notes):
 
     qs_st = summarize("core", qs, r["moving"], r["tap"], joints)
     ob_st = summarize("observer", ob, r["moving"], r["tap"], joints)
+    bs_st = None
+    if has_bs:
+        # the corrected signal exists only after the boundary, so its no-tap floor is
+        # the tap loops' motion outside the tap windows (needs per-tap markers)
+        mv = (np.abs(qd).max(axis=1) > 0.05) & (t >= r["phase"])
+        bs_st = summarize("observer - baseline", r["ob_bs"], mv, r["tap"], joints)
     jmax = max(joints, key=lambda j: abs(r["qs_off"][j]))
     worst_qs = max(qs_st[j][1] for j in joints)
     worst_ob = max(ob_st[j][1] for j in joints)
@@ -90,14 +122,17 @@ def build(r, joints, notes):
         return html.escape(str(s))
 
     def num(v, d=2):
-        return "nan" if np.isnan(v) else f"{v:.{d}f}"
+        return "–" if np.isnan(v) else f"{v:.{d}f}"
 
     rows = []
     for j in joints:
-        for label, st, off in (
+        kinds = [
             ("core g(q) − τ", qs_st, r["qs_off"]),
             ("observer", ob_st, r["ob_off"]),
-        ):
+        ]
+        if bs_st:
+            kinds.append(("observer − baseline map", bs_st, np.zeros(7)))
+        for label, st, off in kinds:
             rms, qpeak, peak, ratio = st[j]
             rows.append(
                 f"<tr><td>J{j + 1}</td><td>{label}</td><td class=num>{off[j]:+.2f}</td>"
@@ -136,6 +171,17 @@ def build(r, joints, notes):
     ]
     note_paras = [f"<p>{esc(p.strip())}</p>" for p in notes.split("\n\n") if p.strip()]
 
+    bs_panel = ""
+    if has_bs:
+        bs_panel = """<section class="ax-panel chart">
+    <h2>Observer − baseline map</h2>
+    <div class="ax-cap">Tap loops only. The baseline loop's residual at the same pose and direction subtracted, so the pose-dependent model error is gone; what remains is sensor noise and pushes.</div>
+    <svg id="obbs"></svg>
+  </section>"""
+        facts.append(
+            "Baseline map: the baseline loop's residual at the same pose was subtracted from the tap loops. "
+            f"Observer slow error (moving, no tap) went from {_slow(ob, r):.2f} to {_slow(r['ob_bs'], r):.2f} N·m RMS on the plotted joints."
+        )
     web = {}
     for n in ("tokens.css", "ax-charts.js", "ax-fx.js"):
         with open(os.path.join(HERE, "web", n)) as f:
@@ -196,6 +242,7 @@ def build(r, joints, notes):
     <svg id="ob"></svg>
   </section>
 
+  {bs_panel}
   <section class="ax-panel">
     <h2>Summary</h2>
     <div class="ax-cap">Motion RMS and motion peak: the signal while the arm moves with no tap in progress. Tap peak: the largest excursion inside a tap window ({r["before"]:g} s before to {r["after"]:g} s after a marker). Ratio: tap peak over motion peak.</div>
@@ -237,6 +284,7 @@ function draw() {{
   axLine(document.getElementById('speed'), {{ ...common, series: mk('speed'), yTicks: D.speedTicks, unit: 'rad/s', yLabel: 'Joint speed, rad/s' }});
   axLine(document.getElementById('qs'), {{ ...common, series: mk('qs'), yTicks: D.torqueTicks, unit: 'N·m', yLabel: 'External torque, N·m' }});
   axLine(document.getElementById('ob'), {{ ...common, series: mk('ob'), yTicks: D.torqueTicks, unit: 'N·m', yLabel: 'External torque, N·m' }});
+  if (D.series.obbs) axLine(document.getElementById('obbs'), {{ ...common, series: mk('obbs'), yTicks: D.torqueTicks, unit: 'N·m', yLabel: 'External torque, N·m' }});
 }}
 document.getElementById('mode').onclick = e => {{
   const light = document.documentElement.dataset.mode !== 'light';

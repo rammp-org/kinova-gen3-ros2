@@ -30,7 +30,8 @@ def load_csv(path):
     qd = np.array([[float(r[f"qd{i}"]) for i in range(1, 8)] for r in rows])
     tau = np.array([[float(r[f"tau{i}"]) for i in range(1, 8)] for r in rows])
     marker = np.array([int(float(r.get("marker", 0) or 0)) for r in rows])
-    return t, q, qd, tau, t[marker == 1]
+    phase = t[marker == 2]
+    return t, q, qd, tau, t[marker == 1], (float(phase[0]) if len(phase) else None)
 
 
 def detect_tau_sign(model, q, qd, tau):
@@ -62,11 +63,22 @@ def rest_offset(t, qd, sig):
     return np.median(sig[still], axis=0)
 
 
-def windows(t, qd, taps, before=TAP_BEFORE_S, after=TAP_AFTER_S):
+def windows(t, qd, taps, before=TAP_BEFORE_S, after=TAP_AFTER_S, phase=None):
+    """moving: the arm is in motion. tap: inside a tap window.
+
+    With a phase boundary and no tap markers, everything after the boundary is the
+    tap window (the operator tapped somewhere in there). With a boundary AND tap
+    markers, the no-tap statistics come from the baseline loop only.
+    """
     moving = (np.abs(qd).max(axis=1) > MOVING_RAD_S) & (t > SETTLE_S)
     tap = np.zeros(len(t), bool)
     for m in taps:
         tap |= (t >= m - before) & (t <= m + after)
+    if phase is not None:
+        if not len(taps):
+            tap |= t >= phase
+        else:
+            moving &= t < phase
     return moving, tap
 
 
@@ -174,12 +186,39 @@ def plot(path, t, qd, qs, ob, taps, joints, light):
     ps.save(fig, path)
 
 
+def baseline_map(t, q, qd, sig, phase, radius=0.03):
+    """Subtract the baseline loop's residual at the same pose and direction.
+
+    The model error is a function of pose, not time, and the tour repeats the same
+    path, so for every sample after the phase boundary take the baseline sample
+    nearest in joint space (same sign of velocity on the moving joints) and subtract
+    its residual. Both estimators get the identical correction. Samples with no
+    baseline neighbour within `radius` rad (RMS over joints) are left alone.
+    """
+    base = t < phase
+    if base.sum() < 10:
+        return sig.copy(), np.zeros(len(t), bool)
+    feat = np.hstack(
+        [q, 0.05 * np.sign(np.round(qd, 2))]
+    )  # direction as a small extra feature
+    fb, sb = feat[base], sig[base]
+    out = sig.copy()
+    matched = np.zeros(len(t), bool)
+    for k in np.flatnonzero(~base):
+        d = np.sqrt(((fb - feat[k]) ** 2).mean(axis=1))
+        j = int(np.argmin(d))
+        if d[j] <= radius:
+            out[k] = sig[k] - sb[j]
+            matched[k] = True
+    return out, matched
+
+
 def compute(
     csv_path, urdf, gain=20.0, tau_sign=0.0, before=TAP_BEFORE_S, after=TAP_AFTER_S
 ):
     """Everything the plot, the table and the HTML report share. One dict, no plotting."""
     model = ArmModel(urdf)
-    t, q, qd, tau, taps = load_csv(csv_path)
+    t, q, qd, tau, taps, phase = load_csv(csv_path)
     sign = tau_sign or detect_tau_sign(model, q, qd, tau)
     tau = tau * sign
     rate = 1.0 / np.median(np.diff(t))
@@ -187,7 +226,11 @@ def compute(
     ob = run_observer(model, t, q, qd, tau, gain=gain)
     qs_off, ob_off = rest_offset(t, qd, qs), rest_offset(t, qd, ob)
     qs, ob = qs - qs_off, ob - ob_off
-    moving, tap = windows(t, qd, taps, before, after)
+    moving, tap = windows(t, qd, taps, before, after, phase)
+    qs_bs = ob_bs = matched = None
+    if phase is not None:
+        qs_bs, matched = baseline_map(t, q, qd, qs, phase)
+        ob_bs, _ = baseline_map(t, q, qd, ob, phase)
     return {
         "csv": csv_path,
         "urdf": urdf,
@@ -199,8 +242,12 @@ def compute(
         "qd": qd,
         "tau": tau,
         "taps": taps,
+        "phase": phase,
         "qs": qs,
         "ob": ob,
+        "qs_bs": qs_bs,
+        "ob_bs": ob_bs,
+        "matched": matched,
         "qs_off": qs_off,
         "ob_off": ob_off,
         "moving": moving,
@@ -259,6 +306,18 @@ def main():
     stem = os.path.splitext(args.out)[0]
     qs_stats = summarize("core", r["qs"], r["moving"], r["tap"], joints)
     ob_stats = summarize("observer", r["ob"], r["moving"], r["tap"], joints)
+    if r["ob_bs"] is not None:
+        # tap-phase statistics only make sense after the boundary; the no-tap floor of
+        # the corrected signal is the tap-loop motion with no tap in progress
+        t, ph = r["t"], r["phase"]
+        mv = (np.abs(r["qd"]).max(axis=1) > MOVING_RAD_S) & (t >= ph)
+        bs = summarize("observer - baseline", r["ob_bs"], mv, r["tap"], joints)
+        print("observer, baseline map subtracted (tap loops only):")
+        for j in joints:
+            _rms, qpeak, peak, ratio = bs[j]
+            print(
+                f"  J{j + 1}: motion peak {qpeak:.2f}  tap peak {peak:.2f}  ratio {ratio:.1f}"
+            )
     write_summary(
         stem + ".md",
         args.csv,

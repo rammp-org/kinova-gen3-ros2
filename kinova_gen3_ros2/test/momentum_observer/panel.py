@@ -143,13 +143,15 @@ def stop_record():
         S.recorder = None
 
 
-def tap():
+def tap(kind="tap"):
+    """kind: "tap" for a real poke, "phase" for the baseline/tap boundary."""
     with S.lock:
         if S.run is None:
             raise RuntimeError("not recording")
         with open(os.path.join(RUNS, S.run + ".TAP"), "w") as f:
-            f.write("tap\n")
-        S.markers += 1
+            f.write(kind + "\n")
+        if kind == "tap":
+            S.markers += 1
 
 
 def start_tour(loops, speed):
@@ -245,7 +247,7 @@ def sequence(name, loops, speed):
         if wait_tour() != 0:
             raise RuntimeError("baseline tour failed")
         time.sleep(1)
-        tap()  # marks the start of the tap period
+        tap("phase")  # boundary between baseline and tap loops; not a tap
         phase("TAP NOW: poke the arm while it moves")
         start_tour(loops, speed)
         if wait_tour() != 0:
@@ -253,7 +255,7 @@ def sequence(name, loops, speed):
         time.sleep(1)
         stop_record()
         phase("analyzing")
-        analyze(name, 20.0, 0.0, 120.0)
+        analyze(name, 20.0, 0.2, 0.8)
         phase(None)
     except Exception as e:  # noqa: BLE001  (reported to the page, not swallowed)
         stop_record()

@@ -363,8 +363,10 @@ which throws if the frame is absent.
 
 - The **wrist camera and its 0.5 kg mount are not in the generated model** — they were in
   the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
-  the resulting 0.436 kg difference so it cannot be forgotten; if the physical arm
+  the resulting 0.572 kg difference so it cannot be forgotten; if the physical arm
   carries them, gravity compensation is under-modelled by that much at the wrist.
+- The model's `camera` xacro arg (Kinova's built-in vision module) defaults to `false`:
+  RAMMP's arms do not have one. The vision bracelet is 0.136 kg heavier.
 - Model configuration is not exposed at launch: `prefix` is a fixed xacro property
   (`arm_`), and `gripper` and `camera` are xacro args of the model rendered from
   `mount_file`, but neither is a launch argument.

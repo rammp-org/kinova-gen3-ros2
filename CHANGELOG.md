@@ -19,6 +19,9 @@
 - **`GoToEEPose` requires `frame_id: arm_mount`.** `base_link` is rejected, and the
   reason is in the node log. On flatbot and gen_1_5, Cartesian numbers change by the
   30° mount (intended). Re-record saved poses there.
+- **The model's bracelet is the no-vision one** (0.364 kg, was the 0.500 kg vision
+  variant). The xacro's `camera` arg now defaults to `false`; RAMMP's arms have no
+  Kinova vision module. On abra, gravity comp with it holds joints 2 and 4 at 0.00 °/s.
 - The image now contains `kinova_gen3_description`, so `arm_state_publisher` runs from
   it. The released 1.1.0 image did not, although the deployment manifest already ran
   `description.launch.py` from it.

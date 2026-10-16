@@ -16,7 +16,9 @@
 <robot name="kinova_gen3" xmlns:xacro="http://ros.org/wiki/xacro">
 
   <xacro:arg name="gripper" default="robotiq_2f_85"/>   <!-- robotiq_2f_85 | none -->
-  <xacro:arg name="camera"  default="true"/>            <!-- wrist vision module -->
+  <!-- Kinova's built-in vision module, which changes the bracelet (0.500 kg with it,
+       0.364 kg without). RAMMP's arms do not have one, so the default is false. -->
+  <xacro:arg name="camera"  default="false"/>           <!-- wrist vision module -->
   <!-- REQUIRED. xacro:arg cannot be declared without a default, so the empty default
        is caught below rather than silently rendering a level arm. -->
   <xacro:arg name="mount_file" default=""/>

@@ -11,13 +11,14 @@ about the arm must match exactly.
   1. The gripper articulates (13 DOF). The driver reduces it to the seven arm joints
      itself, locking the rest at q = 0 -- reproduced here with buildReducedModel.
 
-  2. 0.436 kg is missing at the wrist -- a RealSense D415 (0.072 kg) and a 0.5 kg
+  2. 0.572 kg is missing at the wrist -- a RealSense D415 (0.072 kg) and a 0.5 kg
      custom camera mount that the c3pzero author added and upstream cannot know about.
      Deferred by decision, and PINNED by test_known_wrist_mass_delta below so it cannot
      drift or be forgotten: add the camera back and that test fails, telling you to.
 """
 
 import os
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pinocchio as pin
@@ -33,7 +34,7 @@ OLD_ARM = [f"gen3_joint_{i}" for i in range(1, 8)]
 ARM = [f"arm_joint_{i}" for i in range(1, 8)]
 GRIPPER_JOINT = "arm_robotiq_85_left_knuckle_joint"
 TOL = 1e-9
-KNOWN_WRIST_MASS_DELTA_KG = 0.436
+KNOWN_WRIST_MASS_DELTA_KG = 0.572
 N_SAMPLES = 500
 
 # cuRobo v0.7.8, src/curobo/content/assets/robot/kinova/kinova_gen3_7dof.urdf, verbatim:
@@ -138,6 +139,33 @@ def test_level_mount_forward_kinematics_matches_old_model(level, old):
         pn = _placement(seven, _set_arm(seven, a, ARM), NEW_EE)
         worst = max(worst, float(np.linalg.norm(po.translation - pn.translation)))
     assert worst < TOL, f"EE position differs by up to {worst:.6e} m"
+
+
+def _link_inertial(xml_root, link):
+    i = xml_root.find(f"link[@name='{link}']/inertial")
+    origin = i.find("origin")
+    return (
+        float(i.find("mass").get("value")),
+        np.array([float(v) for v in origin.get("xyz").split()]),
+        np.array(
+            [
+                float(i.find("inertia").get(k))
+                for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+            ]
+        ),
+    )
+
+
+def test_bracelet_is_the_no_vision_one():
+    """RAMMP's arms have no Kinova vision module. The bracelet with it is 0.136 kg
+    heavier, and test_known_wrist_mass_delta's total once absorbed that difference."""
+    xml, _ = render(LEVEL)
+    ours = _link_inertial(ET.fromstring(xml), "arm_bracelet_link")
+    old = _link_inertial(ET.parse(OLD).getroot(), "gen3_bracelet_link")
+    assert ours[0] == pytest.approx(0.364), f"bracelet mass {ours[0]} kg"
+    for a, b in zip(ours, old):
+        assert np.allclose(a, b, atol=TOL), (ours, old)
+    assert "bracelet_no_vision_link" in xml
 
 
 def test_known_wrist_mass_delta(level, old):

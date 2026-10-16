@@ -140,7 +140,7 @@ any of what follows.
 
 ### Doing it yourself
 
-Off-fleet, run both with compose. Save this as `compose.yaml`:
+Off-fleet, run both with compose. Put your robot's mount.yaml in ./robot/ (robot: <name>, rpy_deg: [r, p, y]); there is no default. Save this as `compose.yaml`:
 
 ```yaml
 services:
@@ -158,8 +158,23 @@ services:
       - /module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
       - --ip
       - ${KINOVA_ARM_IP:-192.168.1.10}   # drop these two lines for --sim
-      - --urdf
-      - /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+  # The arm's model and TF. The driver reads /arm/robot_description at startup and
+  # exits without it.
+  arm_state_publisher:
+    image: ghcr.io/rammp-org/kinova-gen3-ros2:1.1.0
+    network_mode: host
+    ipc: host
+    environment:
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+    volumes:
+      - ./robot:/config/robot:ro
+    command:
+      - ros2
+      - launch
+      - kinova_gen3_description
+      - description.launch.py
+      - mount_file:=/config/robot/mount.yaml
+
 
   curobo_planner:
     image: rammp-curobo:jp6        # owned by rammp-org/RAMMP-CuRobo
@@ -255,8 +270,8 @@ Expect four packages and under a minute.
 
 ```sh
 source install/setup.bash
-ros2 run kinova_gen3_ros2 kinova_gen3_node \
-  --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true \
+  mount_file:=src/kinova_gen3_ros2/kinova_gen3_description/test/mounts/level.yaml
 ```
 
 Same banner as the container. Swap `--sim` for `--ip <arm-address>` for real

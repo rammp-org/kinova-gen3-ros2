@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Changed (breaking)
+
+- **The arm's model is rendered at launch from the robot's `mount.yaml` and published
+  on `/arm/robot_description`** (latched). `description.launch.py` and
+  `bringup.launch.py` require `mount_file` and have no default. The build no longer
+  produces `kinova_gen3.urdf` or `kinova_gen3_7dof.urdf`, and `expand_model.py` is gone.
+  `kinova_gen3_render.py --mount --out` renders one for the bench.
+- **Every arm name carries `arm_`, and the root is `arm_mount`** (Z against gravity when
+  the chair is level). `/joint_states` carries `arm_joint_1`…`arm_joint_7` and
+  `arm_robotiq_85_left_knuckle_joint`, taken from the model. New frame
+  `arm_tool_frame`: cuRobo's `tool_frame`, 0.120 m beyond the flange.
+- **`kinova_gen3_node --urdf` is removed.** The node reads `/arm/robot_description`
+  before the RT loop starts (30 s timeout, error names `arm_state_publisher`). Core
+  reduces the model to the arm. `--ee-frame` defaults to `arm_end_effector_link`.
+- **`GoToEEPose` requires `frame_id: arm_mount`.** `base_link` is rejected, and the
+  reason is in the node log. On flatbot and gen_1_5, Cartesian numbers change by the
+  30° mount (intended). Re-record saved poses there.
+- The image now contains `kinova_gen3_description`, so `arm_state_publisher` runs from
+  it. The released 1.1.0 image did not, although the deployment manifest already ran
+  `description.launch.py` from it.
+
 ## 1.1.0 — 2026-10-02
 
 > **RESOLVED 2026-10-02: the three dependency releases exist and the pins have

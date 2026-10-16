@@ -38,6 +38,9 @@ public:
   using GoalHandle = rclcpp_action::ServerGoalHandle<PlanToPose>;
   using JointsGoalHandle = rclcpp_action::ServerGoalHandle<PlanToJoints>;
 
+  // The frame the fake says it planned in. Set before any goal is sent.
+  void set_frame_id(std::string f) { frame_id_ = std::move(f); }
+
   FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
                    bool reject = false, std::shared_future<void> gate = {},
                    std::shared_ptr<std::promise<void>> started = nullptr,
@@ -134,6 +137,7 @@ private:
     }
     result->success = true;
     result->message = "fake plan ok";
+    result->trajectory.header.frame_id = frame_id_;
     result->trajectory.joint_names = {"joint_1", "joint_2", "joint_3",
                                       "joint_4", "joint_5", "joint_6",
                                       "joint_7"};
@@ -149,6 +153,8 @@ private:
     gh->succeed(result);
   }
   rclcpp::Node::SharedPtr node_;
+  // header.frame_id on every plan. Unset by default: what today's cuRobo sends.
+  std::string frame_id_;
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;
   bool succeed_;

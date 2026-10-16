@@ -292,9 +292,8 @@ int main(int argc, char **argv) {
   // All three high-level servers share the router, planner and group, and must
   // be declared before `sup` so they outlive it (the router hands it their
   // ports).
-  kinova_gen3_ros2::GoToEEPoseServer goto_server(node, router, planner,
-                                                 cb_group, dyn->joint_names(),
-                                                 dyn->mount_tilt_deg());
+  kinova_gen3_ros2::GoToEEPoseServer goto_server(
+      node, router, planner, cb_group, dyn->mount_tilt_deg());
   kinova_gen3_ros2::GoToJointConfigServer jc_server(node, router, planner,
                                                     cb_group);
   kinova_gen3_ros2::GoToPresetServer preset_server(

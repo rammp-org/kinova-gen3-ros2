@@ -29,12 +29,13 @@
   ±2.41/±2.66/±2.23). Today's cuRobo still plans with the old limits, so a plan through
   the difference can abort with `PATH_TOLERANCE_VIOLATED` until cuRobo reads this model.
   `test_model_parity.py` pins both.
-- **On a tilted mount, `GoToEEPose` refuses a plan that is not in `arm_mount`.** Today's
-  cuRobo plans in its own arm base and answers in `joint_1..7`; a planner that built its
-  model from `/arm/robot_description` answers in the model's `arm_joint_1..7`. When the
-  model's mount is more than 0.5° from level and the names differ, the goal settles
-  `PLANNING_FAILED` naming the mismatch, instead of moving the arm by the tilt. Level
-  mounts (dojo) and joint-space goals are unaffected.
+- **On a tilted mount, `GoToEEPose` refuses a plan that is not in `arm_mount`.** The
+  planner states the frame it planned in on the trajectory's `header.frame_id`. When the
+  model's mount is more than 0.5° from level and that frame is not `arm_mount`, the goal
+  settles `PLANNING_FAILED` naming it, instead of moving the arm by the tilt. Today's
+  cuRobo plans in its own arm base and leaves the frame unset, so on flatbot pose goals
+  are refused until RAMMP-CuRobo plans in `arm_mount` and stamps it. Level mounts (dojo)
+  and joint-space goals are unaffected.
 - The node logs the model it uses at startup (`model from /arm/robot_description: mount tilt N deg ...`, read from the model), and an ERROR whenever a different model is
   published on the topic later; it keeps the startup one until restarted.
 - `/arm/robot_description` is a required subscription in the driver's fragment and in

@@ -195,26 +195,18 @@ ee_pose_frame_rejection(const std::string &frame_id) {
 }
 
 std::optional<std::string>
-pose_plan_frame_rejection(const std::vector<std::string> &plan_joints,
-                          const std::vector<std::string> &model_joints,
+pose_plan_frame_rejection(const std::string &plan_frame,
                           double mount_tilt_deg) {
-  if (mount_tilt_deg <= kLevelMountTiltDeg || plan_joints == model_joints)
+  if (mount_tilt_deg <= kLevelMountTiltDeg || plan_frame == "arm_mount")
     return std::nullopt;
-  auto join = [](const std::vector<std::string> &v) {
-    std::string s;
-    for (const auto &n : v)
-      s += (s.empty() ? "" : ",") + n;
-    return "[" + s + "]";
-  };
   char tilt[16];
   std::snprintf(tilt, sizeof(tilt), "%.1f", mount_tilt_deg);
-  return "the planner answered in joints " + join(plan_joints) +
-         ", not the model's " + join(model_joints) +
-         ": it plans in its own arm base, not arm_mount, and this arm is "
-         "mounted " +
-         tilt +
+  return "the planner's trajectory is in frame '" +
+         (plan_frame.empty() ? std::string("(unset)") : plan_frame) +
+         "', not arm_mount, and this arm is mounted " + tilt +
          "° from level, so the pose would land that far off. Deploy a cuRobo "
-         "that reads /arm/robot_description; joint-space goals are unaffected";
+         "that plans in arm_mount (it reads /arm/robot_description and stamps "
+         "header.frame_id); joint-space goals are unaffected";
 }
 
 GoToEEPose::Feedback to_goto_feedback_msg(const TrajectoryFeedback &fb) {

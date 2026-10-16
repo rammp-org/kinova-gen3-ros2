@@ -1,8 +1,6 @@
 #pragma once
 #include <optional>
 #include <string>
-#include <utility>
-#include <vector>
 #include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "kinova_gen3_ros2/planned_move_server.h"
 namespace kinova_gen3_ros2 {
@@ -16,23 +14,21 @@ class GoToEEPoseServer
 public:
   using Action = rammp_arm_interfaces::action::GoToEEPose;
 
-  // `model_joints` and `mount_tilt_deg` come from the driver's model
-  // (Dynamics::joint_names(), mount_tilt_deg()): with them a plan from a
-  // planner that does not plan in arm_mount is refused on a tilted mount.
+  // `mount_tilt_deg` is the driver's model's (Dynamics::mount_tilt_deg()): on a
+  // tilted mount a plan whose header.frame_id is not arm_mount is refused.
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,
                    rclcpp::CallbackGroup::SharedPtr cb_group,
-                   std::vector<std::string> model_joints, double mount_tilt_deg)
+                   double mount_tilt_deg)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner,
                                   cb_group),
-        model_joints_(std::move(model_joints)),
         mount_tilt_deg_(mount_tilt_deg) {}
 
 protected:
   std::optional<std::string>
   check_plan(const CuroboPlanClient::Outcome &outcome) override {
-    if (auto why = pose_plan_frame_rejection(outcome.trajectory.joint_names,
-                                             model_joints_, mount_tilt_deg_))
+    if (auto why = pose_plan_frame_rejection(outcome.trajectory.header.frame_id,
+                                             mount_tilt_deg_))
       return "GoToEEPose: " + *why;
     return std::nullopt;
   }
@@ -70,7 +66,6 @@ protected:
   }
 
 private:
-  std::vector<std::string> model_joints_;
   double mount_tilt_deg_;
 };
 

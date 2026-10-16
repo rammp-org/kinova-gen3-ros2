@@ -67,17 +67,13 @@ std::optional<std::string> ee_pose_frame_rejection(const std::string &frame_id);
 // A mount below this tilt is level: its arm_base_link IS arm_mount.
 inline constexpr double kLevelMountTiltDeg = 0.5;
 // Why a successful POSE plan cannot be executed, or nullopt. A pose goal is in
-// arm_mount, but the planner only plans there if it built its model from
-// /arm/robot_description -- and such a planner names the model's joints
-// (arm_joint_1..7). One that answers with other names (today's cuRobo:
-// joint_1..7) plans in its own arm base, which on a tilted mount is not
-// arm_mount: the arm would land `mount_tilt_deg` off with no error anywhere. So
-// on a tilted mount the names must match; on a level one the two frames
-// coincide and any planner is right.
+// arm_mount, and the planner states the frame it planned in on the trajectory's
+// header.frame_id. On a tilted mount it must say arm_mount: any other frame --
+// including none, which is what a planner that predates the contract sends --
+// would land the arm `mount_tilt_deg` off with no error anywhere. On a level
+// mount the arm base and arm_mount coincide, so any planner is right.
 std::optional<std::string>
-pose_plan_frame_rejection(const std::vector<std::string> &plan_joints,
-                          const std::vector<std::string> &model_joints,
-                          double mount_tilt_deg);
+pose_plan_frame_rejection(const std::string &plan_frame, double mount_tilt_deg);
 GoToEEPose::Feedback
 to_goto_feedback_msg(const kinova::interface::TrajectoryFeedback &fb);
 GoToEEPose::Result

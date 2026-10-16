@@ -445,20 +445,15 @@ TEST(MessageMapping, EePoseFrameMustBeArmMount) {
 }
 
 TEST(MessageMapping, APosePlanMustBeInArmMountOnATiltedMount) {
-  const std::vector<std::string> model = {
-      "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
-      "arm_joint_5", "arm_joint_6", "arm_joint_7"};
-  const std::vector<std::string> stale = {"joint_1", "joint_2", "joint_3",
-                                          "joint_4", "joint_5", "joint_6",
-                                          "joint_7"};
   // Level: arm_base_link IS arm_mount, so any planner is right.
-  EXPECT_EQ(pose_plan_frame_rejection(stale, model, 0.0), std::nullopt);
-  EXPECT_EQ(pose_plan_frame_rejection(stale, model, 0.4), std::nullopt);
-  // Tilted: only a planner that names the model's joints plans in arm_mount.
-  EXPECT_EQ(pose_plan_frame_rejection(model, model, 30.0), std::nullopt);
-  const auto why = pose_plan_frame_rejection(stale, model, 30.0);
-  ASSERT_TRUE(why.has_value());
-  EXPECT_NE(why->find("30.0"), std::string::npos) << *why;
-  EXPECT_NE(why->find("/arm/robot_description"), std::string::npos) << *why;
-  EXPECT_TRUE(pose_plan_frame_rejection({}, model, 30.0).has_value());
+  EXPECT_EQ(pose_plan_frame_rejection("", 0.0), std::nullopt);
+  EXPECT_EQ(pose_plan_frame_rejection("base_link", 0.4), std::nullopt);
+  // Tilted: only a plan stamped arm_mount.
+  EXPECT_EQ(pose_plan_frame_rejection("arm_mount", 30.0), std::nullopt);
+  const auto unset = pose_plan_frame_rejection("", 30.0);
+  ASSERT_TRUE(unset.has_value());
+  EXPECT_NE(unset->find("(unset)"), std::string::npos) << *unset;
+  EXPECT_NE(unset->find("30.0"), std::string::npos) << *unset;
+  EXPECT_TRUE(pose_plan_frame_rejection("base_link", 30.0).has_value());
+  EXPECT_TRUE(pose_plan_frame_rejection("/arm_mount", 30.0).has_value());
 }

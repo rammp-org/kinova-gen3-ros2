@@ -18,12 +18,28 @@ PATTERN="${SMOKE_PATTERN:-kinova_gen3_node up}"
 
 IMAGE="${1:-kinova-gen3-ros2:humble}"
 NAME="rammp-smoke-$$"
+# The node reads its model from /arm/robot_description and exits without it, so
+# arm_state_publisher runs first, from the same image, on the level TEST fixture
+# bind-mounted where a robot's mount.yaml goes.
+MOUNT="$(cd "$(dirname "$0")/.." && pwd)/kinova_gen3_description/test/mounts/level.yaml"
+
+docker run -d --rm --name "$NAME-desc" --network host \
+  -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
+  -v "$MOUNT:/config/robot/mount.yaml:ro" "$IMAGE" \
+  ros2 launch kinova_gen3_description description.launch.py \
+  mount_file:=/config/robot/mount.yaml >/dev/null
+trap 'docker rm -f "$NAME" "$NAME-desc" >/dev/null 2>&1 || true' EXIT
 
 docker run -d --rm --name "$NAME" --network host \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" "$IMAGE" >/dev/null
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 
-sleep 5
+sleep 10
+
+if ! docker logs "$NAME-desc" 2>&1 | grep -q "embodiment: test_level"; then
+  echo "FAIL: arm_state_publisher did not log its embodiment line"
+  docker logs "$NAME-desc" 2>&1 | tail -20
+  exit 1
+fi
 
 if ! docker logs "$NAME" 2>&1 | grep -q "$PATTERN"; then
   echo "FAIL: no match for pattern '$PATTERN' in the container logs"

@@ -5,7 +5,7 @@
 #   make e2e            run the two-goal sim integration check
 #   make shell          interactive shell in the image
 #   make stage-kortex   copy the aarch64 KORTEX SDK into the build context
-#   make real IP=...    build KORTEX-enabled and run against the arm (attended)
+#   make real IP=... MOUNT=...  build KORTEX-enabled and run against the arm (attended)
 #
 # Plain docker — no compose dependency. The point of these targets is that the
 # run flags are not something to retype from memory: this node needs host
@@ -30,7 +30,6 @@ KORTEX_SDK_DIR := $(notdir $(KORTEX_SRC))
 # path the image does not contain.
 NODE   := /module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
 CLIENT := /module_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.py
-URDF   := /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 
 # Pin the RT loop to the host's isolated core. Boot the host with e.g.
 # `isolcpus=11 nohz_full=11 rcu_nocbs=11` (the core driver's scripts/rt_setup.sh
@@ -46,7 +45,17 @@ URDF   := /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 # --cpuset-cpus instead: that confines the whole container, ROS threads included,
 # to the isolated core — the opposite of what the isolation is for.
 RT_CORE ?= 11
-NODE_ARGS := --urdf $(URDF) --cpu $(RT_CORE)
+NODE_ARGS := --cpu $(RT_CORE)
+
+# The node reads its model from /arm/robot_description, which arm_state_publisher
+# (this image, kinova_gen3_description) renders from the robot's mount file. So
+# every run target starts that container first. The sim targets use the level TEST
+# fixture; `real` requires MOUNT -- no default, because a wrong mount silently
+# applies the wrong gravity.
+SIM_MOUNT := $(CURDIR)/kinova_gen3_description/test/mounts/level.yaml
+DESC_CMD  := ros2 launch kinova_gen3_description description.launch.py mount_file:=/config/robot/mount.yaml
+# $(call desc_up,<container name>,<mount file>,<image>)
+desc_up = docker run -d --rm --name $(1) $(ROS_FLAGS) -v $(2):/config/robot/mount.yaml:ro $(3) $(DESC_CMD) >/dev/null
 
 # DDS needs the host net + a shared IPC namespace (shared-memory transport).
 ROS_FLAGS := --network host --ipc host -e ROS_DOMAIN_ID=0 -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -62,14 +71,17 @@ build:                     ## Build the sim image
 	docker build $(CORE_ARG) -t $(IMAGE) .
 
 sim: build                 ## Run the node in sim, foreground
-	$(RUN) -it --name kinova_gen3_sim $(IMAGE) $(NODE) --sim $(NODE_ARGS)
+	$(call desc_up,kinova_gen3_sim_desc,$(SIM_MOUNT),$(IMAGE))
+	-$(RUN) -it --name kinova_gen3_sim $(IMAGE) $(NODE) --sim $(NODE_ARGS)
+	docker rm -f kinova_gen3_sim_desc >/dev/null
 
 # Success case then forced-divergence case, same assertions as the README's
 # native sim end-to-end, but against the containerized node.
 e2e: build                 ## Sim integration check (success + path-tolerance abort)
+	$(call desc_up,kinova_gen3_e2e_desc,$(SIM_MOUNT),$(IMAGE))
 	$(RUN) -d --name kinova_gen3_e2e $(IMAGE) $(NODE) --sim $(NODE_ARGS)
-	@sleep 5
-	@set -e; trap 'docker rm -f kinova_gen3_e2e >/dev/null' EXIT; \
+	@sleep 8
+	@set -e; trap 'docker rm -f kinova_gen3_e2e kinova_gen3_e2e_desc >/dev/null' EXIT; \
 	  docker exec kinova_gen3_e2e /ros_entrypoint.sh python3 $(CLIENT) \
 	    --mode position --delta 0.05 --dur 0.4 --expect 0; \
 	  docker exec kinova_gen3_e2e /ros_entrypoint.sh python3 $(CLIENT) \
@@ -84,7 +96,9 @@ e2e: build                 ## Sim integration check (success + path-tolerance ab
 # between a working arm and a confusing failure.
 
 run:                       ## Run the sim image, the way the standard does
-	$(RUN) -it $(IMAGE) $(NODE) --sim $(NODE_ARGS)
+	$(call desc_up,kinova_gen3_run_desc,$(SIM_MOUNT),$(IMAGE))
+	-$(RUN) -it $(IMAGE) $(NODE) --sim $(NODE_ARGS)
+	docker rm -f kinova_gen3_run_desc >/dev/null
 
 # Validated against sheppy itself rather than a copied script -- see
 # scripts/check_fragments.py for why.
@@ -117,6 +131,10 @@ build-real: stage-kortex   ## Build the KORTEX-enabled image only
 
 # ATTENDED ONLY — docs/on-robot-runbook.md. e-stop in hand.
 real: build-real           ## Build KORTEX-enabled and run against the arm
-	@test -n "$(IP)" || { echo "usage: make real IP=192.168.1.10"; exit 1; }
-	$(RUN) -it --name kinova_gen3_real --stop-timeout 20 $(IMAGE_REAL) \
+	@test -n "$(IP)" -a -f "$(MOUNT)" || { echo "usage: make real IP=192.168.1.10" \
+	  "MOUNT=<rammp-deployments>/december_2026/config/robots/current/mount.yaml" \
+	  "(MOUNT has no default: it sets the gravity direction)"; exit 1; }
+	$(call desc_up,kinova_gen3_real_desc,$(abspath $(MOUNT)),$(IMAGE_REAL))
+	-$(RUN) -it --name kinova_gen3_real --stop-timeout 20 $(IMAGE_REAL) \
 	  $(NODE) --ip $(IP) $(NODE_ARGS)
+	docker rm -f kinova_gen3_real_desc >/dev/null

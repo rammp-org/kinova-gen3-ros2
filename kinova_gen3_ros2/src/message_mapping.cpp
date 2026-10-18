@@ -195,18 +195,14 @@ ee_pose_frame_rejection(const std::string &frame_id) {
 }
 
 std::optional<std::string>
-pose_plan_frame_rejection(const std::string &plan_frame,
-                          double mount_tilt_deg) {
-  if (mount_tilt_deg <= kLevelMountTiltDeg || plan_frame == "arm_mount")
+pose_plan_frame_rejection(const std::string &plan_frame) {
+  if (plan_frame == "arm_mount")
     return std::nullopt;
-  char tilt[16];
-  std::snprintf(tilt, sizeof(tilt), "%.1f", mount_tilt_deg);
   return "the planner's trajectory is in frame '" +
          (plan_frame.empty() ? std::string("(unset)") : plan_frame) +
-         "', not arm_mount, and this arm is mounted " + tilt +
-         "° from level, so the pose would land that far off. Deploy a cuRobo "
-         "that plans in arm_mount (it reads /arm/robot_description and stamps "
-         "header.frame_id); joint-space goals are unaffected";
+         "', not arm_mount. Deploy a cuRobo that plans in arm_mount (it reads "
+         "/arm/robot_description and stamps header.frame_id); joint-space goals "
+         "are unaffected";
 }
 
 GoToEEPose::Feedback to_goto_feedback_msg(const TrajectoryFeedback &fb) {

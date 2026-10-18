@@ -64,16 +64,12 @@ std::optional<std::string> speed_scale_rejection(double s);
 // base_link -- the old contract -- gets a message of its own saying so.
 std::optional<std::string> ee_pose_frame_rejection(const std::string &frame_id);
 
-// A mount below this tilt is level: its arm_base_link IS arm_mount.
-inline constexpr double kLevelMountTiltDeg = 0.5;
 // Why a successful POSE plan cannot be executed, or nullopt. A pose goal is in
 // arm_mount, and the planner states the frame it planned in on the trajectory's
-// header.frame_id. On a tilted mount it must say arm_mount: any other frame --
-// including none, which is what a planner that predates the contract sends --
-// would land the arm `mount_tilt_deg` off with no error anywhere. On a level
-// mount the arm base and arm_mount coincide, so any planner is right.
+// header.frame_id, which must say arm_mount. Any other frame -- including none,
+// which is what a planner that predates the contract sends -- is refused.
 std::optional<std::string>
-pose_plan_frame_rejection(const std::string &plan_frame, double mount_tilt_deg);
+pose_plan_frame_rejection(const std::string &plan_frame);
 GoToEEPose::Feedback
 to_goto_feedback_msg(const kinova::interface::TrajectoryFeedback &fb);
 GoToEEPose::Result

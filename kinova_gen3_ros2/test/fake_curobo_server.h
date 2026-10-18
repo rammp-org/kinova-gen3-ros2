@@ -153,8 +153,9 @@ private:
     gh->succeed(result);
   }
   rclcpp::Node::SharedPtr node_;
-  // header.frame_id on every plan. Unset by default: what today's cuRobo sends.
-  std::string frame_id_;
+  // header.frame_id on every plan. arm_mount by default: a planner that keeps
+  // the contract. Unset is what today's cuRobo sends.
+  std::string frame_id_ = "arm_mount";
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;
   bool succeed_;

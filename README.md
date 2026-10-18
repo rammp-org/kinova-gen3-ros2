@@ -337,10 +337,9 @@ file.
   restarted with another mount, or a second publisher). Restart the driver with it.
 
 - **cuRobo does not read this topic yet** (RAMMP-CuRobo#20): it plans in its own arm
-  base. On a level mount that is `arm_mount`. The contract is that the planner stamps the
-  frame it planned in on the trajectory's `header.frame_id`. On a tilted mount
-  `GoToEEPose` refuses any plan not stamped `arm_mount` (today's cuRobo leaves it unset)
-  rather than move the arm by the tilt. Joint-space goals are unaffected.
+  base. The contract is that the planner stamps the frame it planned in on the
+  trajectory's `header.frame_id`. `GoToEEPose` refuses any plan not stamped `arm_mount`
+  (today's cuRobo leaves it unset). Joint-space goals are unaffected.
 
 - Root `arm_mount`: Z against gravity when the chair is level, X forward, origin at the
   arm's base. All Cartesian I/O is in this frame: `/ee_state`, `GoToEEPose`,

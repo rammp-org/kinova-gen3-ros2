@@ -14,21 +14,16 @@ class GoToEEPoseServer
 public:
   using Action = rammp_arm_interfaces::action::GoToEEPose;
 
-  // `mount_tilt_deg` is the driver's model's (Dynamics::mount_tilt_deg()): on a
-  // tilted mount a plan whose header.frame_id is not arm_mount is refused.
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,
-                   rclcpp::CallbackGroup::SharedPtr cb_group,
-                   double mount_tilt_deg)
+                   rclcpp::CallbackGroup::SharedPtr cb_group)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner,
-                                  cb_group),
-        mount_tilt_deg_(mount_tilt_deg) {}
+                                  cb_group) {}
 
 protected:
   std::optional<std::string>
   check_plan(const CuroboPlanClient::Outcome &outcome) override {
-    if (auto why = pose_plan_frame_rejection(outcome.trajectory.header.frame_id,
-                                             mount_tilt_deg_))
+    if (auto why = pose_plan_frame_rejection(outcome.trajectory.header.frame_id))
       return "GoToEEPose: " + *why;
     return std::nullopt;
   }
@@ -65,8 +60,6 @@ protected:
                   std::move(on_fb), std::move(on_done));
   }
 
-private:
-  double mount_tilt_deg_;
 };
 
 } // namespace kinova_gen3_ros2

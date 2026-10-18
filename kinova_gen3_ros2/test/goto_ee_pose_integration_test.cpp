@@ -170,11 +170,6 @@ int send_and_get_code(rclcpp::Node::SharedPtr node, const std::string &frame) {
 }
 } // namespace
 
-namespace {
-constexpr double kLevel = 0.0;
-constexpr double kTilted = 30.0;
-} // namespace
-
 class GotoServerTest : public ::testing::Test {
 protected:
   void SetUp() override { rclcpp::init(0, nullptr); }
@@ -189,7 +184,7 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -218,7 +213,7 @@ TEST_F(GotoServerTest, ABaseLinkGoalIsRejectedBeforePlanning) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -250,7 +245,7 @@ TEST_F(GotoServerTest, CancelDuringHandoverStillReachesTheSupervisor) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   OrderingSupervisor sup(router);
   auto gate = std::make_shared<std::promise<void>>();
   sup.release = gate->get_future().share();
@@ -301,7 +296,7 @@ TEST_F(GotoServerTest, PlanRequestCarriesTheMeasuredStartConfiguration) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   sup.q_meas << 0.11, -0.22, 0.33, -0.44, 0.55, -0.66, 0.77;
   server.set_command_sink(&sup);
@@ -334,7 +329,7 @@ TEST_F(GotoServerTest, GoalIsRefusedWhenNoJointStateHasBeenMeasuredYet) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   sup.stamp_s = 0.0; // no successful feedback read has happened
   server.set_command_sink(&sup);
@@ -368,7 +363,7 @@ TEST_F(GotoServerTest, PlanSuccessWithMalformedWidthSettlesPlanningFailed) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -391,7 +386,7 @@ TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -434,7 +429,7 @@ TEST_F(GotoServerTest, CancelDuringPlanningThenPlanSucceedsSettlesPreempted) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp, kLevel);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -537,7 +532,7 @@ struct Rig {
       : node(std::make_shared<rclcpp::Node>(name)), fake(node, true, 3),
         grp(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
         planner(node, grp), router(dummy),
-        server(node, router, planner, grp, kLevel), sup(router) {
+        server(node, router, planner, grp), sup(router) {
     server.set_command_sink(&sup);
     ex.add_node(node);
     spin = std::make_unique<SpinThread>(ex);
@@ -603,10 +598,10 @@ TEST_F(GotoServerTest, AnUnusableSpeedScaleIsRefused) {
   EXPECT_FALSE(r.sup.got_goal);
 }
 
-// A tilted arm and a planner that does not say it planned in arm_mount --
-// today's cuRobo leaves header.frame_id unset: executing would put the arm 30°
-// off, so the plan is refused after planning and never reaches the supervisor.
-TEST_F(GotoServerTest, OnATiltedMountAPlanNotInArmMountIsRefused) {
+// A planner that does not say it planned in arm_mount -- today's cuRobo leaves
+// header.frame_id unset: the plan is refused after planning and never reaches
+// the supervisor.
+TEST_F(GotoServerTest, APlanNotInArmMountIsRefused) {
   for (const std::string frame : {"", "base_link"}) {
     auto node = std::make_shared<rclcpp::Node>(
         "goto_it_tilted_" + (frame.empty() ? std::string("unset") : frame));
@@ -618,8 +613,7 @@ TEST_F(GotoServerTest, OnATiltedMountAPlanNotInArmMountIsRefused) {
     kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
     DummyPort dummy;
     kinova_gen3_ros2::GoalRouter router(dummy);
-    kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp,
-                                              kTilted);
+    kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
     FakeSupervisor sup(router);
     server.set_command_sink(&sup);
 
@@ -637,8 +631,8 @@ TEST_F(GotoServerTest, OnATiltedMountAPlanNotInArmMountIsRefused) {
   }
 }
 
-// The same tilted arm with a planner that stamps arm_mount: executes.
-TEST_F(GotoServerTest, OnATiltedMountAPlanInArmMountExecutes) {
+// A planner that stamps arm_mount: executes.
+TEST_F(GotoServerTest, APlanInArmMountExecutes) {
   auto node = std::make_shared<rclcpp::Node>("goto_it_tilted_arm_mount");
   kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
                                                 /*n_points=*/3);
@@ -647,8 +641,7 @@ TEST_F(GotoServerTest, OnATiltedMountAPlanInArmMountExecutes) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp,
-                                            kTilted);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 

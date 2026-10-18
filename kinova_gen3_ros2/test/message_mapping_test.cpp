@@ -444,16 +444,11 @@ TEST(MessageMapping, EePoseFrameMustBeArmMount) {
             std::optional<std::string>("frame_id '' != arm_mount"));
 }
 
-TEST(MessageMapping, APosePlanMustBeInArmMountOnATiltedMount) {
-  // Level: arm_base_link IS arm_mount, so any planner is right.
-  EXPECT_EQ(pose_plan_frame_rejection("", 0.0), std::nullopt);
-  EXPECT_EQ(pose_plan_frame_rejection("base_link", 0.4), std::nullopt);
-  // Tilted: only a plan stamped arm_mount.
-  EXPECT_EQ(pose_plan_frame_rejection("arm_mount", 30.0), std::nullopt);
-  const auto unset = pose_plan_frame_rejection("", 30.0);
+TEST(MessageMapping, APosePlanMustBeInArmMount) {
+  EXPECT_EQ(pose_plan_frame_rejection("arm_mount"), std::nullopt);
+  const auto unset = pose_plan_frame_rejection("");
   ASSERT_TRUE(unset.has_value());
   EXPECT_NE(unset->find("(unset)"), std::string::npos) << *unset;
-  EXPECT_NE(unset->find("30.0"), std::string::npos) << *unset;
-  EXPECT_TRUE(pose_plan_frame_rejection("base_link", 30.0).has_value());
-  EXPECT_TRUE(pose_plan_frame_rejection("/arm_mount", 30.0).has_value());
+  EXPECT_TRUE(pose_plan_frame_rejection("base_link").has_value());
+  EXPECT_TRUE(pose_plan_frame_rejection("/arm_mount").has_value());
 }

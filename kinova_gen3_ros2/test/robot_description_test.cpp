@@ -92,7 +92,7 @@ TEST(JointStateNames, ArmJointsThenTheGripperJoint) {
   EXPECT_EQ(names.back(), "arm_robotiq_85_left_knuckle_joint");
 }
 
-// An unprefixed (old) model on the topic: refuse, and say which joint.
+// An unprefixed model on the topic: refuse, and say which joint.
 TEST(JointStateNames, AModelWithoutTheGripperJointIsRefusedByName) {
   try {
     joint_state_names(urdf_with("robotiq_85_left_knuckle_joint"), kArm);

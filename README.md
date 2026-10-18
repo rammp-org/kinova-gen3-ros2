@@ -121,7 +121,7 @@ are refused at submission, not ignored.
 | ---------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `arm_joint_1`..`arm_joint_7` (names from the model), then `arm_robotiq_85_left_knuckle_joint`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, decimated by `state_publish_divisor` (default 2: ~50 Hz).                                                                                    |
 | `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
-| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
+| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: pose and twist of `--ee-frame` in `arm_mount`, same pump tick, same rate.                                                                                                                                                                                                        |
 | `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
 | `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
 
@@ -157,8 +157,8 @@ report: the gripper's `force` is a current ceiling on the command side, and
 | `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint angles, **rad**.                                                                                                                                                   |
 | `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint rates, **rad/s**.                                                                                                                                                  |
 | `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint torques, **N·m**.                                                                                                                                                  |
-| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1      | Target tool pose, base frame.                                                                                                                                            |
-| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1      | Target tool twist, base frame, `[linear; angular]`.                                                                                                                      |
+| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1      | Target tool pose, `arm_mount`.                                                                                                                                           |
+| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1      | Target tool twist, `arm_mount` axes, `[linear; angular]`.                                                                                                                |
 
 The three `JointSetpoint` topics share one message shape and the **topic** carries the units.
 All six are subscribed unconditionally, but a setpoint is only applied while a matching
@@ -334,7 +334,7 @@ file.
 
 - **A different model published later is not applied.** The driver keeps the one it
   started with and logs an ERROR each time another arrives (an `arm_state_publisher`
-  restarted with another mount, or a second publisher). Restart the driver with it.
+  restarted with another mount, or a second publisher). Restart the driver to apply it.
 
 - **cuRobo does not read this topic yet** (RAMMP-CuRobo#20): it plans in its own arm
   base. The contract is that the planner stamps the frame it planned in on the
@@ -345,8 +345,8 @@ file.
   arm's base. All Cartesian I/O is in this frame: `/ee_state`, `GoToEEPose`,
   `/setpoint/pose`, `/setpoint/twist`. `/ee_state` is the pose of `--ee-frame`
   (`arm_end_effector_link`, the flange); `GoToEEPose` positions `arm_tool_frame`, 0.120 m
-  beyond it. On dojo the mount is identity and every number
-  is unchanged. On flatbot and gen_1_5 it is +30° about Y.
+  beyond it. On dojo the mount is identity, so `arm_mount` coincides with the arm's
+  base. On flatbot and gen_1_5 it is +30° about Y.
 
 - Every name carries the `arm_` prefix (`arm_joint_1`…`arm_joint_7`, `arm_base_link`, …),
   because the chair owns `base_link` (REP-105).
@@ -359,7 +359,7 @@ file.
   `robot_state_publisher` derives the five mimic joints from
   `arm_robotiq_85_left_knuckle_joint`, which the driver publishes.
 
-Bench (the driver's standalone apps take `--urdf`):
+To render a URDF file for the bench (the driver's standalone apps take `--urdf`):
 
 ```bash
 ros2 run kinova_gen3_description kinova_gen3_render.py --mount <robot>/mount.yaml --out /tmp/arm.urdf
@@ -368,29 +368,27 @@ ros2 run kinova_gen3_description kinova_gen3_render.py --mount <robot>/mount.yam
 ### The invariant
 
 **`/joint_states` names come from the model**, via `Dynamics::joint_names()` plus the
-gripper joint, which is checked to exist at startup. Before, names were hard-coded,
-and once they disagreed with the URDF (`joint_1` vs `gen3_joint_1`).
-`robot_state_publisher` matched nothing and held TF still while the arm moved, and
-nothing errored. `test_tf_updates.py` asserts that the transform *changes*.
+gripper joint, which is checked to exist at startup. If they disagreed with the URDF,
+`robot_state_publisher` would match nothing and hold TF still while the arm moved, and
+nothing would error. `test_tf_updates.py` asserts that the transform *changes*.
 
 `--ee-frame` (default `arm_end_effector_link`) is resolved by name in `Dynamics`,
 which throws if the frame is absent.
 
 ### Known gaps
 
-- The **wrist camera and its 0.5 kg mount are not in the generated model** — they were in
+- The **wrist camera (0.072 kg) and its 0.5 kg mount are not in the generated model** — they were in
   the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
   the resulting 0.572 kg difference so it cannot be forgotten; if the physical arm
   carries them, gravity compensation is under-modelled by that much at the wrist.
-- The **joint limits are Kinova's** (j2/j4/j6 ±2.24/±2.57/±2.09 rad). The hand-edited
-  model the driver used before had ±2.41/±2.66/±2.23, and today's cuRobo still plans with
-  those: a plan through the difference is clamped by the driver and can abort with
+- The **joint limits are Kinova's** (j2/j4/j6 ±2.24/±2.57/±2.09 rad). cuRobo still plans
+  with the hand-edited model's ±2.41/±2.66/±2.23: a plan through the difference is clamped
+  by the driver and can abort with
   `PATH_TOLERANCE_VIOLATED`. They move together when cuRobo reads this model.
 - The model's `camera` xacro arg (Kinova's built-in vision module) defaults to `false`:
   RAMMP's arms do not have one. The vision bracelet is 0.136 kg heavier.
 - Model configuration is not exposed at launch: `prefix` is a fixed xacro property
-  (`arm_`), and `gripper` and `camera` are xacro args of the model rendered from
-  `mount_file`, but neither is a launch argument.
+  (`arm_`), and `gripper` and `camera` are xacro args with no launch argument.
 
 ## Node arguments
 

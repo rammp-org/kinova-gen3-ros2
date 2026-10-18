@@ -28,7 +28,7 @@ definitions, not cuRobo. The driver is a *client* of the planner, which needs a 
 and has no business inside a real-time container.
 
 Everything below runs on the driver plus `arm_state_publisher`, which publishes the
-arm's model the driver reads. The `go_to_*` actions also need the planner — see
+arm's model for the driver. The `go_to_*` actions also need the planner — see
 [Planned moves need both containers](#planned-moves-need-both-containers).
 
 `<tag>` is an image that contains `kinova_gen3_description`: the first release after
@@ -212,7 +212,7 @@ KINOVA_ARM_IP=192.168.1.10 docker compose up
 
 Three things here are load-bearing and not stylistic:
 
-- **`ipc: host` and `network_mode: host`** on all three — without them the two
+- **`ipc: host` and `network_mode: host`** on all three — without them the
   containers cannot see each other's DDS traffic, and neither can your shell.
 - **`cap_add: SYS_NICE` *and* the `ulimits`.** The capability permits
   `sched_setscheduler`; the rlimits are what let it succeed. `--privileged` raises

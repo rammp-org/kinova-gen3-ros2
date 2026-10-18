@@ -50,7 +50,8 @@ ament_target_dependencies(ros2_backend rclcpp rclcpp_action rammp_arm_interfaces
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
 # Reads the latched model arm_state_publisher renders, and derives the
-# /joint_states names from it. Used once, at startup, before the RT loop.
+# /joint_states names from it, at startup before the RT loop; then watches for
+# a different model, off the RT path.
 add_library(robot_description src/robot_description.cpp)
 target_include_directories(robot_description PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)

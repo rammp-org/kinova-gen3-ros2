@@ -426,9 +426,8 @@ TEST(MessageMapping, PlannerOverloadCarriesAnExplicitSpeedScale) {
 }
 
 // GoToEEPose targets are in arm_mount (gravity-aligned on level ground).
-// base_link gets its own message because it was the old contract and every
-// un-migrated client sends it; the client only sees "rejected", so this text is
-// for the log.
+// base_link gets its own message because it is the frame older clients send;
+// the client only sees "rejected", so this text is for the log.
 TEST(MessageMapping, EePoseFrameMustBeArmMount) {
   EXPECT_EQ(ee_pose_frame_rejection("arm_mount"), std::nullopt);
   EXPECT_EQ(ee_pose_frame_rejection("base_link"),

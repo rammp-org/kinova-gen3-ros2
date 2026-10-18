@@ -71,8 +71,9 @@ if [ "$elapsed" -ge 5 ]; then
 fi
 
 # A stop requested while the node is still waiting for its model is a clean
-# exit (0), and prompt -- not the 30 s timeout's exit 1. A domain no description
-# is on, so it waits; no --rm, so the exit code can be read.
+# exit (0), and prompt -- not the 30 s timeout's exit 1. The node runs on a ROS
+# domain with no description publisher, so it waits; no --rm, so the exit code
+# can be read.
 docker run -d --name "$NAME-nomodel" --network host \
   -e ROS_DOMAIN_ID="$(( ${ROS_DOMAIN_ID:-0} + 1 ))" "$IMAGE" >/dev/null
 trap 'docker rm -f "$NAME" "$NAME-desc" "$NAME-nomodel" >/dev/null 2>&1 || true' EXIT

@@ -158,7 +158,7 @@ def _link_inertial(xml_root, link):
 
 def test_bracelet_is_the_no_vision_one():
     """RAMMP's arms have no Kinova vision module. The bracelet with it is 0.136 kg
-    heavier, and test_known_wrist_mass_delta's total once absorbed that difference."""
+    heavier, which would hide that much of test_known_wrist_mass_delta's total."""
     xml, _ = render(LEVEL)
     ours = _link_inertial(ET.fromstring(xml), "arm_bracelet_link")
     old = _link_inertial(ET.parse(OLD).getroot(), "gen3_bracelet_link")
@@ -169,8 +169,8 @@ def test_bracelet_is_the_no_vision_one():
 
 
 # Kinova's published ranges (128.9 / 147.8 / 120.3 deg), from upstream
-# kortex_description. The hand-edited model this replaced had +/-2.41 / 2.66 / 2.23,
-# so the driver's position limits TIGHTEN with this model; pinned so an upstream
+# kortex_description. The hand-edited model has +/-2.41 / 2.66 / 2.23, so the
+# driver's position limits TIGHTEN with this model; pinned so an upstream
 # change cannot move them unnoticed.
 KINOVA_LIMITS_RAD = {"arm_joint_2": 2.24, "arm_joint_4": 2.57, "arm_joint_6": 2.09}
 

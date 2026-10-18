@@ -112,7 +112,8 @@ int main(int argc, char **argv) {
     else if (a == "--max-ref-speed")
       max_ref_speed = std::stod(nxt());
     else if (a == "--urdf") {
-      // Removed: a stale flag must not look like the operator chose the model.
+      // Rejected, not ignored: a stale flag must not look like the operator
+      // chose the model.
       std::fprintf(stderr,
                    "--urdf was removed: the model comes from "
                    "/arm/robot_description (published by arm_state_publisher / "
@@ -122,8 +123,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  // The model, from arm_state_publisher, BEFORE anything real-time exists: the
-  // RT loop must never wait on DDS. It was rendered from the robot's mount
+  // Fetch the model from arm_state_publisher BEFORE anything real-time exists:
+  // the RT loop must never wait on DDS. It is rendered from the robot's mount
   // file, so gravity compensation, FK and the Jacobian are all in arm_mount.
   auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
   const auto urdf_xml =
@@ -152,8 +153,8 @@ int main(int argc, char **argv) {
   std::signal(SIGINT, on_sigint);
   std::signal(SIGTERM, on_sigint);
   // Core reduces the 13-DOF model to the seven joints on the chain to
-  // ee_frame, locking the gripper at q = 0 -- which lumps its mass into the
-  // wrist exactly as the old frozen model did.
+  // ee_frame, locking the gripper at q = 0, which lumps its mass into the
+  // wrist.
   // Built inside the try: Dynamics throws on a model it cannot use (ee_frame
   // absent, e.g. an unprefixed model on the topic), and that must reach the
   // FATAL below rather than std::terminate. Emplaced once and never reset, so
@@ -356,7 +357,7 @@ int main(int argc, char **argv) {
   jc_server.set_command_sink(&arb);
   preset_server.set_command_sink(&arb);
 
-  // A signal during setup was a requested stop: do not connect to the arm.
+  // A signal during setup is a requested stop: do not connect to the arm.
   if (g_stop.load()) {
     rclcpp::shutdown();
     return 0;

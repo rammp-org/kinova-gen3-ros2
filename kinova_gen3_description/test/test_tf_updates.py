@@ -21,7 +21,7 @@ Two things this test learned the hard way, both worth keeping:
     gripper tier, so the description launch now serves the articulated model by
     default.
 
-Run against a live `ros2 launch kinova_gen3_description description.launch.py mount_file:=\<mount.yaml>`:
+Run against a live `ros2 launch kinova_gen3_description description.launch.py mount_file:=<mount.yaml>`:
     python3 test_tf_updates.py
 """
 

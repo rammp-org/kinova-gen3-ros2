@@ -154,7 +154,7 @@ private:
   }
   rclcpp::Node::SharedPtr node_;
   // header.frame_id on every plan. arm_mount by default: a planner that keeps
-  // the contract. Unset is what today's cuRobo sends.
+  // the contract. Unset mimics cuRobo, which leaves it empty.
   std::string frame_id_ = "arm_mount";
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;

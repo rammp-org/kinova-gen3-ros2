@@ -202,9 +202,9 @@ TEST_F(GotoServerTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   spin.join();
 }
 
-// The old frame is refused at the goal gate, before any planning: an
-// un-migrated client must not have its base_link numbers silently read in
-// arm_mount (they differ by 30° on flatbot).
+// base_link is refused at the goal gate, before any planning: a client's
+// base_link numbers must not be silently read in arm_mount (they differ by 30°
+// on flatbot).
 TEST_F(GotoServerTest, ABaseLinkGoalIsRejectedBeforePlanning) {
   auto node = std::make_shared<rclcpp::Node>("goto_it_base_link");
   kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
@@ -531,8 +531,8 @@ struct Rig {
   explicit Rig(const std::string &name)
       : node(std::make_shared<rclcpp::Node>(name)), fake(node, true, 3),
         grp(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
-        planner(node, grp), router(dummy),
-        server(node, router, planner, grp), sup(router) {
+        planner(node, grp), router(dummy), server(node, router, planner, grp),
+        sup(router) {
     server.set_command_sink(&sup);
     ex.add_node(node);
     spin = std::make_unique<SpinThread>(ex);
@@ -598,8 +598,8 @@ TEST_F(GotoServerTest, AnUnusableSpeedScaleIsRefused) {
   EXPECT_FALSE(r.sup.got_goal);
 }
 
-// A planner that does not say it planned in arm_mount -- today's cuRobo leaves
-// header.frame_id unset: the plan is refused after planning and never reaches
+// A planner that does not say it planned in arm_mount (cuRobo leaves
+// header.frame_id unset): the plan is refused after planning and never reaches
 // the supervisor.
 TEST_F(GotoServerTest, APlanNotInArmMountIsRefused) {
   for (const std::string frame : {"", "base_link"}) {

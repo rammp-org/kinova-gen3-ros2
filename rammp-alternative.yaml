@@ -1,9 +1,9 @@
 # The arm driver.
 #
 # The container is defined in deploy/compose.yaml, not inline: this module is
-# three containers (driver, arm_state_publisher, planner), and the compose-file path is the only one sheppy interpolates
-# ${VAR} on. See docs/interface.md for the actions and services this fragment
-# has no way to declare.
+# three containers (driver, arm_state_publisher, planner), and the compose-file
+# path is the only one sheppy interpolates ${VAR} on. See docs/interface.md for
+# the actions and services this fragment has no way to declare.
 id: kinova_gen3_driver
 tier: experimental
 kind: docker

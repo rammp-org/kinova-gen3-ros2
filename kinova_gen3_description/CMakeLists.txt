@@ -4,9 +4,9 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
 # The model is rendered at LAUNCH, from the robot's mount file, by
-# kinova_gen3_render.py -- never at build time. A build-time render baked in one
-# mount (level) and left a flat URDF in the image for anything to pick up by
-# mistake; on a tilted arm that silently applies gravity 30 degrees off.
+# kinova_gen3_render.py -- never at build time. A build-time render would bake in
+# one mount and leave a flat URDF in the image for anything to pick up by mistake;
+# on a tilted arm that silently applies gravity 30 degrees off.
 install(DIRECTORY urdf launch DESTINATION share/${PROJECT_NAME})
 # Importable (description.launch.py does `from kinova_gen3_render import ...`)...
 ament_python_install_module(scripts/kinova_gen3_render.py)

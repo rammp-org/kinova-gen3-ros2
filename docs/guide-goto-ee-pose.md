@@ -6,7 +6,7 @@
 > for the tier as a whole — including the RMW requirement that otherwise makes
 > a goal hang in `planning` forever.
 
-`GoToEEPose` moves the tool (`tool_frame`) to a target pose in `arm_mount`. `arm_mount` is gravity-aligned when the chair is level; on dojo it coincides with the arm's base, and on flatbot and gen_1_5 the arm's base is tilted 30° forward in it. A goal in `base_link` is rejected (the reason is in the node log).
+`GoToEEPose` moves the tool (`arm_tool_frame`) to a target pose in `arm_mount`. `arm_mount` is gravity-aligned when the chair is level; on dojo it coincides with the arm's base, and on flatbot and gen_1_5 the arm's base is tilted 30° forward in it. A goal in `base_link` is rejected (the reason is in the node log).
 Unlike `ExecuteJointTrajectory`, which expects an already-planned trajectory,
 `GoToEEPose` plans the collision-free path for you: the goal is delegated to
 the external **cuRobo** node, and the returned trajectory is executed through

@@ -189,8 +189,8 @@ ee_pose_frame_rejection(const std::string &frame_id) {
   if (frame_id == "base_link")
     return std::string(
         "frame_id 'base_link' is no longer accepted: Cartesian goals are in "
-        "'arm_mount' (gravity-aligned); arm_base_link is tilted 30° on flatbot "
-        "and gen_1_5");
+        "'arm_mount' (gravity-aligned), which differs from the arm's base on a "
+        "tilted mount");
   return "frame_id '" + frame_id + "' != arm_mount";
 }
 

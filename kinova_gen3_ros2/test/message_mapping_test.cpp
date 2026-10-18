@@ -434,8 +434,8 @@ TEST(MessageMapping, EePoseFrameMustBeArmMount) {
   EXPECT_EQ(ee_pose_frame_rejection("base_link"),
             std::optional<std::string>(
                 "frame_id 'base_link' is no longer accepted: Cartesian goals "
-                "are in 'arm_mount' (gravity-aligned); arm_base_link is tilted "
-                "30° on flatbot and gen_1_5"));
+                "are in 'arm_mount' (gravity-aligned), which differs from the "
+                "arm's base on a tilted mount"));
   EXPECT_EQ(
       ee_pose_frame_rejection("arm_base_link"),
       std::optional<std::string>("frame_id 'arm_base_link' != arm_mount"));

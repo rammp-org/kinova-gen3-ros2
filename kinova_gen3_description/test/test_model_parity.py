@@ -208,6 +208,10 @@ def test_radians_in_the_degrees_field_warn(tmp_path, capsys):
     p.write_text("robot: x\nrpy_deg: [0, 30, 0]\n")
     load_mount(str(p))
     assert capsys.readouterr().err == ""
+    # A small real adapter, in whole degrees, is not mistaken for radians.
+    p.write_text("robot: x\nrpy_deg: [0, 5, 0]\n")
+    load_mount(str(p))
+    assert capsys.readouterr().err == ""
 
 
 def test_known_wrist_mass_delta(level, old):

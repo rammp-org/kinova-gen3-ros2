@@ -57,10 +57,11 @@ def load_mount(path):
         raise ValueError(f"{path}: robot must be a non-empty name, got {robot!r}")
     # rpy_deg is DEGREES. Radians typed in by mistake (0.5236 for 30 deg) render a
     # plausible-looking, nearly level mount -- and the wrong gravity -- so say so.
-    if any(rpy) and all(abs(v) <= 2 * math.pi for v in rpy):
+    # Real mounts are whole degrees; a fraction within 2*pi is the radians tell.
+    if all(abs(v) <= 2 * math.pi for v in rpy) and any(v != int(v) for v in rpy):
         print(
             f"WARNING: {path}: rpy_deg {rpy} is read as DEGREES, but every value is "
-            "within 2*pi -- radians? Rendering it as degrees.",
+            "within 2*pi and one is fractional -- radians? Rendering it as degrees.",
             file=sys.stderr,
         )
     return mount

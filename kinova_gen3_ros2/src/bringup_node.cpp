@@ -142,6 +142,15 @@ int main(int argc, char **argv) {
     rclcpp::shutdown();
     return interrupted ? 0 : 1;
   }
+  // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
+  // defaults to SIGTERM, not SIGINT) -- rclcpp's own default handler logs and
+  // begins context shutdown on either signal, but only setting g_stop actually
+  // unblocks the RT loop (exec.run) blocking the main thread. Installed here,
+  // right after the wait (which relies on rclcpp's handler), and not after the
+  // servers below: a signal under rclcpp's handler in between would shut the
+  // context down under the entities still being created, and they throw.
+  std::signal(SIGINT, on_sigint);
+  std::signal(SIGTERM, on_sigint);
   // Core reduces the 13-DOF model to the seven joints on the chain to
   // ee_frame, locking the gripper at q = 0 -- which lumps its mass into the
   // wrist exactly as the old frozen model did.
@@ -347,17 +356,11 @@ int main(int argc, char **argv) {
   jc_server.set_command_sink(&arb);
   preset_server.set_command_sink(&arb);
 
-  // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
-  // defaults to SIGTERM, not SIGINT) — rclcpp's own default handler logs and
-  // begins context shutdown on either signal, but only setting g_stop actually
-  // unblocks the RT loop (exec.run) blocking the main thread.
-  std::signal(SIGINT, on_sigint);
-  std::signal(SIGTERM, on_sigint);
-  // A signal that landed before the two lines above went to rclcpp's handler:
-  // the context is down (no /estop, no services) and g_stop was never set. Do
-  // not connect to the arm into that; it was a requested stop.
-  if (!rclcpp::ok())
+  // A signal during setup was a requested stop: do not connect to the arm.
+  if (g_stop.load()) {
+    rclcpp::shutdown();
     return 0;
+  }
   tap.connect();
   tap.set_servoing_low_level();
   sup.start();

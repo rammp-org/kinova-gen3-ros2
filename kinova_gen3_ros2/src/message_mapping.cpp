@@ -201,7 +201,8 @@ pose_plan_frame_rejection(const std::string &plan_frame) {
   return "the planner's trajectory is in frame '" +
          (plan_frame.empty() ? std::string("(unset)") : plan_frame) +
          "', not arm_mount. Deploy a cuRobo that plans in arm_mount (it reads "
-         "/arm/robot_description and stamps header.frame_id); joint-space goals "
+         "/arm/robot_description and stamps header.frame_id); joint-space "
+         "goals "
          "are unaffected";
 }
 

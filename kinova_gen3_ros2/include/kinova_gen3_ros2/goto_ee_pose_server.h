@@ -23,7 +23,8 @@ public:
 protected:
   std::optional<std::string>
   check_plan(const CuroboPlanClient::Outcome &outcome) override {
-    if (auto why = pose_plan_frame_rejection(outcome.trajectory.header.frame_id))
+    if (auto why =
+            pose_plan_frame_rejection(outcome.trajectory.header.frame_id))
       return "GoToEEPose: " + *why;
     return std::nullopt;
   }
@@ -59,7 +60,6 @@ protected:
     planner_.plan(goal.target.pose, this->start_config(), goal.orientation_hold,
                   std::move(on_fb), std::move(on_done));
   }
-
 };
 
 } // namespace kinova_gen3_ros2

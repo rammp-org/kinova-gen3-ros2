@@ -160,7 +160,7 @@ any of what follows.
 
 Off-fleet, run both with compose.
 
-Put your robot's `mount.yaml` in `./robot/` (`robot: <name>`, `rpy_deg: [r, p, y]`); there is no default.
+Put your robot's `mount.yaml` next to `compose.yaml` (`robot: <name>`, `rpy_deg: [r, p, y]`); there is no default.
 
 Save this as `compose.yaml`:
 
@@ -189,7 +189,7 @@ services:
     environment:
       RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
     volumes:
-      - ./robot:/config/robot:ro
+      - ./mount.yaml:/config/robot/mount.yaml:ro
     command:
       - ros2
       - launch

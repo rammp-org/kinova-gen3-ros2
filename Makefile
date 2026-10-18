@@ -133,7 +133,7 @@ build-real: stage-kortex   ## Build the KORTEX-enabled image only
 # ATTENDED ONLY — docs/on-robot-runbook.md. e-stop in hand.
 real: build-real           ## Build KORTEX-enabled and run against the arm
 	@test -n "$(IP)" -a -f "$(MOUNT)" || { echo "usage: make real IP=192.168.1.10" \
-	  "MOUNT=<rammp-deployments>/december_2026/config/robots/current/mount.yaml" \
+	  "MOUNT=<robot>/mount.yaml" \
 	  "(MOUNT has no default: it sets the gravity direction)"; exit 1; }
 	$(call desc_up,kinova_gen3_real_desc,$(abspath $(MOUNT)),$(IMAGE_REAL))
 	-$(RUN) -it --name kinova_gen3_real --stop-timeout 20 $(IMAGE_REAL) \

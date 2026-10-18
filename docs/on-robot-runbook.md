@@ -46,7 +46,7 @@ pose (the client seeds the trajectory from this, so it must be correct).
 # terminal A:
 cd ~/ros2_ws && source install/setup.bash
 ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10 \
-  mount_file:=<rammp-deployments>/december_2026/config/robots/current/mount.yaml
+  mount_file:=<robot>/mount.yaml
 # expect: "kinova_gen3_node up (real); action: /execute_joint_trajectory"
 
 # terminal B (source ~/ros2_ws/install/setup.bash first) — note: /joint_states is best-effort QoS:

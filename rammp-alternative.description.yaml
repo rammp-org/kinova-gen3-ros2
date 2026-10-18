@@ -5,7 +5,7 @@
 # /arm/robot_description at startup and cannot run without it, so select this with
 # kinova_gen3_driver. Defined in deploy/compose.yaml for the same reason as the
 # others: it is the only path sheppy interpolates ${VAR} on, and the mount
-# directory has to come from the host.
+# file has to come from the host (KINOVA_MOUNT_FILE).
 id: kinova_gen3_description
 tier: experimental
 kind: docker

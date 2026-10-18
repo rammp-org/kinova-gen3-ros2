@@ -307,8 +307,8 @@ description, then the node.
 `kinova_gen3_description` holds the robot model and the launch plumbing. Every robot
 declares its arm mount in `mount.yaml`: `robot: <name>` and `rpy_deg: [r, p, y]`, the
 orientation of `arm_base_link` in `arm_mount`, in degrees, fixed-axis X-Y-Z as URDF's
-`<origin rpy>` (R = Rz(y)·Ry(p)·Rx(r)). In rammp-deployments that is
-`config/robots/<robot>/mount.yaml`, and containers see it at `/config/robot/mount.yaml`.
+`<origin rpy>` (R = Rz(y)·Ry(p)·Rx(r)). Containers see it at `/config/robot/mount.yaml`;
+`deploy/compose.yaml` mounts it from `KINOVA_MOUNT_FILE`.
 `mount_file` has **no default**. A default would silently render a level arm on a
 tilted one, and gravity compensation would then be wrong by the tilt.
 
@@ -593,7 +593,7 @@ Real arm (attended only — follow `docs/on-robot-runbook.md`; needs the KORTEX 
 
 ```sh
 ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10 \
-  mount_file:=<rammp-deployments>/december_2026/config/robots/current/mount.yaml
+  mount_file:=<robot>/mount.yaml
 ```
 
 Send a goal with the test client. It **seeds waypoint 0 from the live measured

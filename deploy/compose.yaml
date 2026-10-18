@@ -36,15 +36,15 @@ services:
 
   # The arm's model and TF. The driver reads /arm/robot_description at startup and
   # exits without it, so this is selected together with kinova_gen3_driver.
-  # RAMMP_ROBOT_DIR is the robot's config directory (rammp-deployments:
-  # december_2026/config/robots/current). Unset, the volume spec is invalid and docker
-  # refuses to start the container -- loud, never a silently level arm.
+  # KINOVA_MOUNT_FILE is the path to the robot's mount.yaml. Unset, the volume spec
+  # is invalid and docker refuses to start the container -- loud, never a silently
+  # level arm.
   arm_state_publisher:
     image: kinova-gen3-ros2:kortex
     network_mode: host
     ipc: host
     volumes:
-      - ${RAMMP_ROBOT_DIR}:/config/robot:ro
+      - ${KINOVA_MOUNT_FILE}:/config/robot/mount.yaml:ro
     command:
       - ros2
       - launch

@@ -48,7 +48,9 @@
 
 - **`home` and `rest` are the required preset names, and every node has both**
   (rammp-org/kinova-gen3-driver#86). Callers code against the names. Both are registered
-  even when `preset_names` omits them, defaulting to Kinova's factory Home and Retract.
+  even when `preset_names` omits them. `home` defaults to Kinova's factory Home; `rest`
+  defaults to Retract with joint 4 opened from -2.548 to -2.356 rad, because factory
+  Retract self-collides under cuRobo's spheres and cannot be planned to.
   An installation overrides the angles in config, with no release. There is no `zero`
   preset.
 

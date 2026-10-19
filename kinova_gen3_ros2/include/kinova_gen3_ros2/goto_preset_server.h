@@ -57,14 +57,16 @@ private:
 // presets, `presets.<name>` gives each one's 7 joint angles (rad). `home` and
 // `rest` are the required names callers code against, so they are always
 // registered even when `preset_names` omits them, defaulting to Kinova's
-// factory Home and Retract until the installation overrides them. A mis-sized
-// entry is dropped with a warning rather than padded -- GoToPreset then
-// rejects that name outright instead of moving the arm to a half-specified
-// configuration.
+// factory Home and to Retract with the elbow (joint 4) opened 11 deg, -146 ->
+// -135 deg: factory Retract folds the gripper into the shoulder under cuRobo's
+// collision spheres, so it can never be planned to. An installation overrides
+// both. A mis-sized entry is dropped with a warning rather than padded --
+// GoToPreset then rejects that name outright instead of moving the arm to a
+// half-specified configuration.
 inline GoToPresetServer::Registry load_preset_registry(rclcpp::Node &node) {
   const GoToPresetServer::Registry defaults = {
       {"home", {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}},
-      {"rest", {0.0, -0.349, 3.142, -2.548, 0.0, -0.873, 1.571}}};
+      {"rest", {0.0, -0.349, 3.142, -2.356, 0.0, -0.873, 1.571}}};
   auto names = node.declare_parameter<std::vector<std::string>>(
       "preset_names", {"home", "rest"});
   for (const auto &d : defaults)
@@ -78,12 +80,12 @@ inline GoToPresetServer::Registry load_preset_registry(rclcpp::Node &node) {
         it != defaults.end() ? it->second : std::vector<double>{});
     if (q.size() == static_cast<size_t>(kinova::kNumJoints)) {
       reg[n] = q;
-      // The factory poses assume a level mount and an empty workspace; say so
+      // The defaults assume a level mount and an empty workspace; say so
       // rather than let an unconfigured cell move there without notice.
       if (it != defaults.end() && q == it->second)
         RCLCPP_WARN(node.get_logger(),
                     "preset '%s' is not configured for this installation - "
-                    "using the Kinova factory pose (level mount)",
+                    "using the default pose (level mount)",
                     n.c_str());
     } else {
       RCLCPP_WARN(node.get_logger(),

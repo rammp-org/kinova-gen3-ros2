@@ -5,7 +5,7 @@ path for you rather than expecting one:
 
 | action               | goal                                 | plans via               |
 | -------------------- | ------------------------------------ | ----------------------- |
-| `go_to_ee_pose`      | tool pose in `base_link`             | cuRobo `plan_to_pose`   |
+| `go_to_ee_pose`      | tool pose in `arm_mount`             | cuRobo `plan_to_pose`   |
 | `go_to_joint_config` | explicit 7 joint angles (rad)        | cuRobo `plan_to_joints` |
 | `go_to_preset`       | a **name** for a joint configuration | cuRobo `plan_to_joints` |
 
@@ -94,7 +94,7 @@ live measured `actual`).
 | `-7` PLANNING_FAILED         | cuRobo found no plan, or returned an empty/malformed one |
 
 A goal is **rejected outright** (never accepted, so no result code) when the
-node has no command sink, the pose frame is not `base_link`, `target_joints`
+node has no command sink, the pose frame is not `arm_mount`, `target_joints`
 contains a non-finite value, or a preset name is unknown.
 
 Cancel works in both phases: during planning it cancels the in-flight cuRobo

@@ -6,7 +6,7 @@
 > for the tier as a whole — including the RMW requirement that otherwise makes
 > a goal hang in `planning` forever.
 
-`GoToEEPose` moves the tool (`tool_frame`) to a target pose in `base_link`.
+`GoToEEPose` moves the tool (`arm_tool_frame`) to a target pose in `arm_mount`. `arm_mount` is gravity-aligned when the chair is level; on dojo it coincides with the arm's base, and on flatbot and gen_1_5 the arm's base is tilted 30° forward in it. A goal in `base_link` is rejected (the reason is in the node log).
 Unlike `ExecuteJointTrajectory`, which expects an already-planned trajectory,
 `GoToEEPose` plans the collision-free path for you: the goal is delegated to
 the external **cuRobo** node, and the returned trajectory is executed through
@@ -48,7 +48,7 @@ real divergence. We never send the empty form.
 ## Calling it
 
 Use the test client, which takes a target position and orientation in
-`base_link` (quaternion in `xyzw` order). **It moves the arm as soon as it
+`arm_mount` (quaternion in `xyzw` order). **It moves the arm as soon as it
 runs** — unlike the tour, sweep and scenario scripts it has no dry run and no
 `--go` gate:
 
@@ -60,8 +60,8 @@ python3 <ws>/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_goto_pose.py \
 Pick a pose **near the current tool pose** for a safe, local move — see
 Safety below.
 
-Client flags: `--pos X Y Z` (metres, `base_link`), `--quat X Y Z W`
-(`base_link`, xyzw), `--sender-id` (arbitration hook, defaults to
+Client flags: `--pos X Y Z` (metres, `arm_mount`), `--quat X Y Z W`
+(`arm_mount`, xyzw), `--sender-id` (arbitration hook, defaults to
 `send_goto_pose`). The client prints feedback as it arrives and exits
 non-zero if the terminal `error_code` isn't `0`.
 
@@ -88,7 +88,7 @@ which is how the start-must-match-the-goal rule shows itself.
 | Code | Name                      | Meaning                                                                                                                                                                                            |
 | ---- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`  | `SUCCESSFUL`              | Plan executed to completion.                                                                                                                                                                       |
-| `-1` | `INVALID_GOAL`            | Goal rejected before planning — e.g. `target.header.frame_id` is not `base_link`.                                                                                                                  |
+| `-1` | `INVALID_GOAL`            | Goal rejected before planning — e.g. `target.header.frame_id` is not `arm_mount`.                                                                                                                  |
 | `-4` | `PATH_TOLERANCE_VIOLATED` | Execution diverged from the planned trajectory beyond the guard.                                                                                                                                   |
 | `-6` | `PREEMPTED`               | Goal was canceled (during planning or execution — see Cancelling below).                                                                                                                           |
 | `-7` | `PLANNING_FAILED`         | cuRobo returned no plan — unreachable/colliding target, the cuRobo action server is unavailable, or it's busy planning another goal (one plan at a time). `error_string` carries cuRobo's message. |

@@ -1,0 +1,3 @@
+# Test fixture: new_adapter_plate_v3's 30 deg forward lean (flatbot-like).
+robot: test_tilted
+rpy_deg: [0.0, 30.0, 0.0]

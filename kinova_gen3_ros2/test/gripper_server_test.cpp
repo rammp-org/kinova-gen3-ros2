@@ -1,6 +1,8 @@
 #include <cmath>
 #include <functional>
 #include <stdexcept>
+#include <string>
+#include <vector>
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_gen3_ros2/gripper_server.h"
@@ -13,6 +15,12 @@
 #include "fake_gripper_sink.h"
 
 using namespace std::chrono_literals;
+
+static const std::vector<std::string> kJointNames = {
+    "arm_joint_1", "arm_joint_2",
+    "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6",
+    "arm_joint_7", "arm_robotiq_85_left_knuckle_joint"};
 
 class GripperServerTest : public ::testing::Test {
 protected:
@@ -148,7 +156,8 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
   FakeGripperSink sink;
   sink.state.position = 0.5f;
   sink.state.present = false;
-  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_);
+  auto backend =
+      std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_, kJointNames);
   backend->set_gripper_sink(&sink);
 
   sensor_msgs::msg::JointState got;
@@ -169,7 +178,9 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
 
   ASSERT_TRUE(seen);
   ASSERT_EQ(got.name.size(), 8u);
-  EXPECT_EQ(got.name[7], "robotiq_85_left_knuckle_joint");
+  EXPECT_EQ(got.name[0], "arm_joint_1"); // from the model, not hard-coded
+  EXPECT_EQ(got.name[6], "arm_joint_7");
+  EXPECT_EQ(got.name[7], "arm_robotiq_85_left_knuckle_joint");
   EXPECT_DOUBLE_EQ(got.position[7], 0.4);   // 0.5 * 0.8
   EXPECT_TRUE(std::isnan(got.velocity[7])); // core removed the field entirely
   EXPECT_TRUE(std::isnan(got.effort[7]));   // 0..1 fraction, not N*m
@@ -177,7 +188,8 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
 
 // Without a sink wired, the message is exactly what it was before this tier.
 TEST_F(GripperServerTest, NoGripperSinkMeansSevenJointsAsBefore) {
-  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_);
+  auto backend =
+      std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_, kJointNames);
   sensor_msgs::msg::JointState got;
   bool seen = false;
   auto sub = node_->create_subscription<sensor_msgs::msg::JointState>(

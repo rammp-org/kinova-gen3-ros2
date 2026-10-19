@@ -83,6 +83,9 @@ RUN if [ -n "${INTERFACES_REF}" ]; then \
 # dependency-free IDL). A bare `src` would also install rammp_curobo_ros's deps
 # for a package this image never runs — that node lives in the GPU container.
 COPY kinova_gen3_ros2/package.xml       src/kinova_gen3_ros2/kinova_gen3_ros2/package.xml
+# The description too: arm_state_publisher runs from THIS image and renders the
+# model at launch, so xacro and the upstream descriptions are run-time deps.
+COPY kinova_gen3_description/package.xml src/kinova_gen3_ros2/kinova_gen3_description/package.xml
 RUN source /opt/ros/humble/setup.bash && \
     source /ros2_ws/install/setup.bash && \
     apt-get update && \
@@ -138,15 +141,16 @@ RUN if [ "${KINOVA_ENABLE_KORTEX}" = "ON" ] && \
 # --- workspace source + build -------------------------------------------------
 COPY . src/kinova_gen3_ros2/
 
-# --packages-up-to kinova_gen3_ros2 builds exactly the node and its recursive
-# deps (kinova_lowlevel, rammp_arm_interfaces, rammp_common_interfaces,
-# rammp_curobo_interfaces) and stops there — rammp_curobo_ros is the GPU planner node and belongs in the
-# rammp-curobo image, not this one.
+# --packages-up-to kinova_gen3_ros2 kinova_gen3_description builds the node, the
+# model arm_state_publisher renders at launch, and their recursive deps
+# (kinova_lowlevel, rammp_arm_interfaces, rammp_common_interfaces,
+# rammp_curobo_interfaces) and stops there — rammp_curobo_ros is the GPU planner
+# node and belongs in the rammp-curobo image, not this one.
 RUN source /opt/ros/humble/setup.bash && \
     source /ros2_ws/install/setup.bash && \
     export CMAKE_PREFIX_PATH="${CMEEL_PREFIX}:${CMAKE_PREFIX_PATH:-}" && \
     colcon build --symlink-install --event-handlers console_direct+ \
-      --packages-up-to kinova_gen3_ros2 \
+      --packages-up-to kinova_gen3_ros2 kinova_gen3_description \
       --cmake-args -DCMAKE_BUILD_TYPE=Release \
         "-DKINOVA_ENABLE_KORTEX=${KINOVA_ENABLE_KORTEX}" \
         "-DKORTEX_HW_DIR=/opt/kortex/${KORTEX_SDK_DIR}" && \
@@ -155,8 +159,6 @@ RUN source /opt/ros/humble/setup.bash && \
         { echo "INTERFACES_REF=${INTERFACES_REF} was set but the workspace did not build" \
                "rammp_arm_interfaces -- the overlay did not take effect" >&2; exit 1; }; \
     fi
-
-ENV URDF=/module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 
 # --- entrypoint ---------------------------------------------------------------
 # Supplied by rammp-base: it sources ROS, then /ros2_ws (the contract), then
@@ -167,5 +169,7 @@ ENV URDF=/module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
 # PID 1 would hit the wrapper and never reach the node — it would be SIGKILLed
 # 10s later with no safe_shutdown(). Exec'd directly, the node IS PID 1 and its
 # SIGTERM handler runs the clean stop path.
-CMD ["/module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node", \
-     "--sim", "--urdf", "/module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf"]
+# No --urdf: the node waits for /arm/robot_description from arm_state_publisher
+# (same image: ros2 launch kinova_gen3_description description.launch.py
+# mount_file:=/config/robot/mount.yaml) and exits if it never comes.
+CMD ["/module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node", "--sim"]

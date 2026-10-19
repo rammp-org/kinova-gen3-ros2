@@ -3,6 +3,9 @@
 #include <cmath>
 #include <memory>
 #include <thread>
+#include <stdexcept>
+#include <string>
+#include <vector>
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -22,6 +25,12 @@ Action::Goal one_point_goal(double speed_scale) {
   g.speed_scale = speed_scale;
   return g;
 }
+
+const std::vector<std::string> kJointNames = {
+    "arm_joint_1", "arm_joint_2",
+    "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6",
+    "arm_joint_7", "arm_robotiq_85_left_knuckle_joint"};
 } // namespace
 
 class Ros2BackendTest : public ::testing::Test {
@@ -55,7 +64,7 @@ static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
 
 TEST_F(Ros2BackendTest, ABadSpeedScaleIsRefusedBeforeTheSink) {
   auto node = std::make_shared<rclcpp::Node>("backend_speed_bad");
-  kinova_gen3_ros2::Ros2Backend backend(node);
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
   for (double bad : {0.0, -1.0, 1.5, std::nan("")}) {
@@ -66,7 +75,7 @@ TEST_F(Ros2BackendTest, ABadSpeedScaleIsRefusedBeforeTheSink) {
 
 TEST_F(Ros2BackendTest, AValidSpeedScaleReachesTheSink) {
   auto node = std::make_shared<rclcpp::Node>("backend_speed_ok");
-  kinova_gen3_ros2::Ros2Backend backend(node);
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
   EXPECT_TRUE(send(node, 0.5));
@@ -78,7 +87,7 @@ TEST_F(Ros2BackendTest, AValidSpeedScaleReachesTheSink) {
 // reason in the node log (the driver would refuse it silently).
 TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {
   auto node = std::make_shared<rclcpp::Node>("backend_gains_bad");
-  kinova_gen3_ros2::Ros2Backend backend(node);
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
   auto goal = one_point_goal(1.0);
@@ -103,7 +112,7 @@ TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {
 TEST_F(Ros2BackendTest, SetGainsMapsAndRelaysTheSinkVerdict) {
   using Srv = rammp_arm_interfaces::srv::SetGains;
   auto node = std::make_shared<rclcpp::Node>("backend_set_gains");
-  kinova_gen3_ros2::Ros2Backend backend(node);
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
 
@@ -145,4 +154,13 @@ TEST_F(Ros2BackendTest, SetGainsMapsAndRelaysTheSinkVerdict) {
   const auto resp3 = fut3.get();
   EXPECT_FALSE(resp3->accepted);
   EXPECT_EQ(resp3->message, "refused by fake");
+}
+
+// The names come from the model; a list that is not seven arm joints plus the
+// gripper joint is a wiring bug, refused at construction rather than published.
+TEST_F(Ros2BackendTest, AWrongNumberOfJointNamesIsRefused) {
+  auto node = std::make_shared<rclcpp::Node>("backend_names_bad");
+  EXPECT_THROW((void)kinova_gen3_ros2::Ros2Backend(
+                   node, std::vector<std::string>{"arm_joint_1"}),
+               std::invalid_argument);
 }

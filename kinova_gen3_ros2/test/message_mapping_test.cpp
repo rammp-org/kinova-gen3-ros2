@@ -2,7 +2,9 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/gains.h" // kTorqueLimitFloor
 #include "rammp_arm_interfaces/msg/gripper_setpoint.hpp"
@@ -421,4 +423,31 @@ TEST(MessageMapping, PlannerOverloadCarriesAnExplicitSpeedScale) {
   traj.points.resize(1);
   traj.points[0].positions.assign(7, 0.0);
   EXPECT_DOUBLE_EQ(to_trajectory_goal(traj, 0.3).speed_scale, 0.3);
+}
+
+// GoToEEPose targets are in arm_mount (gravity-aligned on level ground).
+// base_link gets its own message because it is the frame older clients send;
+// the client only sees "rejected", so this text is for the log.
+TEST(MessageMapping, EePoseFrameMustBeArmMount) {
+  EXPECT_EQ(ee_pose_frame_rejection("arm_mount"), std::nullopt);
+  EXPECT_EQ(ee_pose_frame_rejection("base_link"),
+            std::optional<std::string>(
+                "frame_id 'base_link' is no longer accepted: Cartesian goals "
+                "are in 'arm_mount' (gravity-aligned), which differs from the "
+                "arm's base on a tilted mount"));
+  EXPECT_EQ(
+      ee_pose_frame_rejection("arm_base_link"),
+      std::optional<std::string>("frame_id 'arm_base_link' != arm_mount"));
+  // A default-constructed goal: the client forgot the header.
+  EXPECT_EQ(ee_pose_frame_rejection(""),
+            std::optional<std::string>("frame_id '' != arm_mount"));
+}
+
+TEST(MessageMapping, APosePlanMustBeInArmMount) {
+  EXPECT_EQ(pose_plan_frame_rejection("arm_mount"), std::nullopt);
+  const auto unset = pose_plan_frame_rejection("");
+  ASSERT_TRUE(unset.has_value());
+  EXPECT_NE(unset->find("(unset)"), std::string::npos) << *unset;
+  EXPECT_TRUE(pose_plan_frame_rejection("base_link").has_value());
+  EXPECT_TRUE(pose_plan_frame_rejection("/arm_mount").has_value());
 }

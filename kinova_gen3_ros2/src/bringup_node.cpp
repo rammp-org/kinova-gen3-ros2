@@ -1,14 +1,18 @@
 // kinova_gen3_ros2/src/bringup_node.cpp
 #include <atomic>
+#include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "kinova_gen3_ros2/ros2_backend.h"
+#include "kinova_gen3_ros2/robot_description.h"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
@@ -40,6 +44,11 @@ namespace {
 std::atomic<bool> g_stop{false};
 void on_sigint(int) { g_stop.store(true); }
 
+// How long to wait for arm_state_publisher's model. sheppy starts containers
+// concurrently, so it may come up a little after us; the topic is latched, so
+// order does not matter within this window.
+constexpr std::chrono::seconds kDescriptionTimeout{30};
+
 // Build the GoToPreset registry from ROS params: `preset_names` lists the
 // presets, `presets.<name>` gives each one's 7 joint angles (rad). `home`
 // defaults to the cuRobo retract configuration so a stock node has one usable
@@ -69,13 +78,11 @@ std::map<std::string, std::vector<double>> load_presets(rclcpp::Node &node) {
 
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  std::string urdf = "models/gen3_7dof_2f85.urdf", ip;
-  // Dynamics resolves the EE frame BY NAME and throws if it is absent, so the
-  // default has to match whichever model is loaded. Core's own default is
-  // gen3_end_effector_link, matching the hand-edited models/ URDF its tests
-  // use; kinova_gen3_description generates end_effector_link. Overridable
-  // rather than hard-coded so both models work from this one binary.
-  std::string ee_frame = "gen3_end_effector_link";
+  std::string ip;
+  // Dynamics resolves the EE frame BY NAME and throws if it is absent. The
+  // model comes from /arm/robot_description, where every link carries the arm_
+  // prefix. Always passed explicitly: core's own default names its test model.
+  std::string ee_frame = "arm_end_effector_link";
   bool use_sim = false;
   int cpu = -1, prio = 80;
   double rate = 1000.0;
@@ -92,8 +99,6 @@ int main(int argc, char **argv) {
       use_sim = true;
     else if (a == "--ip")
       ip = nxt();
-    else if (a == "--urdf")
-      urdf = nxt();
     else if (a == "--cpu")
       cpu = std::stoi(nxt());
     else if (a == "--ee-frame")
@@ -106,9 +111,93 @@ int main(int argc, char **argv) {
       rate = std::stod(nxt());
     else if (a == "--max-ref-speed")
       max_ref_speed = std::stod(nxt());
+    else if (a == "--urdf") {
+      // Rejected, not ignored: a stale flag must not look like the operator
+      // chose the model.
+      std::fprintf(stderr,
+                   "--urdf was removed: the model comes from "
+                   "/arm/robot_description (published by arm_state_publisher / "
+                   "description.launch.py mount_file:=<mount.yaml>)\n");
+      rclcpp::shutdown();
+      return 2;
+    }
   }
 
-  Dynamics dyn(urdf, ee_frame), pump_dyn(urdf, ee_frame);
+  // Fetch the model from arm_state_publisher BEFORE anything real-time exists:
+  // the RT loop must never wait on DDS. It is rendered from the robot's mount
+  // file, so gravity compensation, FK and the Jacobian are all in arm_mount.
+  auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
+  const auto urdf_xml =
+      kinova_gen3_ros2::wait_for_robot_description(node, kDescriptionTimeout);
+  if (!urdf_xml) {
+    if (rclcpp::ok()) // a SIGTERM during the wait is a clean stop, not this
+      RCLCPP_FATAL(node->get_logger(),
+                   "no model on %s after %lld s. It is published by "
+                   "arm_state_publisher: ros2 launch kinova_gen3_description "
+                   "description.launch.py mount_file:=<robot>/mount.yaml",
+                   kinova_gen3_ros2::kRobotDescriptionTopic,
+                   static_cast<long long>(kDescriptionTimeout.count()));
+    // SIGTERM (docker stop) during the wait is a requested stop: exit 0. Read
+    // before shutdown(), which would make ok() false either way.
+    const bool interrupted = !rclcpp::ok();
+    rclcpp::shutdown();
+    return interrupted ? 0 : 1;
+  }
+  // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
+  // defaults to SIGTERM, not SIGINT) -- rclcpp's own default handler logs and
+  // begins context shutdown on either signal, but only setting g_stop actually
+  // unblocks the RT loop (exec.run) blocking the main thread. Installed here,
+  // right after the wait (which relies on rclcpp's handler), and not after the
+  // servers below: a signal under rclcpp's handler in between would shut the
+  // context down under the entities still being created, and they throw.
+  std::signal(SIGINT, on_sigint);
+  std::signal(SIGTERM, on_sigint);
+  // Core reduces the 13-DOF model to the seven joints on the chain to
+  // ee_frame, locking the gripper at q = 0, which lumps its mass into the
+  // wrist.
+  // Built inside the try: Dynamics throws on a model it cannot use (ee_frame
+  // absent, e.g. an unprefixed model on the topic), and that must reach the
+  // FATAL below rather than std::terminate. Emplaced once and never reset, so
+  // every reference taken below stays valid for the process lifetime.
+  std::optional<Dynamics> dyn, pump_dyn;
+  std::vector<std::string> js_names;
+  try {
+    dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
+    pump_dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
+    js_names =
+        kinova_gen3_ros2::joint_state_names(*urdf_xml, dyn->joint_names());
+  } catch (const std::exception &e) {
+    RCLCPP_FATAL(node->get_logger(), "model on %s: %s",
+                 kinova_gen3_ros2::kRobotDescriptionTopic, e.what());
+    rclcpp::shutdown();
+    return 1;
+  }
+  // The driver's own record of the model it compensates with. The embodiment
+  // line is in arm_state_publisher's log; this one is in ours, and the tilt is
+  // read from the model, so a wrong robot shows here before torque is on.
+  {
+    std::string names;
+    for (const auto &n : dyn->joint_names())
+      names += (names.empty() ? "" : ",") + n;
+    RCLCPP_INFO(
+        node->get_logger(),
+        "model from %s: mount tilt %.1f deg from vertical, ee_frame %s, "
+        "joints [%s]",
+        kinova_gen3_ros2::kRobotDescriptionTopic, dyn->mount_tilt_deg(),
+        ee_frame.c_str(), names.c_str());
+  }
+  // The model is read once. A different one appearing later
+  // (arm_state_publisher restarted with another mount, a second publisher)
+  // would move TF -- and a restarted cuRobo -- away from the gravity this
+  // driver keeps using, so say so, every time, until the driver is restarted.
+  auto description_watch = kinova_gen3_ros2::watch_robot_description(
+      node, *urdf_xml, [logger = node->get_logger()] {
+        RCLCPP_ERROR(logger,
+                     "a DIFFERENT model was published on %s; this driver is "
+                     "still using the one it started with (TF may now disagree "
+                     "with its gravity). Restart the driver.",
+                     kinova_gen3_ros2::kRobotDescriptionTopic);
+      });
   std::unique_ptr<Transport> base;
   if (use_sim) {
     JointFeedback init;
@@ -151,25 +240,25 @@ int main(int argc, char **argv) {
   if (max_ref_speed > 0.0)
     pos_params.max_ref_speed.setConstant(max_ref_speed);
   else
-    dyn.velocity_limits(pos_params.max_ref_speed);
-  JointPositionMode pos(dyn, pos_params);
-  JointImpedanceMode imp(dyn);
+    dyn->velocity_limits(pos_params.max_ref_speed);
+  JointPositionMode pos(*dyn, pos_params);
+  JointImpedanceMode imp(*dyn);
   // The Supervisor holds all three modes because the streaming tier can open a
   // session in any of them. This node drives only trajectories (position and
   // impedance), so tau is never entered here -- but the supervisor needs it to
   // construct, and it defaults to gravity compensation with no tau_ff set.
-  JointTorqueMode tau(dyn);
+  JointTorqueMode tau(*dyn);
   // The Supervisor holds every mode a streaming session can open in. Velocity
   // mode is STIFF by contract -- it tracks the commanded rate and does not
   // yield to contact -- and its max_qd is seeded from the URDF when left
   // non-finite, so the default here is already the hardware's rating rather
   // than a guess.
-  JointVelocityMode vel(dyn);
+  JointVelocityMode vel(*dyn);
   SampleRing ring(1u << 16);
   RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
 
-  auto node = std::make_shared<rclcpp::Node>("kinova_gen3_node");
-  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node);
+  auto backend =
+      std::make_shared<kinova_gen3_ros2::Ros2Backend>(node, js_names);
 
   // READ-ONLY on purpose: core's ArbitrationMode is a constructor argument with
   // no setter, so a dynamic parameter would appear to work and silently do
@@ -192,10 +281,12 @@ int main(int argc, char **argv) {
                             : interface::ArbitrationMode::kDisabled;
   const double estop_clear_max_age_s =
       node->declare_parameter("estop_clear_max_age_s", 1.0);
-  // "Expected" cannot be inferred from the node's own model: it loads the
-  // FROZEN 7-DOF URDF, in which the Robotiq joints are type="fixed", so its
-  // model never has a gripper regardless of the hardware. A robot genuinely
-  // built without one sets this false.
+  // "Expected" cannot be inferred from the node's own model: core reduces it to
+  // the seven arm joints, so it never has a gripper DOF regardless of the
+  // hardware. A robot genuinely built without one sets this false -- but its
+  // model must still declare arm_robotiq_85_left_knuckle_joint, which
+  // joint_state_names() requires: a gripper:=none render cannot start the node
+  // today (gripper is not a launch argument, so no deployment renders one).
   const bool expect_gripper = node->declare_parameter("expect_gripper", true);
 
   // Router demuxes the Supervisor's single ActionServerPort by GoalId; the
@@ -227,7 +318,7 @@ int main(int argc, char **argv) {
   deps.vel = &vel;
   deps.exec = &exec;
   deps.snap = &snap;
-  deps.pump_dyn = &pump_dyn;
+  deps.pump_dyn = &*pump_dyn;
   deps.stream =
       backend.get();     // Ros2Backend publishes /joint_states + /ee_state
   deps.action = &router; // GoalRouter demuxes the single ActionServerPort
@@ -266,12 +357,11 @@ int main(int argc, char **argv) {
   jc_server.set_command_sink(&arb);
   preset_server.set_command_sink(&arb);
 
-  // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
-  // defaults to SIGTERM, not SIGINT) — rclcpp's own default handler logs and
-  // begins context shutdown on either signal, but only setting g_stop actually
-  // unblocks the RT loop (exec.run) blocking the main thread.
-  std::signal(SIGINT, on_sigint);
-  std::signal(SIGTERM, on_sigint);
+  // A signal during setup is a requested stop: do not connect to the arm.
+  if (g_stop.load()) {
+    rclcpp::shutdown();
+    return 0;
+  }
   tap.connect();
   tap.set_servoing_low_level();
   sup.start();

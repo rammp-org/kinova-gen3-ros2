@@ -21,7 +21,7 @@ Two things this test learned the hard way, both worth keeping:
     gripper tier, so the description launch now serves the articulated model by
     default.
 
-Run against a live `ros2 launch kinova_gen3_description description.launch.py`:
+Run against a live `ros2 launch kinova_gen3_description description.launch.py mount_file:=<mount.yaml>`:
     python3 test_tf_updates.py
 """
 
@@ -34,8 +34,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformListener
 
-BASE, TOOL = "base_link", "end_effector_link"
-JOINTS = [f"joint_{i}" for i in range(1, 8)]
+BASE, TOOL = "arm_mount", "arm_end_effector_link"
+JOINTS = [f"arm_joint_{i}" for i in range(1, 8)]
 
 
 class Prober(Node):
@@ -80,8 +80,8 @@ def main() -> int:
         first = node.settle_at(0.0)
         if first is None:
             print(
-                f"FAIL: no transform {BASE} -> {TOOL}. Is robot_state_publisher "
-                "running, and is it serving the 7-DOF model?"
+                f"FAIL: no transform {BASE} -> {TOOL}. Is arm_state_publisher "
+                "(description.launch.py mount_file:=...) running?"
             )
             return 1
 
@@ -91,8 +91,8 @@ def main() -> int:
             return 1
 
         moved = max(abs(a - b) for a, b in zip(first, second))
-        print(f"  joint_2 = 0     -> {tuple(round(v, 4) for v in first)}")
-        print(f"  joint_2 = pi/4  -> {tuple(round(v, 4) for v in second)}")
+        print(f"  arm_joint_2 = 0     -> {tuple(round(v, 4) for v in first)}")
+        print(f"  arm_joint_2 = pi/4  -> {tuple(round(v, 4) for v in second)}")
         print(f"  max delta       =  {moved:.4f} m")
         if moved <= 0.01:
             print(

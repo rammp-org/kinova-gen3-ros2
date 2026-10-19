@@ -8,7 +8,7 @@ namespace kinova_gen3_ros2 {
 // Hosts GoToEEPose: validate -> cuRobo plan_to_pose -> feed the planned
 // trajectory into the shared CommandSink seam (same path as
 // ExecuteJointTrajectory) -> settle. The lifecycle lives in PlannedMoveServer;
-// only the frame check and the planner call are specific to this action.
+// only the frame checks and the planner call are specific to this action.
 class GoToEEPoseServer
     : public PlannedMoveServer<rammp_arm_interfaces::action::GoToEEPose> {
 public:
@@ -21,10 +21,17 @@ public:
                                   cb_group) {}
 
 protected:
+  std::optional<std::string>
+  check_plan(const CuroboPlanClient::Outcome &outcome) override {
+    if (auto why =
+            pose_plan_frame_rejection(outcome.trajectory.header.frame_id))
+      return "GoToEEPose: " + *why;
+    return std::nullopt;
+  }
+
   std::optional<std::string> validate(const Action::Goal &goal) override {
-    if (goal.target.header.frame_id != "base_link")
-      return "GoToEEPose: frame_id '" + goal.target.header.frame_id +
-             "' != base_link";
+    if (auto why = ee_pose_frame_rejection(goal.target.header.frame_id))
+      return "GoToEEPose: " + *why;
     if (auto why = speed_scale_rejection(goal.speed_scale))
       return "GoToEEPose: " + *why;
     // Reject an unknown mode HERE rather than letting it reach the planner.

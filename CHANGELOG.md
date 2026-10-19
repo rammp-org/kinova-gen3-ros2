@@ -44,6 +44,14 @@
   The 1.1.0 image lacked it, although the deployment manifest already ran
   `description.launch.py` from it.
 
+### Added
+
+- **`home` and `rest` are the required preset names, and every node has both**
+  (rammp-org/kinova-gen3-driver#86). Callers code against the names. Both are registered
+  even when `preset_names` omits them, defaulting to Kinova's factory Home and Retract.
+  An installation overrides the angles in config, with no release. There is no `zero`
+  preset.
+
 ## 1.1.0 — 2026-10-02
 
 > **RESOLVED 2026-10-02: the three dependency releases exist and the pins have

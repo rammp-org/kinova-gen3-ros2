@@ -63,15 +63,39 @@ python3 kinova_gen3_ros2/test/send_goto_joints.py --delta 0.15 --joint 6 --go
 
 ## Presets
 
+Code against the preset **names**, never their joint angles. Every node has
+these two:
+
+| name   | meaning                                               |
+| ------ | ----------------------------------------------------- |
+| `home` | the working pose skills start from and return to      |
+| `rest` | the arm parked out of the way when no task is running |
+
+The angles behind each name belong to the installation: they depend on the
+mount and on what surrounds the arm, so they live in the deployment's config
+and change without a release. There is deliberately no `zero` preset: the
+all-zeros configuration is not a safe place to send a mounted arm.
+
 The registry comes from two ROS parameters: `preset_names` lists the presets
-and `presets.<name>` holds each one's 7 joint angles in radians. `home`
-defaults to the cuRobo retract configuration, so a stock node always has one
-usable preset.
+and `presets.<name>` holds each one's 7 joint angles in radians. `home` and
+`rest` are always registered, even when `preset_names` leaves them out. Until
+an installation overrides them they sit at Kinova's factory poses:
+
+| name   | default (rad)                                      | Kinova pose |
+| ------ | -------------------------------------------------- | ----------- |
+| `home` | `[0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571]`    | Home        |
+| `rest` | `[0.0, -0.349, 3.142, -2.548, 0.0, -0.873, 1.571]` | Retract     |
+
+Those defaults assume a level mount and an empty workspace, so the node logs a
+warning at startup for each one still at its factory pose, then a single
+`presets:` line listing every registered name. A deployment overrides the
+angles and may add presets beyond these two:
 
 ```sh
 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \
-  --ros-args -p preset_names:="['home','stow']" \
-             -p presets.stow:="[0.0, 0.5, 3.0, -2.0, 0.0, 1.0, 1.5]"
+  --ros-args -p preset_names:="['home','rest','pour']" \
+             -p presets.rest:="[0.0, -0.3, 3.142, -2.5, 0.0, -0.9, 1.571]" \
+             -p presets.pour:="[0.0, 0.5, 3.0, -2.0, 0.0, 1.0, 1.5]"
 ```
 
 An entry that is not exactly 7 values is **dropped with a warning** rather than

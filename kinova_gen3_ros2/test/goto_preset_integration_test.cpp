@@ -18,8 +18,9 @@ using GoToPreset = rammp_arm_interfaces::action::GoToPreset;
 
 namespace {
 kinova_gen3_ros2::GoToPresetServer::Registry test_registry() {
-  return {{"home",
-           {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}}}; // cuRobo retract
+  return {
+      {"home",
+       {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}}}; // Kinova factory Home
 }
 
 int send_and_get_code(rclcpp::Node::SharedPtr node, const std::string &preset,
@@ -140,4 +141,34 @@ TEST_F(GotoPresetTest, AnUnusableSpeedScaleIsRefused) {
   for (double bad : {0.0, 1.5, std::numeric_limits<double>::quiet_NaN()})
     EXPECT_EQ(send_and_get_code(node, "home", bad), kGoalRejected) << bad;
   EXPECT_FALSE(sup.got_goal);
+}
+
+// `home` and `rest` are the names callers code against: a stock node has both,
+// at Kinova's factory Home and Retract.
+TEST_F(GotoPresetTest, StockRegistryHasHomeAndRest) {
+  auto node = std::make_shared<rclcpp::Node>("goto_preset_reg_stock");
+  const auto reg = kinova_gen3_ros2::load_preset_registry(*node);
+  ASSERT_EQ(reg.size(), 2u);
+  EXPECT_EQ(reg.at("home"),
+            (std::vector<double>{0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}));
+  EXPECT_EQ(reg.at("rest"), (std::vector<double>{0.0, -0.349, 3.142, -2.548,
+                                                 0.0, -0.873, 1.571}));
+}
+
+// A deployment that lists other presets still gets the required ones, and may
+// override their angles.
+TEST_F(GotoPresetTest, RequiredPresetsSurviveACustomListAndCanBeOverridden) {
+  const std::vector<double> mine = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};
+  rclcpp::NodeOptions opts;
+  opts.parameter_overrides(
+      {rclcpp::Parameter("preset_names", std::vector<std::string>{"pour"}),
+       rclcpp::Parameter("presets.pour", mine),
+       rclcpp::Parameter("presets.rest", mine)});
+  auto node = std::make_shared<rclcpp::Node>("goto_preset_reg_custom", opts);
+  const auto reg = kinova_gen3_ros2::load_preset_registry(*node);
+  ASSERT_EQ(reg.size(), 3u);
+  EXPECT_EQ(reg.at("pour"), mine);
+  EXPECT_EQ(reg.at("rest"), mine);
+  EXPECT_EQ(reg.at("home"),
+            (std::vector<double>{0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}));
 }

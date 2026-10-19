@@ -144,7 +144,7 @@ TEST_F(GotoPresetTest, AnUnusableSpeedScaleIsRefused) {
 }
 
 // `home` and `rest` are the names callers code against: a stock node has both,
-// at Kinova's factory Home and at Retract with joint 4 opened to -135 deg.
+// at Kinova's Home and Retract (joint 4 at -135 deg).
 TEST_F(GotoPresetTest, StockRegistryHasHomeAndRest) {
   auto node = std::make_shared<rclcpp::Node>("goto_preset_reg_stock");
   const auto reg = kinova_gen3_ros2::load_preset_registry(*node);

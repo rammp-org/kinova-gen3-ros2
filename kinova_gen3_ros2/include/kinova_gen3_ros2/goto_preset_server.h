@@ -56,11 +56,10 @@ private:
 // Build the GoToPreset registry from ROS params: `preset_names` lists the
 // presets, `presets.<name>` gives each one's 7 joint angles (rad). `home` and
 // `rest` are the required names callers code against, so they are always
-// registered even when `preset_names` omits them, defaulting to Kinova's
-// factory Home and to Retract with the elbow (joint 4) opened 11 deg, -146 ->
-// -135 deg: factory Retract folds the gripper into the shoulder under cuRobo's
-// collision spheres, so it can never be planned to. An installation overrides
-// both. A mis-sized entry is dropped with a warning rather than padded --
+// registered even when `preset_names` omits them. Defaults: Kinova's factory
+// Home, and Kinova's Retract with joint 4 at -135 deg (factory -146 deg
+// self-collides in cuRobo). An installation overrides both. A mis-sized entry
+// is dropped with a warning rather than padded --
 // GoToPreset then rejects that name outright instead of moving the arm to a
 // half-specified configuration.
 inline GoToPresetServer::Registry load_preset_registry(rclcpp::Node &node) {

@@ -79,17 +79,15 @@ all-zeros configuration is not a safe place to send a mounted arm.
 The registry comes from two ROS parameters: `preset_names` lists the presets
 and `presets.<name>` holds each one's 7 joint angles in radians. `home` and
 `rest` are always registered, even when `preset_names` leaves them out. Until
-an installation overrides them they sit at Kinova's factory poses, with one change to `rest`:
+an installation overrides them, they use these defaults:
 
 | name   | default (rad)                                      | Kinova pose |
 | ------ | -------------------------------------------------- | ----------- |
 | `home` | `[0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571]`    | Home        |
 | `rest` | `[0.0, -0.349, 3.142, -2.356, 0.0, -0.873, 1.571]` | Retract\*   |
 
-\* Kinova's Retract has joint 4 at -2.548 rad (-146 deg). Under cuRobo's collision
-spheres that folds the gripper into the shoulder, so the planner refuses it. The
-default opens joint 4 to -2.356 rad (-135 deg), the smallest change that plans
-on both a level and a 30 deg mount.
+\* Joint 4 at -2.356 rad (-135 deg), not Retract's -2.548 (-146 deg). Factory
+Retract self-collides in cuRobo and never plans.
 
 Those defaults assume a level mount and an empty workspace, so the node logs a
 warning at startup for each one still at its default, then a single

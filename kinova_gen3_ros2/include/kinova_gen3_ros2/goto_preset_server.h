@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <string>
@@ -49,5 +50,39 @@ protected:
 private:
   Registry registry_;
 };
+
+// Build the GoToPreset registry from ROS params: `preset_names` lists the
+// presets, `presets.<name>` gives each one's 7 joint angles (rad). `home` and
+// `rest` are the required names callers code against, so they are always
+// registered even when `preset_names` omits them, defaulting to Kinova's
+// factory Home and Retract until the installation overrides them. A mis-sized
+// entry is dropped with a warning rather than padded -- GoToPreset then
+// rejects that name outright instead of moving the arm to a half-specified
+// configuration.
+inline GoToPresetServer::Registry load_preset_registry(rclcpp::Node &node) {
+  const GoToPresetServer::Registry defaults = {
+      {"home", {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}},
+      {"rest", {0.0, -0.349, 3.142, -2.548, 0.0, -0.873, 1.571}}};
+  auto names = node.declare_parameter<std::vector<std::string>>(
+      "preset_names", {"home", "rest"});
+  for (const auto &d : defaults)
+    if (std::find(names.begin(), names.end(), d.first) == names.end())
+      names.push_back(d.first);
+  GoToPresetServer::Registry reg;
+  for (const auto &n : names) {
+    const auto it = defaults.find(n);
+    const auto q = node.declare_parameter<std::vector<double>>(
+        "presets." + n,
+        it != defaults.end() ? it->second : std::vector<double>{});
+    if (q.size() == static_cast<size_t>(kinova::kNumJoints)) {
+      reg[n] = q;
+    } else {
+      RCLCPP_WARN(node.get_logger(),
+                  "preset '%s' has %zu joint values (need %d) - skipping",
+                  n.c_str(), q.size(), kinova::kNumJoints);
+    }
+  }
+  return reg;
+}
 
 } // namespace kinova_gen3_ros2

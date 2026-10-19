@@ -48,32 +48,6 @@ void on_sigint(int) { g_stop.store(true); }
 // concurrently, so it may come up a little after us; the topic is latched, so
 // order does not matter within this window.
 constexpr std::chrono::seconds kDescriptionTimeout{30};
-
-// Build the GoToPreset registry from ROS params: `preset_names` lists the
-// presets, `presets.<name>` gives each one's 7 joint angles (rad). `home`
-// defaults to the cuRobo retract configuration so a stock node has one usable
-// preset. A mis-sized entry is dropped with a warning rather than padded --
-// GoToPreset then rejects that name outright instead of moving the arm to a
-// half-specified configuration.
-std::map<std::string, std::vector<double>> load_presets(rclcpp::Node &node) {
-  std::map<std::string, std::vector<double>> reg;
-  const std::vector<double> home = {0.0, 0.262, 3.142, -2.269,
-                                    0.0, 0.96,  1.571};
-  const auto names = node.declare_parameter<std::vector<std::string>>(
-      "preset_names", {"home"});
-  for (const auto &n : names) {
-    const auto q = node.declare_parameter<std::vector<double>>(
-        "presets." + n, n == "home" ? home : std::vector<double>{});
-    if (q.size() == static_cast<size_t>(kinova::kNumJoints)) {
-      reg[n] = q;
-    } else {
-      RCLCPP_WARN(node.get_logger(),
-                  "preset '%s' has %zu joint values (need %d) - skipping",
-                  n.c_str(), q.size(), kinova::kNumJoints);
-    }
-  }
-  return reg;
-}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -307,7 +281,8 @@ int main(int argc, char **argv) {
   kinova_gen3_ros2::GoToJointConfigServer jc_server(node, router, planner,
                                                     cb_group);
   kinova_gen3_ros2::GoToPresetServer preset_server(
-      node, router, planner, cb_group, load_presets(*node));
+      node, router, planner, cb_group,
+      kinova_gen3_ros2::load_preset_registry(*node));
 
   // Core takes a SupervisorDeps aggregate rather than positional arguments, so
   // the mode/port wiring reads by name.

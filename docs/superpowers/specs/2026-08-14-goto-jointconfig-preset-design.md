@@ -99,8 +99,8 @@ whichever plan (pose or joints) is in flight. One-plan-at-a-time holds as before
 Node declares `preset_names` (string\[\], default `["home", "rest"]`) and, per name, a
 `presets.<name>` double\[7\] param. Default: `presets.home = [0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571]` (cuRobo's retract/home from
 `robot_gen3_2f85.yaml`). *Updated 2026-10-19 (kinova-gen3-driver#86):* `home` and `rest` are
-always registered, even when `preset_names` omits them; `rest` defaults to Kinova's factory
-Retract, and the node warns at startup while either one is still at its factory pose. `GoToPresetServer` reads these at construction into its
+always registered, even when `preset_names` omits them; `rest` defaults to Kinova's
+Retract with joint 4 at -2.356 rad (factory -2.548 self-collides in cuRobo), and the node warns at startup while either one is still at its default. `GoToPresetServer` reads these at construction into its
 `const` registry; an unknown `preset_name` is rejected fail-loud in `validate`.
 
 ### Interfaces (new `.action` files, `rammp_arm_interfaces`)

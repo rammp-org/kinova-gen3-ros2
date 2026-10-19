@@ -5,8 +5,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "rclcpp/rclcpp.hpp"
 #include "rammp_arm_interfaces/action/go_to_preset.hpp"
 #include "kinova_gen3_ros2/planned_move_server.h"
+#include "kinova_lowlevel/joint_types.h"
 namespace kinova_gen3_ros2 {
 
 // Hosts GoToPreset: a named joint configuration resolved from a registry, then
@@ -76,12 +78,23 @@ inline GoToPresetServer::Registry load_preset_registry(rclcpp::Node &node) {
         it != defaults.end() ? it->second : std::vector<double>{});
     if (q.size() == static_cast<size_t>(kinova::kNumJoints)) {
       reg[n] = q;
+      // The factory poses assume a level mount and an empty workspace; say so
+      // rather than let an unconfigured cell move there without notice.
+      if (it != defaults.end() && q == it->second)
+        RCLCPP_WARN(node.get_logger(),
+                    "preset '%s' is not configured for this installation - "
+                    "using the Kinova factory pose (level mount)",
+                    n.c_str());
     } else {
       RCLCPP_WARN(node.get_logger(),
                   "preset '%s' has %zu joint values (need %d) - skipping",
                   n.c_str(), q.size(), kinova::kNumJoints);
     }
   }
+  std::string listed;
+  for (const auto &e : reg)
+    listed += (listed.empty() ? "" : ", ") + e.first;
+  RCLCPP_INFO(node.get_logger(), "presets: %s", listed.c_str());
   return reg;
 }
 

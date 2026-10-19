@@ -18,8 +18,9 @@ using GoToPreset = rammp_arm_interfaces::action::GoToPreset;
 
 namespace {
 kinova_gen3_ros2::GoToPresetServer::Registry test_registry() {
-  return {{"home",
-           {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}}}; // cuRobo retract
+  return {
+      {"home",
+       {0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571}}}; // Kinova factory Home
 }
 
 int send_and_get_code(rclcpp::Node::SharedPtr node, const std::string &preset,

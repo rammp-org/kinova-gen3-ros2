@@ -86,8 +86,10 @@ an installation overrides them they sit at Kinova's factory poses:
 | `home` | `[0.0, 0.262, 3.142, -2.269, 0.0, 0.96, 1.571]`    | Home        |
 | `rest` | `[0.0, -0.349, 3.142, -2.548, 0.0, -0.873, 1.571]` | Retract     |
 
-Those defaults assume a level mount and an empty workspace. A deployment
-overrides them with its own angles and may add presets beyond these two:
+Those defaults assume a level mount and an empty workspace, so the node logs a
+warning at startup for each one still at its factory pose, then a single
+`presets:` line listing every registered name. A deployment overrides the
+angles and may add presets beyond these two:
 
 ```sh
 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \

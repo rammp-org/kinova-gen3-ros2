@@ -63,15 +63,29 @@ python3 kinova_gen3_ros2/test/send_goto_joints.py --delta 0.15 --joint 6 --go
 
 ## Presets
 
+Code against the preset **names**, never their joint angles. Every deployment
+defines these two:
+
+| name   | meaning                                                |
+| ------ | ------------------------------------------------------ |
+| `home` | the working pose skills start from and return to       |
+| `rest` | the arm parked out of the way when no task is running  |
+
+The angles behind each name belong to the installation: they depend on the
+mount and on what surrounds the arm, so they live in the deployment's config
+and change without a release. There is deliberately no `zero` preset: the
+all-zeros configuration is not a safe place to send a mounted arm.
+
 The registry comes from two ROS parameters: `preset_names` lists the presets
 and `presets.<name>` holds each one's 7 joint angles in radians. `home`
 defaults to the cuRobo retract configuration, so a stock node always has one
-usable preset.
+usable preset. `rest` has no default, so a node without one rejects
+`go_to_preset("rest")`. A deployment may add more presets beyond these two.
 
 ```sh
 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \
-  --ros-args -p preset_names:="['home','stow']" \
-             -p presets.stow:="[0.0, 0.5, 3.0, -2.0, 0.0, 1.0, 1.5]"
+  --ros-args -p preset_names:="['home','rest']" \
+             -p presets.rest:="[0.0, 0.5, 3.0, -2.0, 0.0, 1.0, 1.5]"
 ```
 
 An entry that is not exactly 7 values is **dropped with a warning** rather than

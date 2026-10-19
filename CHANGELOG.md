@@ -44,6 +44,12 @@
   The 1.1.0 image lacked it, although the deployment manifest already ran
   `description.launch.py` from it.
 
+### Documented
+
+- **The preset names are the contract: every deployment defines `home` and `rest`**
+  (rammp-org/kinova-gen3-driver#86). Callers code against the names. The angles are
+  per-installation config and change without a release. There is no `zero` preset.
+
 ## 1.1.0 — 2026-10-02
 
 > **RESOLVED 2026-10-02: the three dependency releases exist and the pins have

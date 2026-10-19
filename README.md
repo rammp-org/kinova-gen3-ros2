@@ -107,7 +107,8 @@ Result/Feedback and their cancel behaviour are identical — see
 
 Both joint-space actions plan through cuRobo's `plan_to_joints`; `go_to_preset`
 just resolves a name to 7 joint angles first, from the `preset_names` /
-`presets.<name>` parameters.
+`presets.<name>` parameters. Every deployment defines `home` and `rest`; their
+angles are per-installation config.
 
 All three GoTo goals also carry `control_mode`
 (`CONTROL_MODE_POSITION`/`CONTROL_MODE_IMPEDANCE`, default position) and a

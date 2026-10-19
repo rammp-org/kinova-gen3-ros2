@@ -129,7 +129,7 @@ in joint space, where holding a tool orientation has no meaning, so they have no
 
 For `go_to_ee_pose`, both fields default to off. Three rules a caller will
 otherwise meet as a confusing failure (full detail in the
-[`GoToEEPose` guide](guide-goto-ee-pose.md)):
+[`GoToEEPose` guide](../guide-goto-ee-pose)):
 
 - **`HOLD_LEVEL` preserves tilt, it does not create level**: a 45-degree tool
   stays at 45 the whole way.

@@ -1,6 +1,7 @@
 // kinova_gen3_ros2/src/bringup_node.cpp
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdio>
 #include <map>
@@ -219,9 +220,30 @@ int main(int argc, char **argv) {
   JointImpedanceMode imp(*dyn);
   // The Supervisor holds all three modes because the streaming tier can open a
   // session in any of them. This node drives only trajectories (position and
-  // impedance), so tau is never entered here -- but the supervisor needs it to
-  // construct, and it defaults to gravity compensation with no tau_ff set.
-  JointTorqueMode tau(*dyn);
+  // impedance), so tau is entered only by a joint-torque streaming session --
+  // gravity compensation plus that session's tau_ff.
+  //
+  // joint_torque_damping: -damping * qd on every joint [N*m*s/rad]. READ-ONLY,
+  // like arbitration_mode: core's JointTorqueParams is a constructor argument.
+  // Default 0 keeps the old behaviour; at 0 any residual torque (model or sensor
+  // offset) integrates into motion instead of settling (driver #40, #92).
+  rcl_interfaces::msg::ParameterDescriptor damping_desc;
+  damping_desc.read_only = true;
+  damping_desc.description =
+      "Joint-torque mode velocity damping [N*m*s/rad], >= 0. Launch-time only.";
+  const double joint_torque_damping =
+      node->declare_parameter("joint_torque_damping", 0.0, damping_desc);
+  if (!std::isfinite(joint_torque_damping) || joint_torque_damping < 0.0) {
+    RCLCPP_FATAL(node->get_logger(),
+                 "joint_torque_damping must be finite and >= 0, got %g",
+                 joint_torque_damping);
+    return 1;
+  }
+  JointTorqueParams tau_params;
+  tau_params.damping = joint_torque_damping;
+  RCLCPP_INFO(node->get_logger(), "joint-torque mode damping %.3f N*m*s/rad",
+              joint_torque_damping);
+  JointTorqueMode tau(*dyn, tau_params);
   // The Supervisor holds every mode a streaming session can open in. Velocity
   // mode is STIFF by contract -- it tracks the commanded rate and does not
   // yield to contact -- and its max_qd is seeded from the URDF when left

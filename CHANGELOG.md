@@ -53,6 +53,11 @@
   in cuRobo).
   An installation overrides the angles in config, with no release. There is no `zero`
   preset.
+- **`acquire_control` takes an optional pre-generated `token`**
+  (rammp-org/kinova-gen3-driver#89), so an orchestrator can use one key across several
+  resources. Leave it all-zero (the default) and the driver mints one as before.
+  Needs the matching `rammp_common_interfaces` (`AcquireControl` request gains the
+  field) and a core with `grant(owner_id, token)`.
 
 ## 1.1.0 — 2026-10-02
 

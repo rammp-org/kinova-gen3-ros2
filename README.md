@@ -184,17 +184,22 @@ stamp, what `ros2 topic pub` sends) is accepted with a warning.
 
 ### Control-ownership services
 
-| Service           | Type             | Notes                                                                                                                       |
-| ----------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `acquire_control` | `AcquireControl` | Mints a token. **SEIZES** — succeeds even when another client holds the arm, halting their in-flight motion (settled `-9`). |
-| `release_control` | `ReleaseControl` | Refused unless the token matches the current owner.                                                                         |
-| `revoke_control`  | `RevokeControl`  | Operator override, no token. The recovery path for a crashed owner, since ownership has no lease.                           |
+| Service           | Type             | Notes                                                                                                                                                                   |
+| ----------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `acquire_control` | `AcquireControl` | Mints a token, or adopts the caller's `token` if non-zero. **SEIZES** — succeeds even when another client holds the arm, halting their in-flight motion (settled `-9`). |
+| `release_control` | `ReleaseControl` | Refused unless the token matches the current owner.                                                                                                                     |
+| `revoke_control`  | `RevokeControl`  | Operator override, no token. The recovery path for a crashed owner, since ownership has no lease.                                                                       |
 
 ```bash
 # acquire, then put the returned token on every goal
 ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl \
   "{owner_id: 'orchestrator'}"
 ```
+
+An orchestrator that shares one key across several resources passes it as `token`
+instead of taking a minted one. Doing so gives up two things minting guarantees:
+a module handed the key early is refused until the grant lands, and re-acquiring
+with the same key does not lock out a stale holder of it.
 
 Every motion-commanding message carries a `uint8[16] token`; nothing that *stops*
 the arm or reads state does. With `arbitration_mode:=disabled` (the default) the

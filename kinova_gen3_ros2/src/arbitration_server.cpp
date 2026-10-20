@@ -114,7 +114,7 @@ void ArbitrationServer::on_release(
     std::shared_ptr<ReleaseControl::Response> resp) {
   // ArbitrationStatus deliberately does NOT carry the token -- publishing a
   // capability on a status topic would defeat it -- so the check is against the
-  // token this class minted. Sound because ArbitrationServer is the only caller
+  // token granted here. Sound because ArbitrationServer is the only caller
   // of grant/revoke/estop.
   bool ok = false;
   {

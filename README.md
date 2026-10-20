@@ -197,9 +197,12 @@ ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl \
 ```
 
 An orchestrator that shares one key across several resources passes it as `token`
-instead of taking a minted one. Doing so gives up two things minting guarantees:
-a module handed the key early is refused until the grant lands, and re-acquiring
-with the same key does not lock out a stale holder of it.
+instead of taking a minted one. Doing so gives up what minting guarantees: a module
+handed the key early is refused until the grant lands, every module holding the key
+is the owner at once, and neither re-acquiring with the same key nor a driver restart
+locks out a stale holder of it. Re-acquiring, even with the same key, still halts the
+arm's current motion. Check that the returned `token` equals the one you sent: a
+driver that predates this field ignores it and mints its own.
 
 Every motion-commanding message carries a `uint8[16] token`; nothing that *stops*
 the arm or reads state does. With `arbitration_mode:=disabled` (the default) the

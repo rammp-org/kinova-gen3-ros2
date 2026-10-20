@@ -423,6 +423,7 @@ for a cautious first on-robot run.
 | ----------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
 | `arbitration_mode`      | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch.                                                    |
 | `estop_clear_max_age_s` | `1.0`      | Age beyond which an `/estop` *clear* is ignored. `<= 0` disables the check. Engaging is never age-checked. |
+| `joint_torque_damping`  | `0.0`      | Joint-torque mode velocity damping [N·m·s/rad], ≥ 0. **Read-only**, set at launch. `0` = old behaviour.    |
 
 ```bash
 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \

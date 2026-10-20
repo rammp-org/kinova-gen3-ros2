@@ -29,6 +29,7 @@ def generate_launch_description():
         {
             "arbitration_mode": LaunchConfiguration("arbitration_mode"),
             "estop_clear_max_age_s": LaunchConfiguration("estop_clear_max_age_s"),
+            "joint_torque_damping": LaunchConfiguration("joint_torque_damping"),
         }
     ]
 
@@ -56,6 +57,11 @@ def generate_launch_description():
                 description="enforced | disabled; read-only at runtime",
             ),
             DeclareLaunchArgument("estop_clear_max_age_s", default_value="1.0"),
+            DeclareLaunchArgument(
+                "joint_torque_damping",
+                default_value="0.0",
+                description="joint-torque mode damping [N*m*s/rad]; read-only at runtime",
+            ),
             description,
             # Two Nodes rather than one with a conditional argument list: the driver takes
             # --sim OR --ip, never both, and launch substitutions cannot build a variable

@@ -104,6 +104,7 @@ driver replays the goal's stored token.
 | `arbitration_mode`      | `disabled` | `enforced` or `disabled`. **Read-only at launch** — core's mode is a constructor argument with no setter, so a dynamic parameter would appear to work and silently do nothing. |
 | `estop_clear_max_age_s` | `1.0`      | Age beyond which an e-stop *clear* is ignored. Engaging is never age-checked.                                                                                                  |
 | `expect_gripper`        | `true`     | Whether to WARN on `/diagnostics` when no gripper is reported.                                                                                                                 |
+| `joint_torque_damping`  | `0.0`      | Joint-torque mode velocity damping [N·m·s/rad], ≥ 0, on every joint. **Read-only at launch**. At `0`, any leftover torque error turns into drift instead of settling. |
 
 ## Requirements
 

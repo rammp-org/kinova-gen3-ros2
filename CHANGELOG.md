@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `joint_torque_damping` (read-only launch parameter, default `0.0` = unchanged): velocity damping for joint-torque mode, passed to core's `JointTorqueParams`. At `0`, any leftover gravity or sensor-offset error turns into drift. On dojo (2026-10-20), hand-guiding at `10` and at `0` both felt good once the torque-sensor offsets were calibrated (driver #91).
+
 ### Changed (breaking)
 
 - **The arm's model is rendered at launch from the robot's `mount.yaml` and published

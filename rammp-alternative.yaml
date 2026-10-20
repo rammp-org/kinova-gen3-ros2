@@ -17,6 +17,7 @@ compose:
 params:
   arbitration_mode: disabled
   estop_clear_max_age_s: 1.0
+  joint_torque_damping: 0.0
   expect_gripper: true
 publishes:
   - /joint_states

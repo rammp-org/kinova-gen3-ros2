@@ -1,5 +1,6 @@
 #pragma once
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include "kinova_lowlevel/interface/ports.h"
@@ -14,6 +15,7 @@ struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
   kinova::interface::ArbitrationStatus st{};
   kinova::interface::Token next_token{};
   bool grant_accepted = true;
+  std::optional<kinova::interface::Token> last_token; // what grant() was given
 
   void note(const std::string &s) {
     std::lock_guard<std::mutex> l(m);
@@ -24,15 +26,19 @@ struct FakeArbitrationSink : public kinova::interface::ArbitrationSink {
     return calls;
   }
 
-  kinova::interface::GrantResult grant(const std::string &owner_id) override {
+  kinova::interface::GrantResult
+  grant(const std::string &owner_id,
+        const std::optional<kinova::interface::Token> &token =
+            std::nullopt) override {
     note("grant:" + owner_id);
     std::lock_guard<std::mutex> l(m);
+    last_token = token;
     if (!grant_accepted)
       return {false, kinova::interface::Token{}, st.generation, "refused"};
     st.owned = true;
     st.owner_id = owner_id;
     ++st.generation;
-    return {true, next_token, st.generation, ""};
+    return {true, token ? *token : next_token, st.generation, ""};
   }
   void revoke() override {
     note("revoke");

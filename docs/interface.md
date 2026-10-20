@@ -88,14 +88,14 @@ driver replays the goal's stored token.
 
 ## Services
 
-| Service             | Type              | Meaning                                                                                        |
-| ------------------- | ----------------- | ---------------------------------------------------------------------------------------------- |
-| `/acquire_control`  | `AcquireControl`  | Mints a token. **Seizes**: succeeds even if another owner holds the arm, halting their motion. |
-| `/release_control`  | `ReleaseControl`  | Refused unless the token matches the current owner                                             |
-| `/revoke_control`   | `RevokeControl`   | Operator recovery; needs no token                                                              |
-| `/open_stream`      | `OpenStream`      | Names a controller, returns the channels to publish on. `timeout_s` must be > 0.               |
-| `/close_stream`     | `CloseStream`     | Ends the session                                                                               |
-| `/list_controllers` | `ListControllers` | The registry with live availability — 7 of 8 available                                         |
+| Service             | Type              | Meaning                                                                                                                                                                           |
+| ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/acquire_control`  | `AcquireControl`  | Mints a token, or adopts the caller's non-zero `token`. **Seizes**: succeeds even if another owner holds the arm, halting their motion. Re-acquiring with the same key halts too. |
+| `/release_control`  | `ReleaseControl`  | Refused unless the token matches the current owner                                                                                                                                |
+| `/revoke_control`   | `RevokeControl`   | Operator recovery; needs no token                                                                                                                                                 |
+| `/open_stream`      | `OpenStream`      | Names a controller, returns the channels to publish on. `timeout_s` must be > 0.                                                                                                  |
+| `/close_stream`     | `CloseStream`     | Ends the session                                                                                                                                                                  |
+| `/list_controllers` | `ListControllers` | The registry with live availability — 7 of 8 available                                                                                                                            |
 
 ## Parameters
 

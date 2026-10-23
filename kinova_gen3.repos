@@ -31,9 +31,9 @@ repositories:
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
-    # v1.2.0: TrajectoryGoal::speed_scale, kMinSpeedScale and
-    # CommandSink::on_set_speed_override, which this branch compiles against.
-    version: v1.2.0
+    # DRAFT: core#98 on top of v1.2.0 (a test branch) until it is tagged --
+    # KortexTransport rx_priority / rx_cpu. Replace with the tag before merging.
+    version: bug/97-kortex-udp-rx-rt-v1.2.0
   RAMMP-CuRobo:
     type: git
     url: https://github.com/rammp-org/RAMMP-CuRobo.git

@@ -120,7 +120,12 @@ int main(int argc, char **argv) {
                    "real mode needs --ip");
       return 2;
     }
-    base = std::make_unique<KortexTransport>(ip);
+    // Every 1 kHz exchange() waits on the KORTEX SDK's UDP receive thread, so
+    // it is created one priority below the RT loop, on the RT core. Without
+    // it, it was pre-empted ~10k times in 30 min on flatbot (2026-10-22),
+    // delaying replies up to 15 ms.
+    base = std::make_unique<KortexTransport>(ip, "admin", "admin",
+                                             prio > 1 ? prio - 1 : prio, cpu);
 #else
     RCLCPP_ERROR(rclcpp::get_logger("kinova_gen3_node"),
                  "built without KORTEX; use --sim");

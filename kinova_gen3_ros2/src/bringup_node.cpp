@@ -1,7 +1,4 @@
 // kinova_gen3_ros2/src/bringup_node.cpp
-#include <pthread.h>
-#include <sched.h>
-
 #include <atomic>
 #include <csignal>
 #include <map>
@@ -41,42 +38,6 @@ using namespace kinova;
 
 namespace {
 std::atomic<bool> g_stop{false};
-
-// Gives the calling thread SCHED_FIFO `priority` on `cpu` for its lifetime, then restores the
-// previous policy and affinity. Threads created meanwhile inherit both (glibc's default
-// PTHREAD_INHERIT_SCHED). Best effort, like enable_rt(): failures leave things as they were.
-class ScopedRtInheritance {
- public:
-  ScopedRtInheritance(int priority, int cpu) {
-    pthread_t self = pthread_self();
-    have_policy_ = pthread_getschedparam(self, &policy_, &param_) == 0;
-    have_mask_ = pthread_getaffinity_np(self, sizeof(mask_), &mask_) == 0;
-    if (priority > 0) {
-      sched_param p{};
-      p.sched_priority = priority;
-      pthread_setschedparam(self, SCHED_FIFO, &p);
-    }
-    if (cpu >= 0) {
-      cpu_set_t one;
-      CPU_ZERO(&one);
-      CPU_SET(cpu, &one);
-      pthread_setaffinity_np(self, sizeof(one), &one);
-    }
-  }
-  ~ScopedRtInheritance() {
-    pthread_t self = pthread_self();
-    if (have_policy_) pthread_setschedparam(self, policy_, &param_);
-    if (have_mask_) pthread_setaffinity_np(self, sizeof(mask_), &mask_);
-  }
-  ScopedRtInheritance(const ScopedRtInheritance&) = delete;
-  ScopedRtInheritance& operator=(const ScopedRtInheritance&) = delete;
-
- private:
-  int policy_ = SCHED_OTHER;
-  sched_param param_{};
-  cpu_set_t mask_{};
-  bool have_policy_ = false, have_mask_ = false;
-};
 void on_sigint(int) { g_stop.store(true); }
 
 // Build the GoToPreset registry from ROS params: `preset_names` lists the
@@ -159,7 +120,12 @@ int main(int argc, char **argv) {
                    "real mode needs --ip");
       return 2;
     }
-    base = std::make_unique<KortexTransport>(ip);
+    // Every 1 kHz exchange() waits on the KORTEX SDK's UDP receive thread, so
+    // it is created one priority below the RT loop, on the RT core. Without
+    // it, it was pre-empted ~10k times in 30 min on flatbot (2026-10-22),
+    // delaying replies up to 15 ms.
+    base = std::make_unique<KortexTransport>(ip, "admin", "admin",
+                                             prio > 1 ? prio - 1 : prio, cpu);
 #else
     RCLCPP_ERROR(rclcpp::get_logger("kinova_gen3_node"),
                  "built without KORTEX; use --sim");
@@ -311,15 +277,7 @@ int main(int argc, char **argv) {
   // unblocks the RT loop (exec.run) blocking the main thread.
   std::signal(SIGINT, on_sigint);
   std::signal(SIGTERM, on_sigint);
-  {
-    // Kortex starts its UDP receive thread inside connect(), and every 1 kHz Refresh() waits on
-    // it, so it is on the RT loop's critical path. Created as a plain SCHED_OTHER thread it was
-    // pre-empted ~10k times in 30 min on flatbot (2026-10-22), delaying requests up to 15 ms.
-    // Create it (and Kortex's other, mostly idle, transport threads) one priority below the RT
-    // loop on the RT core.
-    ScopedRtInheritance rt_for_kortex_threads(prio > 1 ? prio - 1 : prio, cpu);
-    tap.connect();
-  }
+  tap.connect();
   tap.set_servoing_low_level();
   sup.start();
 

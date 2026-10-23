@@ -360,8 +360,8 @@ while the generated model uses `end_effector_link`, which the launch passes.
 | `--sim`                   | off                          | Use `SimTransport` instead of the real arm.                                                                                                                             |
 | `--ip <addr>`             | —                            | Arm IP; required in real mode. Ignored with `--sim`.                                                                                                                    |
 | `--urdf <path>`           | `models/gen3_7dof_2f85.urdf` | Relative to the **cwd**, so run from the core checkout (which ships `models/`).                                                                                         |
-| `--cpu <n>`               | `-1` (no pin)                | CPU to pin the RT thread to.                                                                                                                                            |
-| `--rt-priority <n>`       | `80`                         | SCHED_FIFO priority for the RT thread.                                                                                                                                  |
+| `--cpu <n>`               | `-1` (no pin)                | CPU to pin the RT thread to, and the KORTEX SDK's UDP receive thread it waits on.                                                                                       |
+| `--rt-priority <n>`       | `80`                         | SCHED_FIFO priority for the RT thread. The UDP receive thread gets one less.                                                                                            |
 | `--rate <hz>`             | `1000.0`                     | RT loop rate.                                                                                                                                                           |
 | `--max-ref-speed <rad/s>` | URDF velocity limits         | Cap on how fast the position-mode *reference* may move, applied per joint. See below.                                                                                   |
 | `--rt-csv <path>`         | — (summary only)             | Write every RT cycle sample to a CSV. Either way the node logs a cumulative `rt:` timing line every 5 s and an `rt final:` line on exit, with the dropped-sample count. |
@@ -537,7 +537,12 @@ Do **not** use Docker's `--cpuset-cpus` for this. That confines the entire
 container — rclcpp executor and telemetry drain included — to the isolated core,
 which is the opposite of what the isolation buys you. `--cpu` pins only the RT
 loop, because `enable_rt()` runs inside `RtExecutor::run()` on the main thread,
-after `bringup_node` has already spawned the non-RT threads.
+after `bringup_node` has already spawned the non-RT threads, plus the KORTEX
+SDK's UDP receive thread, which reads every `Refresh()` reply and so sits on the
+loop's critical path. That one is created at `SCHED_FIFO` `--rt-priority`−1 on
+the same core; Kortex's TCP receive and session keepalive threads are not
+touched. Check with `ps -eLo tid,cls,rtprio,psr,comm`: exactly two `FF` threads,
+both on `RT_CORE`.
 
 ## Run
 

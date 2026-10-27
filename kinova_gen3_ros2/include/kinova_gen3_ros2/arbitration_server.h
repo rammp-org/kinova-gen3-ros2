@@ -66,7 +66,7 @@ private:
 
   std::mutex m_;
   kinova::interface::Token
-      retained_token_{}; // the token we minted; see on_release
+      retained_token_{}; // the token granted; see on_release
   bool have_retained_ = false;
   std::optional<ControlStatus> last_published_;
 };

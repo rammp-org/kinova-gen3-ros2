@@ -135,6 +135,28 @@ TEST_F(ArbitrationServerTest, AcquireGrantsAndReturnsTheToken) {
   EXPECT_EQ(resp->token, mktoken(0xAB));
   EXPECT_EQ(resp->generation, 1u);
   EXPECT_EQ(sink_.log(), std::vector<std::string>{"grant:orchestrator"});
+  EXPECT_FALSE(sink_.last_token.has_value()); // all-zero default: driver mints
+}
+
+// A pre-generated key (one orchestrator key shared across resources) reaches
+// the driver as-is, and is then the token release_control checks against.
+TEST_F(ArbitrationServerTest, AcquireWithASuppliedTokenPassesItThrough) {
+  using Acq = rammp_common_interfaces::srv::AcquireControl;
+  auto areq = std::make_shared<Acq::Request>();
+  areq->owner_id = "orchestrator";
+  areq->token = mktoken(0x42);
+  auto aresp = call<Acq>("acquire_control", areq);
+  ASSERT_NE(aresp, nullptr);
+  EXPECT_TRUE(aresp->accepted);
+  EXPECT_EQ(sink_.last_token, mktoken(0x42));
+  EXPECT_EQ(aresp->token, mktoken(0x42));
+
+  using Rel = rammp_common_interfaces::srv::ReleaseControl;
+  auto rreq = std::make_shared<Rel::Request>();
+  rreq->token = mktoken(0x42);
+  auto rresp = call<Rel>("release_control", rreq);
+  ASSERT_NE(rresp, nullptr);
+  EXPECT_TRUE(rresp->released);
 }
 
 TEST_F(ArbitrationServerTest, ReleaseWithMatchingTokenRevokes) {

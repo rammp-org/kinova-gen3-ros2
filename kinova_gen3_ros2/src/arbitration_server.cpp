@@ -83,7 +83,11 @@ void ArbitrationServer::on_acquire(
   // exists to catch, so it is loud rather than inferable from a generation
   // counter nobody watched.
   const ArbitrationStatus before = arb_.status();
-  const GrantResult r = arb_.grant(req->owner_id);
+  // All-zero is the srv default and means "no key supplied": the driver mints.
+  const bool supplied = req->token != Token{};
+  const GrantResult r =
+      arb_.grant(req->owner_id,
+                 supplied ? std::optional<Token>(req->token) : std::nullopt);
   if (r.accepted && before.owned && before.owner_id != req->owner_id) {
     RCLCPP_WARN(node_->get_logger(),
                 "control SEIZED: '%s' took the arm from '%s' (generation %llu "
@@ -110,7 +114,7 @@ void ArbitrationServer::on_release(
     std::shared_ptr<ReleaseControl::Response> resp) {
   // ArbitrationStatus deliberately does NOT carry the token -- publishing a
   // capability on a status topic would defeat it -- so the check is against the
-  // token this class minted. Sound because ArbitrationServer is the only caller
+  // token granted here. Sound because ArbitrationServer is the only caller
   // of grant/revoke/estop.
   bool ok = false;
   {

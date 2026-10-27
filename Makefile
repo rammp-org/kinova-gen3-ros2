@@ -39,9 +39,10 @@ CLIENT := /module_ws/src/kinova_gen3_ros2/kinova_gen3_ros2/test/send_trajectory.
 # --cpu the node calls no sched_setaffinity at all (enable_rt guards it on
 # cpu >= 0) and the 1 kHz loop runs on the general cores forever.
 #
-# --cpu pins ONLY the RT loop: enable_rt() runs inside RtExecutor::run() on the
-# main thread, after bringup_node has already spawned the rclcpp spin and
-# telemetry-drain threads, so those keep the full mask. Do NOT reach for docker's
+# --cpu pins the RT loop and the KORTEX SDK's UDP receive thread (which the loop
+# waits on every cycle) and nothing else: enable_rt() runs inside
+# RtExecutor::run() on the main thread, after bringup_node has already spawned
+# the rclcpp spin and telemetry-drain threads, so those keep the full mask. Do NOT reach for docker's
 # --cpuset-cpus instead: that confines the whole container, ROS threads included,
 # to the isolated core — the opposite of what the isolation is for.
 RT_CORE ?= 11

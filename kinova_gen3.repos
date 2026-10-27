@@ -15,15 +15,18 @@
 # inserting a field anywhere but the end of a message is a silent-corruption
 # MAJOR change, not a minor one.
 #
-# BOTH repositories below are pinned to a TAG, never a branch. A tagged image
-# that builds from a moving branch is not reproducible: rebuild v1.0.0 next
-# month and you get whatever those branches have become, with nothing in this
-# file changed to explain the difference.
+# On main and on release tags, BOTH repositories below are pinned to a TAG,
+# never a branch. A tagged image that builds from a moving branch is not
+# reproducible: rebuild v1.0.0 next month and you get whatever those branches
+# have become, with nothing in this file changed to explain the difference.
+# On dev, the core pin may say `dev` while dev needs unreleased core API: that
+# is what dev CI and the nightly build against anyway (both set CORE_REF to
+# core dev), and the release moves it back to a tag.
 #
 # CORE_REF stays as a general escape hatch (see the Makefile) for the next time
 # this repo needs a core change that has not reached a core release.
 repositories:
-  # The arm contract. Pinned to an EXACT TAG, never a branch: a colcon workspace
+  # The arm contract. Released as an EXACT TAG, never a branch: a colcon workspace
   # holds one version of a package, so this pin is what decides whether this
   # module can run alongside any other that speaks the same interfaces.
   kinova-gen3-driver:
@@ -31,8 +34,9 @@ repositories:
     # https, not ssh: docker/Dockerfile vcs-imports this with no key in the
     # image. The core repo is public, so an anonymous clone works.
     url: https://github.com/rammp-org/kinova-gen3-driver.git
-    # DRAFT: core dev (has #98: KortexTransport rx_priority / rx_cpu, and the
-    # v1.3.0 API this branch compiles against). Replace with v1.3.0 before merging.
+    # dev: this branch compiles against unreleased core (KortexTransport
+    # rx_priority / rx_cpu from #98, and the rest of the v1.3.0 API). Becomes
+    # v1.3.0 when the release is cut.
     version: dev
   RAMMP-CuRobo:
     type: git

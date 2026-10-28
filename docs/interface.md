@@ -96,7 +96,7 @@ driver replays the goal's stored token.
 | `/open_stream`      | `OpenStream`      | Names a controller, returns the channels to publish on. `timeout_s` must be > 0.                                                                                                  |
 | `/close_stream`     | `CloseStream`     | Ends the session                                                                                                                                                                  |
 | `/list_controllers` | `ListControllers` | The registry with live availability — 7 of 8 available                                                                                                                            |
-| `/clear_faults`     | `std_srvs/Trigger` | Clears a latched arm fault and takes the arm back into low-level servoing. Answers within ~5 s: `success` only if the driver is commanding again; `message` is the resulting state and why. Refused (`not faulted (<state>)`) unless faulted. Needs no token. |
+| `/clear_faults`     | `std_srvs/Trigger` | Clears a latched arm fault and takes the arm back into low-level servoing. Answers within ~10 s: `success` only if the driver is commanding again; `message` is the resulting state and why. Refused (`not faulted (<state>)`) unless faulted. Needs no token. |
 
 ### The arm link
 
@@ -107,7 +107,7 @@ says which state the link is in:
 | --- | --- | --- | --- |
 | `running` | OK | Low-level servoing, the driver is commanding | accepted |
 | `connecting` | STALE: `waiting for the arm at <ip>: <reason>` | The arm is off, the link is down, or it is renegotiating. Retried every second, forever. A reconnect needs no clear. | in-flight goals settle `-9` HALTED (`halted: arm fault or connection lost`); new ones are refused; `/joint_states` stops (no stale state is published) |
-| `faulted` | ERROR: the fault | E-stop, protective stop, the arm left low-level (web app), or a command the arm rejected. The arm is handed back to its base, so the Kinova controller and web app work. Waits for `/clear_faults`. | same as above, except `/joint_states` keeps publishing (best effort) |
+| `faulted` | ERROR: the fault | E-stop, protective stop, the arm left low-level (web app), or a command the arm rejected. The arm is handed back to its base, so the Kinova controller and web app work. Waits for `/clear_faults`. | same as above, except `/joint_states` keeps publishing while the arm answers feedback polls (unverified on the arm; if it does not, `/joint_states` stops and `Arm` goes STALE) |
 
 After a reconnect or a clear the arm holds where it is now. It never resumes an
 interrupted goal. The `Arm` task goes STALE when feedback is more than 1 s old.

@@ -40,6 +40,8 @@ private:
 void link_diagnostics(const kinova::LinkStatus &s, const std::string &arm,
                       diagnostic_updater::DiagnosticStatusWrapper &stat);
 
-// How long /clear_faults waits for the clear to resolve before answering.
-inline constexpr std::chrono::seconds kClearWait{5};
+// How long /clear_faults waits for the clear to resolve before answering: a
+// clear is ClearFaults + SetServoingMode + seed + 7 SetControlMode RPCs, each
+// with KORTEX's 3 s default bound.
+inline constexpr std::chrono::seconds kClearWait{10};
 } // namespace kinova_gen3_ros2

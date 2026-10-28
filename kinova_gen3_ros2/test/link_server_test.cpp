@@ -71,9 +71,9 @@ struct Rig {
       return nullptr;
     }
     auto fut = client->async_send_request(std::make_shared<Trigger::Request>());
-    if (rclcpp::spin_until_future_complete(cn, fut, 10s) !=
+    if (rclcpp::spin_until_future_complete(cn, fut, 15s) !=
         rclcpp::FutureReturnCode::SUCCESS) {
-      ADD_FAILURE() << "no response within 10 s";
+      ADD_FAILURE() << "no response within 15 s";
       return nullptr;
     }
     return fut.get();

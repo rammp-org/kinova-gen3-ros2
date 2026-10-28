@@ -72,7 +72,8 @@ void LinkServer::on_clear(const std::shared_ptr<Trigger::Request>,
   }
   res->success = s.state == kinova::LinkState::kRunning;
   if (s.clears_done == before)
-    res->message = "clear requested; no outcome within 5 s";
+    res->message = "clear requested; no outcome within " +
+                   std::to_string(kClearWait.count()) + " s";
   else
     res->message = std::string(kinova::to_string(s.state)) +
                    (s.reason.empty() ? std::string() : ": " + s.reason);

@@ -6,8 +6,8 @@
 
 - **The node no longer exits on arm-side events** (driver #96, #59, #100). It runs
   core's `ArmLink`: an arm that is off or unreachable is retried every second,
-  forever; a lost link reconnects with no clear needed; a fault (e-stop, protective
-  stop, the arm taken out of low-level, a rejected command) hands the arm back to its
+  forever, including an arm still booting; a fault (e-stop, protective stop, the arm
+  taken out of low-level, a rejected command, or the link lost while running) hands the arm back to its
   base and waits for **`/clear_faults`** (`std_srvs/Trigger`, new). New `Arm link`
   task on `/diagnostics`. While the arm is unavailable, in-flight goals settle HALTED
   and new goals and streams are refused. Only a robot with the wrong joint count still

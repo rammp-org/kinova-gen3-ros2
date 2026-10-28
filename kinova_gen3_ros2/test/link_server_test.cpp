@@ -27,6 +27,7 @@ kinova::ArmLinkConfig fast_link() {
   c.retry_period_s = 0.01;
   c.fault_poll_hz = 1000.0;
   c.health_period_s = 0.005;
+  c.clear_settle_s = 0.05;
   return c;
 }
 

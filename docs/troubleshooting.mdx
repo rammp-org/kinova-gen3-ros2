@@ -118,12 +118,15 @@ Check the `Arm link` task on `/diagnostics`
 - **`waiting for the arm at …`**: the arm is off or unreachable. The driver retries
   every second; power the arm or fix the link and it connects by itself.
 - **`faulted, waiting for /clear_faults: …`**: the arm faulted (e-stop, protective
-  stop) or something took it out of low-level. Fix the cause, release the e-stop, then
+  stop), something took it out of low-level, or the link was lost while running
+  (`connection lost: …`, e.g. the red e-stop cut the arm's power). Fix the cause,
+  release the e-stop, then
   `ros2 service call /clear_faults std_srvs/srv/Trigger`. A `faulted: fault persists
   after clear` answer means the arm still reports the fault.
 
-To drive the arm by hand with the Kinova controller mid-session: e-stop it, release
-the e-stop, drive with the controller, then `/clear_faults`. The arm holds where you
+To drive the arm by hand with the Kinova controller mid-session: e-stop it (the red
+e-stop cuts power; the arm reboots under its base), clear the arm's own fault if it
+has one, drive with the controller, then `/clear_faults`. The arm holds where you
 left it.
 
 ## Safety, briefly

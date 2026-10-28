@@ -35,8 +35,8 @@ private:
 };
 
 // The "Arm link" diagnostics for one status, separate so it unit-tests without
-// a running updater. kRunning is OK, kFaulted ERROR with the reason, kConnecting
-// STALE ("waiting for the arm at <arm>").
+// a running updater. kRunning is OK, kFaulted ERROR with the reason,
+// kConnecting STALE ("waiting for the arm at <arm>").
 void link_diagnostics(const kinova::LinkStatus &s, const std::string &arm,
                       diagnostic_updater::DiagnosticStatusWrapper &stat);
 

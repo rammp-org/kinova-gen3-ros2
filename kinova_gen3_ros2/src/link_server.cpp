@@ -57,8 +57,8 @@ void LinkServer::on_clear(const std::shared_ptr<Trigger::Request>,
   if (!link_.request_clear()) {
     const auto s = link_.status();
     res->success = false;
-    res->message = std::string("not faulted (") + kinova::to_string(s.state) +
-                   ")";
+    res->message =
+        std::string("not faulted (") + kinova::to_string(s.state) + ")";
     return;
   }
   // The clear runs on the link's thread; clears_done moves with the state it

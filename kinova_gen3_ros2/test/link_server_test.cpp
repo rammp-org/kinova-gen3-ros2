@@ -17,8 +17,8 @@ using diagnostic_msgs::msg::DiagnosticStatus;
 
 namespace {
 kinova::ExecutorConfig fast_exec() {
-  kinova::ExecutorConfig c{10000.0, kinova::Pacing::kSleepSpin,
-                           {0, -1, false, false}};
+  kinova::ExecutorConfig c{
+      10000.0, kinova::Pacing::kSleepSpin, {0, -1, false, false}};
   c.exit_on_fault = true;
   return c;
 }
@@ -149,7 +149,8 @@ TEST(LinkDiagnostics, EachStateMapsToItsLevel) {
   s.reason = "no route to host";
   kinova_gen3_ros2::link_diagnostics(s, "192.168.1.10", conn);
   EXPECT_EQ(conn.level, DiagnosticStatus::STALE);
-  EXPECT_EQ(conn.message, "waiting for the arm at 192.168.1.10: no route to host");
+  EXPECT_EQ(conn.message,
+            "waiting for the arm at 192.168.1.10: no route to host");
   bool saw_faults = false, saw_state = false;
   for (const auto &kv : conn.values) {
     saw_faults |= kv.key == "faults" && kv.value == "2";

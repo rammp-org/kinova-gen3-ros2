@@ -192,6 +192,8 @@ void Ros2Backend::publish_state(const ArmState &s) {
   fault_.store(s.fault);
   arm_stamp_s_.store(s.stamp_s);
   ever_published_.store(true);
+  last_publish_ns_.store(
+      std::chrono::steady_clock::now().time_since_epoch().count());
   if (state_tick_++ % state_divisor_ != 0)
     return;
 
@@ -267,11 +269,22 @@ void Ros2Backend::diagnostics(
   using diagnostic_msgs::msg::DiagnosticStatus;
   const bool ever = ever_published_.load();
   const bool fault = fault_.load();
+  const double age_s =
+      std::chrono::duration<double>(
+          std::chrono::steady_clock::now().time_since_epoch() -
+          std::chrono::steady_clock::duration(last_publish_ns_.load()))
+          .count();
   // STALE rather than OK when nothing has arrived: an arm we have never heard
   // from is not a healthy arm, and reporting OK for it is the failure mode REP
   // 107's levels exist to avoid.
   if (!ever)
     stat.summary(DiagnosticStatus::STALE, "no feedback from the arm yet");
+  // The driver stops publishing while it reconnects (see "Arm link"); the last
+  // state before the outage must not keep reading as a healthy arm.
+  else if (age_s > kArmStaleAfterS)
+    stat.summary(DiagnosticStatus::STALE,
+                 "no feedback from the arm for " +
+                     std::to_string(static_cast<int>(age_s)) + " s");
   else if (fault)
     stat.summary(DiagnosticStatus::ERROR, "arm reports a fault");
   else
@@ -279,5 +292,6 @@ void Ros2Backend::diagnostics(
   stat.add("fault", fault);
   stat.add("driver_uptime_s", arm_stamp_s_.load());
   stat.add("feedback_received", ever);
+  stat.add("feedback_age_s", ever ? age_s : -1.0);
 }
 } // namespace kinova_gen3_ros2

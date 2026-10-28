@@ -32,7 +32,7 @@ planner and three of the four action servers accept goals that can never succeed
 | `/control_status` | `rammp_common_interfaces/ControlStatus` | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.                                                                                                                                            |
 | `/stream_status`  | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                                                                                                                                                                 |
 | `/gripper_state`  | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                                                                                                                     |
-| `/diagnostics`    | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Three REP 107 tasks: `Arbitration`, `Arm`, `Gripper`.                                                                                                                                                                           |
+| `/diagnostics`    | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Four REP 107 tasks: `Arbitration`, `Arm`, `Arm link`, `Gripper`.                                                                                                                                                                 |
 
 `/joint_states` and `/ee_state` are best-effort, so CLI subscribers must match:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -96,6 +96,21 @@ driver replays the goal's stored token.
 | `/open_stream`      | `OpenStream`      | Names a controller, returns the channels to publish on. `timeout_s` must be > 0.                                                                                                  |
 | `/close_stream`     | `CloseStream`     | Ends the session                                                                                                                                                                  |
 | `/list_controllers` | `ListControllers` | The registry with live availability — 7 of 8 available                                                                                                                            |
+| `/clear_faults`     | `std_srvs/Trigger` | Clears a latched arm fault and takes the arm back into low-level servoing. Answers within ~5 s: `success` only if the driver is commanding again; `message` is the resulting state and why. Refused (`not faulted (<state>)`) unless faulted. Needs no token. |
+
+### The arm link
+
+The node does not exit on arm-side events. The `Arm link` diagnostics task
+says which state the link is in:
+
+| State | `Arm link` level | Meaning | What happens to goals and streams |
+| --- | --- | --- | --- |
+| `running` | OK | Low-level servoing, the driver is commanding | accepted |
+| `connecting` | STALE: `waiting for the arm at <ip>: <reason>` | The arm is off, the link is down, or it is renegotiating. Retried every second, forever. A reconnect needs no clear. | in-flight goals settle `-9` HALTED (`halted: arm fault or connection lost`); new ones are refused; `/joint_states` stops (no stale state is published) |
+| `faulted` | ERROR: the fault | E-stop, protective stop, the arm left low-level (web app), or a command the arm rejected. The arm is handed back to its base, so the Kinova controller and web app work. Waits for `/clear_faults`. | same as above, except `/joint_states` keeps publishing (best effort) |
+
+After a reconnect or a clear the arm holds where it is now. It never resumes an
+interrupted goal. The `Arm` task goes STALE when feedback is more than 1 s old.
 
 ## Parameters
 

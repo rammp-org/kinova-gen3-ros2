@@ -13,6 +13,7 @@ find_package(rammp_curobo_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(urdf REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
@@ -84,11 +85,21 @@ ament_target_dependencies(gripper_server
   rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
 target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_lowlevel)
 
+# The ROS face of core's ArmLink: /clear_faults and the "Arm link" /diagnostics
+# entry. Holds only an ArmLink&.
+add_library(link_server src/link_server.cpp)
+target_include_directories(link_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(link_server
+  rclcpp std_srvs diagnostic_msgs diagnostic_updater)
+target_link_libraries(link_server kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_gen3_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
   ros2_backend robot_description planned_move_servers goal_router curobo_plan_client
-  message_mapping arbitration_server stream_server gripper_server kinova_lowlevel::kinova_lowlevel)
+  message_mapping arbitration_server stream_server gripper_server link_server
+  kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)
@@ -121,6 +132,11 @@ if(BUILD_TESTING)
   target_link_libraries(gripper_server_test gripper_server ros2_backend)
   ament_target_dependencies(gripper_server_test
     rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(link_server_test test/link_server_test.cpp)
+  target_link_libraries(link_server_test link_server)
+  ament_target_dependencies(link_server_test
+    rclcpp std_srvs diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(ros2_backend_test test/ros2_backend_test.cpp)
   target_include_directories(ros2_backend_test PRIVATE test)

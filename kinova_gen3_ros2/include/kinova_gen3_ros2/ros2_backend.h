@@ -1,5 +1,6 @@
 // kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h
 #pragma once
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -81,6 +82,10 @@ private:
   std::atomic<bool> fault_{false};
   std::atomic<double> arm_stamp_s_{0.0};
   std::atomic<bool> ever_published_{false};
+  // steady_clock ticks of the last publish_state, for staleness.
+  std::atomic<std::chrono::steady_clock::rep> last_publish_ns_{0};
+  // Feedback older than this reads STALE: 100 publishes at the pump's 100 Hz.
+  static constexpr double kArmStaleAfterS = 1.0;
   kinova::interface::CommandSink *sink_ = nullptr;
   kinova::interface::GripperSink *gripper_ = nullptr;
   std::vector<std::string> arm_joint_names_; // kNumJoints, chain order

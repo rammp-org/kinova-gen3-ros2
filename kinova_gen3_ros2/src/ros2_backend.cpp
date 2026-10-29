@@ -175,12 +175,24 @@ void Ros2Backend::settle(const GoalId &id, const TrajectoryResult &r) {
     handles_.erase(it);
   }
   auto msg = std::make_shared<Action::Result>(to_result_msg(r));
-  if (gh->is_canceling())
-    gh->canceled(msg);
-  else if (r.error_code == result_code::kSuccessful)
-    gh->succeed(msg);
-  else
-    gh->abort(msg);
+  // rclcpp_action throws if the goal has already left the state this
+  // transition expects, and is_canceling() can flip between the check and the
+  // call because handle_cancel ACCEPTs from an executor thread. settle() runs
+  // on Supervisor::sampler_loop, which has no handler, so an escaping
+  // exception terminates the node with the arm powered and mid-trajectory.
+  // Losing a terminal transition is bad; losing the process is worse.
+  try {
+    if (gh->is_canceling())
+      gh->canceled(msg);
+    else if (r.error_code == result_code::kSuccessful)
+      gh->succeed(msg);
+    else
+      gh->abort(msg);
+  } catch (const std::exception &e) {
+    RCLCPP_WARN(node_->get_logger(),
+                "goal terminal transition raced a cancel and was dropped: %s",
+                e.what());
+  }
 }
 
 // v1 free-running JointState stream (from the supervisor pump thread, ~100 Hz,

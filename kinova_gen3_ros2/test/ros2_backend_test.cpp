@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <stdexcept>
 #include <string>
@@ -163,4 +164,35 @@ TEST_F(Ros2BackendTest, AWrongNumberOfJointNamesIsRefused) {
   EXPECT_THROW((void)kinova_gen3_ros2::Ros2Backend(
                    node, std::vector<std::string>{"arm_joint_1"}),
                std::invalid_argument);
+}
+
+// settle() runs on the Supervisor's sampler thread, which has no handler: a
+// terminal transition rclcpp_action refuses must be logged, never thrown (#7).
+// In the field the trigger is a cancel racing the completion; here the context
+// is shut down under an executing goal, which makes the transition fail
+// deterministically.
+namespace {
+struct HoldingSupervisor : FakeSupervisor {
+  using FakeSupervisor::FakeSupervisor;
+  std::optional<kinova::interface::GoalId> accepted;
+  void
+  on_trajectory_accepted(const kinova::interface::GoalId &id,
+                         const kinova::interface::TrajectoryGoal &) override {
+    accepted = id; // keep the goal executing; the test settles it
+  }
+};
+} // namespace
+
+TEST_F(Ros2BackendTest, ARefusedTerminalTransitionDoesNotThrow) {
+  auto node = std::make_shared<rclcpp::Node>("backend_settle_refused");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  HoldingSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  ASSERT_TRUE(send(node, 0.5));
+  ASSERT_TRUE(sup.accepted);
+  rclcpp::shutdown();
+  kinova::interface::TrajectoryResult r;
+  r.error_code = kinova::interface::result_code::kSuccessful;
+  r.final_error = kinova::JointVec::Zero();
+  EXPECT_NO_THROW(backend.settle(*sup.accepted, r));
 }

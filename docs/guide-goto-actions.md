@@ -18,6 +18,29 @@ cancel, rejection and failure. Only the goal differs.
 resolved to 7 joint angles and planned exactly the same way. **None of these is
 a planner bypass** — nothing drives the arm straight at a target.
 
+## Several targets in one motion
+
+`go_to_ee_poses` and `go_to_joint_configs` are `go_to_ee_pose` and
+`go_to_joint_config` through a list of targets. Each leg is planned as the
+single-target action plans it, from where the leg before it ends, and the legs
+are blended into one trajectory by cuRobo's `/rammp_curobo/blend`, so the arm
+passes the targets between still moving instead of stopping at each.
+
+- **Per leg:** `speed_scale`, and `orientation_hold` for poses. Empty means the
+  default for every leg, one value is used for every leg, and otherwise there is
+  one per target.
+- **Per junction:** `blend_radius` (m), how far the tool may pass from that
+  target to cut the corner. `0` stops on it; empty stops on every target. The
+  last target always stops.
+- **One for the whole motion:** `control_mode` and `gains`.
+
+The planner cuts each corner only as far as the joint limits, collision, the
+held legs' holds and the radius all allow, and stops on the target where nothing
+can be cut. A leg that cannot be planned fails the goal before anything moves,
+with `error_string` naming it (`leg 2/3: ...`; `blend: ...` if the blend itself
+fails). Result and feedback are the single-target actions'; feedback's
+`planner_state` carries the same prefix.
+
 For the design rationale see
 [`superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md)
 and the `GoToEEPose` guide's
@@ -144,6 +167,8 @@ small delta) to exercise the success path.
 | `go_to_ee_pose`            |      yes      |        yes         |
 | `go_to_joint_config`       |      yes      |         no         |
 | `go_to_preset`             |      yes      |         no         |
+| `go_to_ee_poses`           | yes, per leg  |    yes, per leg    |
+| `go_to_joint_configs`      | yes, per leg  |         no         |
 | `execute_joint_trajectory` |      yes      |         no         |
 
 `speed_scale` (default `1.0`, range: the driver's minimum up to `1.0`) runs the

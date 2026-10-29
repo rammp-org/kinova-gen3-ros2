@@ -107,8 +107,10 @@ for diagnostics and for the capability engine.
   **(my call)**. Higher K is faster but passes more of the arm's 5–15 Hz motion
   content into `r`.
 - Start-up: `r` is not trusted until `5/K` after (re)initialization. During that
-  window the monitor reports `settling` and cannot trip. It re-initializes on
-  every executor start and every control-mode change.
+  window the monitor reports `settling` and cannot trip. It re-initializes at each
+  `RtExecutor::run` start and on a clear, not on control-mode changes: the observer
+  reads only sensors and the model, so the command mode does not affect it, and a
+  re-init at every goal's mode change would leave a blind window at each goal start.
 - A missed exchange (executor `missed` flag) does not step the observer; the next
   good sample integrates with the true `dt` **(my call)**.
 
@@ -119,7 +121,7 @@ for diagnostics and for the capability engine.
 | `ContactMonitor`: observer, thresholds, debounce, latch | driver RT loop, every cycle after feedback | Safety must not depend on a non-RT thread being scheduled (the pump shares `dyn_mtx_` with the sampler). Reaction in the same cycle. |
 | Immediate reaction | driver RT loop | See 3. |
 | Thresholds, profile, mode in; latch state out | Supervisor, through a lock-free handoff (the `Seqlock` pattern already used by `FeedbackTap`) | Policy and conversation stay out of the RT path. |
-| `HaltReason`, refusing commands, position-mode → float switch, clear | Supervisor | Existing halt/fault vocabulary. |
+| `HaltReason`, refusing commands, clear | Supervisor | Existing halt/fault vocabulary. |
 | Service, status topic, diagnostics | this repo's node | ROS surface only; no detection logic. |
 
 RT rules from the driver's CLAUDE.md apply: no allocation, lock or block in
@@ -150,10 +152,14 @@ the arm from demo speeds within ~0.2 s. **(my call: the dragged anchor is how
 
 - **Move running in torque or impedance mode:** the RT loop switches to float in
   the trip cycle.
-- **Move running in position mode:** the RT loop freezes the reference at the
-  measured `q` in the trip cycle (the actuator-mode change is a blocking per-joint
-  KORTEX RPC and cannot happen in RT). The Supervisor then switches the actuators
-  to torque and engages float. During that window the arm holds stiff. Today the
+- **Move running in position mode:** the RT loop adopts float at the next cycle
+  boundary through the same path every mode change already takes
+  (`RtExecutor::run` step 3 calls `set_actuator_modes`, a blocking pump the driver
+  already accepts at a boundary on a mode change). No Supervisor round-trip. In
+  the trip cycle itself the command is the current position (a freeze). While
+  latched, the executor ignores `request_mode` so nothing can switch the arm out
+  of float; only the clear releases it. (Corrected 2026-10-29 from "the Supervisor
+  switches it": the code shows the executor does mode switches itself.) Today the
   switch also drops actuator torque for ~160 ms (#92). #94 fixes that; Swapnil
   considers it close enough to build against. Position mode is the common case
   (the idle hold and the post-clear hold are position), so this path is the main

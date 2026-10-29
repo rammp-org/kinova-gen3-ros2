@@ -116,7 +116,10 @@ Check the `Arm link` task on `/diagnostics`
 (`ros2 topic echo /diagnostics | grep -A3 'Arm link'`).
 
 - **`waiting for the arm at …`**: the arm is off or unreachable. The driver retries
-  every second; power the arm or fix the link and it connects by itself.
+  every second; power the arm or fix the link and it connects by itself. A reason of
+  `no direct route to <ip>: it would leave via <interface>` or `no link on <interface>`
+  means the arm NIC lost its address or its link; bring its profile back up
+  (`sudo nmcli connection up <profile>`).
 - **`faulted, waiting for /clear_faults: …`**: the arm faulted (e-stop, protective
   stop), something took it out of low-level, or the link was lost while running
   (`connection lost: …`, e.g. the red e-stop cut the arm's power). Fix the cause,

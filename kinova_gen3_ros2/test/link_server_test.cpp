@@ -133,6 +133,23 @@ TEST_F(LinkServerTest, ClearThatDoesNotTakeSaysWhy) {
   EXPECT_EQ(res->message, "faulted: fault persists after clear");
 }
 
+// A clear asked for while the node is stopping answers at once, rather than
+// holding shutdown for kClearWait: the link has stopped and will not take it.
+TEST_F(LinkServerTest, ClearWhileStoppingAnswersAtOnce) {
+  Rig r("link_clear_stopping");
+  r.sim.set_arm_fault(true);
+  r.start();
+  ASSERT_TRUE(r.wait_state(kinova::LinkState::kFaulted));
+  r.stop.store(true);
+  r.th.join();
+  const auto t0 = std::chrono::steady_clock::now();
+  const auto res = r.clear();
+  ASSERT_TRUE(res);
+  EXPECT_FALSE(res->success);
+  EXPECT_EQ(res->message, "stopping");
+  EXPECT_LT(std::chrono::steady_clock::now() - t0, 2s);
+}
+
 TEST(LinkDiagnostics, EachStateMapsToItsLevel) {
   kinova::LinkStatus s;
   diagnostic_updater::DiagnosticStatusWrapper run, fault, conn;

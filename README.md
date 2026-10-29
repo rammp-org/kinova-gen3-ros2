@@ -227,9 +227,10 @@ it opened with; the next bare impedance command picks the new default up.
 ### Fault recovery
 
 The node does not exit when the arm faults, is e-stopped, loses power or its link, or is
-off at start. An arm that is off or still booting is connected by itself. A fault, an
-e-stop, another client taking the arm, or a link lost while running hands the arm back
-to its base and waits for:
+off at start. An arm that is off or still booting is connected by itself. A fault, a
+hardware e-stop or protective stop, the arm taken out of low-level (web app, Kinova
+controller, another KORTEX client), or a link lost while running hands the arm back to
+its base and waits for (a ROS `/estop` or an `/acquire_control` seize does neither):
 
 ```bash
 ros2 service call /clear_faults std_srvs/srv/Trigger

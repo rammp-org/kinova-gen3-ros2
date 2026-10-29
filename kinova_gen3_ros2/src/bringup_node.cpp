@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
   // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
   // defaults to SIGTERM, not SIGINT) -- rclcpp's own default handler logs and
   // begins context shutdown on either signal, but only setting g_stop actually
-  // unblocks the RT loop (exec.run) blocking the main thread. Installed here,
+  // unblocks the RT loop (link.run) blocking the main thread. Installed here,
   // right after the wait (which relies on rclcpp's handler), and not after the
   // servers below: a signal under rclcpp's handler in between would shut the
   // context down under the entities still being created, and they throw.
@@ -348,8 +348,8 @@ int main(int argc, char **argv) {
   // its base and waits for /clear_faults. The Supervisor listens, so goals halt
   // and work is refused while the arm is unavailable.
   ArmLink link(tap, exec, &sup);
-  kinova_gen3_ros2::LinkServer link_server(node, link,
-                                           use_sim ? std::string("sim") : ip);
+  kinova_gen3_ros2::LinkServer link_server(
+      node, link, use_sim ? std::string("sim") : ip, g_stop);
 
   // A signal during setup is a requested stop: do not connect to the arm.
   if (g_stop.load()) {

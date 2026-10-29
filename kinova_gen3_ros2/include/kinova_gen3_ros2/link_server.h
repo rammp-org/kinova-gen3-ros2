@@ -1,5 +1,6 @@
 // kinova_gen3_ros2/include/kinova_gen3_ros2/link_server.h
 #pragma once
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -18,8 +19,10 @@ public:
   using Trigger = std_srvs::srv::Trigger;
 
   // arm: shown in the "waiting for the arm" message (the IP, or "sim").
+  // stop: the flag the link runs on; a /clear_faults waiting on the link
+  // answers at once when it is set, rather than holding up shutdown.
   LinkServer(rclcpp::Node::SharedPtr node, kinova::ArmLink &link,
-             std::string arm);
+             std::string arm, const std::atomic<bool> &stop);
 
 private:
   void on_clear(const std::shared_ptr<Trigger::Request>,
@@ -29,6 +32,7 @@ private:
   rclcpp::Node::SharedPtr node_;
   kinova::ArmLink &link_;
   std::string arm_;
+  const std::atomic<bool> &stop_;
   rclcpp::CallbackGroup::SharedPtr clear_group_;
   rclcpp::Service<Trigger>::SharedPtr clear_srv_;
   std::unique_ptr<diagnostic_updater::Updater> updater_;
@@ -40,8 +44,8 @@ private:
 void link_diagnostics(const kinova::LinkStatus &s, const std::string &arm,
                       diagnostic_updater::DiagnosticStatusWrapper &stat);
 
-// How long /clear_faults waits for the clear to resolve before answering: a
-// clear is ClearFaults + SetServoingMode + seed + 7 SetControlMode RPCs, each
-// with KORTEX's 3 s default bound.
+// How long /clear_faults waits for the clear to resolve before answering. On
+// the arm a clear resolves in well under a second; this is a reply deadline,
+// not a bound on the clear, which may still succeed after it.
 inline constexpr std::chrono::seconds kClearWait{10};
 } // namespace kinova_gen3_ros2

@@ -5,8 +5,8 @@
 namespace kinova_gen3_ros2 {
 
 LinkServer::LinkServer(rclcpp::Node::SharedPtr node, kinova::ArmLink &link,
-                       std::string arm)
-    : node_(std::move(node)), link_(link), arm_(std::move(arm)) {
+                       std::string arm, const std::atomic<bool> &stop)
+    : node_(std::move(node)), link_(link), arm_(std::move(arm)), stop_(stop) {
   // Its OWN mutually-exclusive group: on_clear waits up to kClearWait for the
   // arm to re-enter low-level, and must not hold up /estop, the ownership
   // services or a trajectory cancel on the default group meanwhile.
@@ -65,13 +65,15 @@ void LinkServer::on_clear(const std::shared_ptr<Trigger::Request>,
   // resolved to (running, or still faulted and why).
   const auto deadline = std::chrono::steady_clock::now() + kClearWait;
   kinova::LinkStatus s = link_.status();
-  while (s.clears_done == before &&
+  while (s.clears_done == before && !stop_.load() &&
          std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     s = link_.status();
   }
   res->success = s.state == kinova::LinkState::kRunning;
-  if (s.clears_done == before)
+  if (s.clears_done == before && stop_.load())
+    res->message = "stopping";
+  else if (s.clears_done == before)
     res->message = "clear requested; no outcome within " +
                    std::to_string(kClearWait.count()) + " s";
   else

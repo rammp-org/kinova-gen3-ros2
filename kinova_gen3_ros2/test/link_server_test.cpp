@@ -46,7 +46,8 @@ struct Rig {
 
   explicit Rig(const std::string &name) {
     node = std::make_shared<rclcpp::Node>(name);
-    server = std::make_unique<kinova_gen3_ros2::LinkServer>(node, link, "sim");
+    server =
+        std::make_unique<kinova_gen3_ros2::LinkServer>(node, link, "sim", stop);
     ex.add_node(node);
     spin = std::thread([this] { ex.spin(); });
   }

@@ -89,6 +89,11 @@ Append below: date, exact command, observed motion (measured joint delta),
 result code, and any `faults`/`dropped`/`majflt` reported by the node's telemetry
 drain. Stop on anything unexpected — e-stop, then investigate.
 
+After an e-stop or fault the node keeps running and the `Arm link` diagnostics task
+reads `faulted`. Fix the cause, release the e-stop, then
+`ros2 service call /clear_faults std_srvs/srv/Trigger`; the arm holds where it is. See
+[troubleshooting](troubleshooting.mdx) for each reason.
+
 ### Runs
 
 - (append results here)
@@ -174,6 +179,9 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   stopped, so it is independent of finding 1 — confirmed from `docker inspect` timestamps
   against the teleop log. A KORTEX device error should be handled and surfaced on
   `/diagnostics`, not abort the process.
+
+  Fixed by driver #96 / this repo's #63: the node now reports `faulted` on the `Arm link`
+  diagnostics task and waits for `/clear_faults`; it was validated on the arm 2026-10-29.
 
   Process note: the first container was run with `--rm`, which destroyed the logs of an
   earlier exit and cost a diagnosis. The crash above was only readable because the second

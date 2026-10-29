@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- **The node no longer exits on arm-side events** (driver #96, #59, #100). It runs
+  core's `ArmLink`: an arm that is off or unreachable is retried every second,
+  forever, including an arm still booting; a fault (e-stop, protective stop, the arm
+  taken out of low-level, a rejected command, or the link lost while running) hands the arm back to its
+  base and waits for **`/clear_faults`** (`std_srvs/Trigger`, new). New `Arm link`
+  task on `/diagnostics`. While the arm is unavailable, in-flight goals settle HALTED
+  and new goals and streams are refused. Only a robot with the wrong joint count still
+  exits (FATAL, exit 1). The `Arm` task now goes STALE when feedback is over 1 s old.
+  Needs the driver's `feat/96-never-crash` (built with it via `CORE_REF` until a
+  driver release).
+
 ### Changed (breaking)
 
 - **The arm's model is rendered at launch from the robot's `mount.yaml` and published

@@ -118,13 +118,13 @@ are refused at submission, not ignored.
 
 ### Published topics
 
-| Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
-| ---------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `arm_joint_1`..`arm_joint_7` (names from the model), then `arm_robotiq_85_left_knuckle_joint`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, decimated by `state_publish_divisor` (default 2: ~50 Hz).                                                                                    |
-| `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
-| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: pose and twist of `--ee-frame` in `arm_mount`, same pump tick, same rate.                                                                                                                                                                                                        |
-| `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
-| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
+| Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------- | --------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `arm_joint_1`..`arm_joint_7` (names from the model), then `arm_robotiq_85_left_knuckle_joint`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, decimated by `state_publish_divisor` (default 2: ~50 Hz).                                                                                                                                                                         |
+| `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                                                                                                                    |
+| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: pose and twist of `--ee-frame` in `arm_mount`, same pump tick, same rate.                                                                                                                                                                                                                                                                                             |
+| `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**.                                                                                      |
+| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode), `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives or when it is over 1 s old), `kinova_gen3_node: Arm link` (OK running, ERROR faulted, STALE connecting; see [Fault recovery](#fault-recovery)) and `kinova_gen3_node: Gripper`. |
 
 Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -223,6 +223,23 @@ token, and goes through the same Arbiter-gated `CommandSink` as every other
 command. It touches no live mode: a running impedance session keeps the tuning
 it opened with; the next bare impedance command picks the new default up.
 `query_state` still exists on the core's `CommandSink` without a ROS2 service.
+
+### Fault recovery
+
+The node does not exit when the arm faults, is e-stopped, loses power or its link, or is
+off at start. An arm that is off or still booting is connected by itself. A fault, a
+hardware e-stop or protective stop, the arm taken out of low-level (web app, Kinova
+controller, another KORTEX client), or a link lost while running hands the arm back to
+its base and waits for (a ROS `/estop` or an `/acquire_control` seize does neither):
+
+```bash
+ros2 service call /clear_faults std_srvs/srv/Trigger
+```
+
+`success` is true only once the driver is commanding again; otherwise `message` says
+why. It needs no token. The link state, its reason and the fault and reconnect counts
+are on `/diagnostics` (`Arm link`). Details: [docs/interface.md](docs/interface.md),
+[docs/troubleshooting.mdx](docs/troubleshooting.mdx).
 
 ### Streaming
 

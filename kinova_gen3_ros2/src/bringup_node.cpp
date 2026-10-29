@@ -20,7 +20,9 @@
 #include "kinova_gen3_ros2/goto_preset_server.h"
 #include "kinova_gen3_ros2/arbitration_server.h"
 #include "kinova_gen3_ros2/gripper_server.h"
+#include "kinova_gen3_ros2/link_server.h"
 #include "kinova_gen3_ros2/stream_server.h"
+#include "kinova_lowlevel/arm_link.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
 #include "kinova_lowlevel/gripper_controller.h"
@@ -120,7 +122,7 @@ int main(int argc, char **argv) {
   // Handle both SIGINT (Ctrl-C) and SIGTERM (e.g. `kill`/`kill %job`, which
   // defaults to SIGTERM, not SIGINT) -- rclcpp's own default handler logs and
   // begins context shutdown on either signal, but only setting g_stop actually
-  // unblocks the RT loop (exec.run) blocking the main thread. Installed here,
+  // unblocks the RT loop (link.run) blocking the main thread. Installed here,
   // right after the wait (which relies on rclcpp's handler), and not after the
   // servers below: a signal under rclcpp's handler in between would shut the
   // context down under the entities still being created, and they throw.
@@ -234,7 +236,11 @@ int main(int argc, char **argv) {
   // than a guess.
   JointVelocityMode vel(*dyn);
   SampleRing ring(1u << 16);
-  RtExecutor exec(tap, ring, {rate, Pacing::kSleepSpin, {prio, cpu, true}});
+  ExecutorConfig exec_cfg{rate, Pacing::kSleepSpin, {prio, cpu, true}};
+  // A fault confirmed in feedback ends the RT run so ArmLink can hand the arm
+  // back to its base and wait for /clear_faults (ArmLink requires it).
+  exec_cfg.exit_on_fault = true;
+  RtExecutor exec(tap, ring, exec_cfg);
 
   auto backend =
       std::make_shared<kinova_gen3_ros2::Ros2Backend>(node, js_names);
@@ -337,13 +343,19 @@ int main(int argc, char **argv) {
   jc_server.set_command_sink(&arb);
   preset_server.set_command_sink(&arb);
 
+  // The link to the arm: connects (retrying forever while the arm is off or
+  // the link is down), runs the RT loop, and on a fault hands the arm back to
+  // its base and waits for /clear_faults. The Supervisor listens, so goals halt
+  // and work is refused while the arm is unavailable.
+  ArmLink link(tap, exec, &sup);
+  kinova_gen3_ros2::LinkServer link_server(
+      node, link, use_sim ? std::string("sim") : ip, g_stop);
+
   // A signal during setup is a requested stop: do not connect to the arm.
   if (g_stop.load()) {
     rclcpp::shutdown();
     return 0;
   }
-  tap.connect();
-  tap.set_servoing_low_level();
   sup.start();
 
   rclcpp::executors::MultiThreadedExecutor ex;
@@ -386,7 +398,8 @@ int main(int argc, char **argv) {
       "/acquire_control, /release_control, /revoke_control, /estop, "
       "/control_status; "
       "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "
-      "/stream_status; gripper: /setpoint/gripper, /gripper_state",
+      "/stream_status; gripper: /setpoint/gripper, /gripper_state; "
+      "link: /clear_faults",
       use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",
@@ -395,7 +408,18 @@ int main(int argc, char **argv) {
               pos_params.max_ref_speed[4], pos_params.max_ref_speed[5],
               pos_params.max_ref_speed[6],
               max_ref_speed > 0.0 ? "--max-ref-speed" : "URDF limits");
-  exec.run(g_stop); // RT loop on the main thread; returns when g_stop set
+  // The RT loop runs on the main thread inside the link; returns when g_stop
+  // is set. Arm-side events (fault, disconnect, arm off) never get out of it:
+  // only a configuration error does.
+  int rc = 0;
+  try {
+    link.run(g_stop);
+  } catch (const std::logic_error &e) {
+    RCLCPP_FATAL(node->get_logger(), "this driver cannot drive this arm: %s",
+                 e.what());
+    rc = 1;
+    g_stop.store(true); // the drain thread runs until g_stop
+  }
 
   sup.stop();
   base->safe_shutdown();
@@ -403,5 +427,5 @@ int main(int argc, char **argv) {
   ros_spin.join();
   drain.join();
   rclcpp::shutdown();
-  return 0;
+  return rc;
 }

@@ -110,6 +110,28 @@ about 0.038 rad/s
 ([kinova-gen3-driver#34](https://github.com/rammp-org/kinova-gen3-driver/issues/34)).
 Check the image tag, or the core version a native build found.
 
+## The node is up but every goal is refused, or `/joint_states` stopped
+
+Check the `Arm link` task on `/diagnostics`
+(`ros2 topic echo /diagnostics | grep -A3 'Arm link'`).
+
+- **`waiting for the arm at …`**: the arm is off or unreachable. The driver retries
+  every second; power the arm or fix the link and it connects by itself. A reason of
+  `no direct route to <ip>: it would leave via <interface>` or `no link on <interface>`
+  means the arm NIC lost its address or its link; bring its profile back up
+  (`sudo nmcli connection up <profile>`).
+- **`faulted, waiting for /clear_faults: …`**: the arm faulted (e-stop, protective
+  stop), something took it out of low-level, or the link was lost while running
+  (`connection lost: …`, e.g. the red e-stop cut the arm's power). Fix the cause,
+  release the e-stop, then
+  `ros2 service call /clear_faults std_srvs/srv/Trigger`. A `faulted: fault persists
+  after clear` answer means the arm still reports the fault.
+
+To drive the arm by hand with the Kinova controller mid-session: e-stop it (the red
+e-stop cuts power; the arm reboots under its base), clear the arm's own fault if it
+has one, drive with the controller, then `/clear_faults`. The arm holds where you
+left it.
+
 ## Safety, briefly
 
 - **`/estop` is a plain topic and any node may publish it.** Engaging is never
@@ -119,7 +141,9 @@ Check the image tag, or the core version a native build found.
   does not merely pause.
 - **There is no "let go" on the gripper.** `release()` stops this driver stamping, but
   the last command stays latched in the hardware's cyclic frame and the 2F-85 is
-  effectively self-locking. To open, command `position = 0`.
+  effectively self-locking. To open, command `position = 0`. After a reconnect or a
+  `/clear_faults` the gripper is left uncommanded, as at startup, until its next
+  command.
 - **On a real arm, always seed waypoint 0 from the measured position.** A trajectory
   that starts anywhere else is a jump.
 

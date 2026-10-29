@@ -56,6 +56,12 @@
 - The image contains `kinova_gen3_description`, so `arm_state_publisher` runs from it.
   The 1.1.0 image lacked it, although the deployment manifest already ran
   `description.launch.py` from it.
+- **A `QUEUE` trajectory goal sent while another goal is running is refused**
+  (driver #84): it settles `INVALID_GOAL` and the running goal carries on. On an
+  idle arm `QUEUE` runs as before. The driver dropped queueing because queued goals
+  jerked the arm at the handover; plan one goal through all the waypoints instead.
+  No code change here (`preemption = 0` still maps to `kQueue`); needs the driver's
+  `SwapnilPande/84-disable-queue` until a driver release.
 
 ### Added
 

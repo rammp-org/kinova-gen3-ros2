@@ -17,7 +17,7 @@ external-torque estimate (`g(q) - tau`, the wrench on `/ee_state`) is exact at
 rest and carries the arm's own inertia in motion. A generalized-momentum
 observer (De Luca) uses the full dynamics and stays valid in motion. The demo
 replays a normal move through both and compares them. `observer.py` has the
-derivation and sign convention.
+derivation and sign convention.  Even though droops and drifts has largely been fixed, we would like this capability
 
 ## What we measured on abra
 

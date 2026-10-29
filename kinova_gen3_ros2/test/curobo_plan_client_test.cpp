@@ -333,67 +333,110 @@ TEST_F(CuroboClientTest, TheShortPlanOverloadSendsNoHold) {
 }
 
 namespace {
-// Two 3-point legs, the second starting where the first ends.
+// Two 3-point legs, rest to rest, the second starting where the first ends.
 std::vector<trajectory_msgs::msg::JointTrajectory> two_legs() {
   std::vector<trajectory_msgs::msg::JointTrajectory> legs(2);
   for (size_t l = 0; l < legs.size(); ++l)
     for (int k = 0; k < 3; ++k) {
       trajectory_msgs::msg::JointTrajectoryPoint p;
       p.positions.assign(7, 0.1 * (2 * l + k));
+      p.velocities.assign(7, k == 1 ? 0.5 : 0.0);
       legs[l].points.push_back(p);
     }
   return legs;
 }
-} // namespace
 
-TEST_F(CuroboClientTest, BlendCarriesTheLegsRadiiScalesAndTranslatedHolds) {
-  auto node = std::make_shared<rclcpp::Node>("blend_test");
+geometry_msgs::msg::Quaternion quat(double x, double y, double z, double w) {
+  geometry_msgs::msg::Quaternion q;
+  q.x = x;
+  q.y = y;
+  q.z = z;
+  q.w = w;
+  return q;
+}
+
+// Blends `legs` against a live fake; returns the outcome and the fake's view.
+struct Blended {
+  CuroboPlanClient::Outcome outcome;
+  CuroboPlanClient::Blend::Goal seen;
+  int received;
+};
+Blended
+run_blend(const char *name,
+          const std::vector<trajectory_msgs::msg::JointTrajectory> &legs,
+          const std::vector<double> &radii, const std::vector<double> &scales,
+          const std::vector<uint8_t> &holds,
+          const std::vector<geometry_msgs::msg::Quaternion> &orientations) {
+  auto node = std::make_shared<rclcpp::Node>(name);
   kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true);
   auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   CuroboPlanClient client(node, grp);
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
   SpinThread spin(ex);
-
-  using Arm = rammp_arm_interfaces::action::GoToEEPose::Goal;
-  using Planner = rammp_curobo_interfaces::action::PlanToPose::Goal;
   std::promise<CuroboPlanClient::Outcome> p;
   auto f = p.get_future();
-  client.blend(two_legs(), {0.03}, {0.8, 0.4},
-               {Arm::HOLD_LEVEL, Arm::HOLD_FIXED}, nullptr,
+  client.blend(legs, radii, scales, holds, orientations, nullptr,
                [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
-  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
-  const auto o = f.get();
-  EXPECT_TRUE(o.ok) << o.message;
-  EXPECT_EQ(o.trajectory.points.size(), 6u); // the fake joins the legs
+  if (f.wait_for(5s) != std::future_status::ready) {
+    ADD_FAILURE() << name << ": on_done never fired";
+    return {{}, fake.last_blend(), fake.blend_goals_received()};
+  }
+  auto o = f.get();
+  std::this_thread::sleep_for(100ms); // let a wrongly sent goal land
+  return {std::move(o), fake.last_blend(), fake.blend_goals_received()};
+}
+} // namespace
 
-  const auto seen = fake.last_blend();
-  ASSERT_EQ(seen.legs.size(), 2u);
-  EXPECT_EQ(seen.legs[1].points[0].positions,
+TEST_F(CuroboClientTest, BlendCarriesTheLegsRadiiScalesHoldsAndOrientations) {
+  using Arm = rammp_arm_interfaces::action::GoToEEPose::Goal;
+  using Planner = rammp_curobo_interfaces::action::PlanToPose::Goal;
+  const auto b =
+      run_blend("blend_test", two_legs(), {0.03}, {0.8, 0.4},
+                {Arm::HOLD_LEVEL, Arm::HOLD_FIXED},
+                {quat(0.0, 0.0, 0.0, 1.0), quat(1.0, 0.0, 0.0, 0.0)});
+  EXPECT_TRUE(b.outcome.ok) << b.outcome.message;
+  EXPECT_EQ(b.outcome.trajectory.points.size(), 6u); // the fake joins the legs
+  ASSERT_EQ(b.seen.legs.size(), 2u);
+  EXPECT_EQ(b.seen.legs[1].points[0].positions,
             two_legs()[1].points[0].positions);
-  EXPECT_EQ(seen.blend_radius, std::vector<double>({0.03}));
-  EXPECT_EQ(seen.speed_scale, std::vector<double>({0.8, 0.4}));
-  EXPECT_EQ(seen.hold,
+  EXPECT_EQ(b.seen.blend_radius, std::vector<double>({0.03}));
+  EXPECT_EQ(b.seen.speed_scale, std::vector<double>({0.8, 0.4}));
+  EXPECT_EQ(b.seen.hold,
             std::vector<uint8_t>({Planner::HOLD_LEVEL, Planner::HOLD_FIXED}));
+  ASSERT_EQ(b.seen.hold_orientation.size(), 2u);
+  EXPECT_EQ(b.seen.hold_orientation[1], quat(1.0, 0.0, 0.0, 0.0));
 }
 
 TEST_F(CuroboClientTest, AnUnknownBlendHoldFailsLoudInsteadOfBlending) {
-  auto node = std::make_shared<rclcpp::Node>("blend_bad_hold_test");
-  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true);
-  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
-  CuroboPlanClient client(node, grp);
-  rclcpp::executors::MultiThreadedExecutor ex;
-  ex.add_node(node);
-  SpinThread spin(ex);
+  const auto b =
+      run_blend("blend_bad_hold_test", two_legs(), {0.0}, {}, {0, 9}, {});
+  EXPECT_FALSE(b.outcome.ok);
+  EXPECT_NE(b.outcome.message.find("9"), std::string::npos);
+  EXPECT_EQ(b.received, 0);
+}
 
-  std::promise<CuroboPlanClient::Outcome> p;
-  auto f = p.get_future();
-  client.blend(two_legs(), {0.0}, {}, {0, 9}, nullptr,
-               [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
-  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
-  const auto o = f.get();
-  EXPECT_FALSE(o.ok);
-  EXPECT_NE(o.message.find("9"), std::string::npos);
-  std::this_thread::sleep_for(300ms); // give a wrongly sent goal time to land
-  EXPECT_EQ(fake.blend_goals_received(), 0);
+// The fake blend is what the GoTo tests chain legs against, so it must refuse
+// what the real one refuses; otherwise a chaining bug would pass them.
+TEST_F(CuroboClientTest, TheFakeBlendRefusesWhatTheRealOneRefuses) {
+  auto gap = two_legs();
+  gap[1].points[0].positions[3] += 0.002;
+  auto no_velocities = two_legs();
+  no_velocities[0].points[1].velocities.clear();
+  auto one_point = two_legs();
+  one_point[1].points.resize(1);
+  const std::pair<const char *,
+                  std::vector<trajectory_msgs::msg::JointTrajectory>>
+      cases[] = {{"legs that do not join", gap},
+                 {"a point without velocities", no_velocities},
+                 {"a one-point leg", one_point}};
+  for (const auto &[what, legs] : cases) {
+    const auto b = run_blend("fake_blend_refuses", legs, {0.0}, {}, {}, {});
+    EXPECT_FALSE(b.outcome.ok) << what;
+    EXPECT_NE(b.outcome.message.find("leg"), std::string::npos)
+        << what << ": " << b.outcome.message;
+  }
+  EXPECT_FALSE(
+      run_blend("fake_blend_radii", two_legs(), {}, {}, {}, {}).outcome.ok)
+      << "2 legs, no radius";
 }

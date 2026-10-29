@@ -1,8 +1,11 @@
 #pragma once
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -24,6 +27,8 @@ namespace kinova_gen3_ros2::test {
 //     test can pin down exactly when planning "finishes".
 //   - started: if non-null, set once execute() begins (before waiting on
 //     gate) so a test can deterministically know planning has started.
+//     set_gated_plan_number(n) narrows both to the n-th plan, so a test can
+//     hold one leg of a chain while the others run through.
 //   - reject_cancel: if true, this server's OWN cancel handler REJECTs
 //     incoming cancel requests -- models a planner that can't be interrupted
 //     once committed, so execute() can still legitimately succeed() even
@@ -33,10 +38,16 @@ namespace kinova_gen3_ros2::test {
 //     carries only 4 positions instead of 7 -- models a malformed/buggy
 //     planner response for testing the caller's fail-loud width guard.
 //
-// Also hosts /rammp_curobo/blend: it records the goal and returns the legs'
-// points end to end (set_blend_succeed(false) aborts it instead). A plan's
-// points step up from the start it was given, so each leg ends somewhere
-// different and a chain of legs can be followed.
+// A plan starts EXACTLY at the start it was given and steps up from it, with
+// velocities, at rest at both ends -- as the real planner's legs do -- so each
+// leg ends somewhere different and a chain of legs can be followed. Every
+// plan's start, target and hold is recorded in order.
+//
+// Also hosts /rammp_curobo/blend: it refuses what the real one refuses (legs
+// with fewer than 2 points or without velocities, a leg not starting within
+// 1e-5 rad of where the one before it ends, per-leg or per-junction arrays of
+// the wrong length), records the goal, and returns the legs' points end to end
+// (set_blend_succeed(false) aborts it instead).
 class FakeCuroboServer {
 public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
@@ -52,6 +63,9 @@ public:
   // goal is sent.
   void set_fail_plan_number(int n) { fail_plan_number_ = n; }
   void set_blend_succeed(bool b) { blend_succeed_ = b; }
+  // Only the n-th plan (1-based, either tier) signals `started` and waits on
+  // `gate`. 0, the default: every plan does. Set before any goal is sent.
+  void set_gated_plan_number(int n) { gated_plan_number_ = n; }
 
   FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
                    bool reject = false, std::shared_future<void> gate = {},
@@ -60,6 +74,12 @@ public:
       : node_(node), succeed_(succeed), n_points_(n_points), reject_(reject),
         gate_(std::move(gate)), started_(std::move(started)),
         reject_cancel_(reject_cancel), bad_width_(bad_width) {
+    // Its own reentrant group, as the real planner node has: a plan held on
+    // `gate` then blocks only itself, not the node's default group that a
+    // test's own clients answer on. Kept as a member: the node holds its
+    // groups only weakly, and a dropped group's callbacks never run.
+    group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    const auto opts = rcl_action_server_get_default_options();
     server_ = rclcpp_action::create_server<PlanToPose>(
         node_, "/rammp_curobo/plan_to_pose",
         [this](const rclcpp_action::GoalUUID &,
@@ -72,7 +92,8 @@ public:
           return reject_cancel_ ? rclcpp_action::CancelResponse::REJECT
                                 : rclcpp_action::CancelResponse::ACCEPT;
         },
-        [this](std::shared_ptr<GoalHandle> gh) { execute<PlanToPose>(gh); });
+        [this](std::shared_ptr<GoalHandle> gh) { execute<PlanToPose>(gh); },
+        opts, group_);
     joints_server_ = rclcpp_action::create_server<PlanToJoints>(
         node_, "/rammp_curobo/plan_to_joints",
         [this](const rclcpp_action::GoalUUID &,
@@ -86,7 +107,8 @@ public:
         },
         [this](std::shared_ptr<JointsGoalHandle> gh) {
           execute<PlanToJoints>(gh);
-        });
+        },
+        opts, group_);
     blend_server_ = rclcpp_action::create_server<Blend>(
         node_, "/rammp_curobo/blend",
         [](const rclcpp_action::GoalUUID &,
@@ -96,7 +118,8 @@ public:
         [](std::shared_ptr<BlendGoalHandle>) {
           return rclcpp_action::CancelResponse::ACCEPT;
         },
-        [this](std::shared_ptr<BlendGoalHandle> gh) { execute_blend(gh); });
+        [this](std::shared_ptr<BlendGoalHandle> gh) { execute_blend(gh); },
+        opts, group_);
   }
 
   // What the caller actually asked us to plan FROM. Empty means the caller
@@ -139,18 +162,36 @@ public:
     return last_blend_;
   }
   int blend_goals_received() const { return blend_goals_received_; }
+  // Every pose plan's target and hold, and every joint plan's target, in the
+  // order the plans were executed.
+  std::vector<geometry_msgs::msg::Pose> pose_targets_seen() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return pose_targets_seen_;
+  }
+  std::vector<uint8_t> holds_seen() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return holds_seen_;
+  }
+  std::vector<std::vector<double>> joint_targets_seen() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return joint_targets_seen_;
+  }
 
 private:
   void record_constraints(const PlanToPose::Goal &g) {
     last_hold_ = g.hold;
     last_approach_via_ = g.approach_via;
+    pose_targets_seen_.push_back(g.target);
+    holds_seen_.push_back(g.hold);
   }
-  void record_constraints(const PlanToJoints::Goal &) {}
+  void record_constraints(const PlanToJoints::Goal &g) {
+    joint_targets_seen_.push_back(g.target_joints);
+  }
   // Shared by both tiers; only the Result type differs. PlanToJoints::Result
   // additionally carries goal_mismatch_rad, which stays at its 0.0 default -
   // the canned plan is treated as reaching the requested joints exactly.
-  // `started_` is a one-shot promise, so a single test must drive only one
-  // tier.
+  // `started_` is a one-shot promise, so without set_gated_plan_number a
+  // single test must send only one plan.
   template <typename ActionT>
   void execute(std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> gh) {
     const auto start = gh->get_goal()->start_joints;
@@ -161,9 +202,10 @@ private:
       record_constraints(*gh->get_goal());
     }
     const int nth = ++plans_executed_;
-    if (started_)
+    const bool gated = gated_plan_number_ == 0 || nth == gated_plan_number_;
+    if (started_ && gated)
       started_->set_value();
-    if (gate_.valid())
+    if (gate_.valid() && gated)
       gate_.wait();
     auto result = std::make_shared<typename ActionT::Result>();
     if (!succeed_ || nth == fail_plan_number_) {
@@ -180,9 +222,10 @@ private:
                                       "joint_7"};
     for (int k = 0; k < n_points_; ++k) {
       trajectory_msgs::msg::JointTrajectoryPoint p;
-      p.positions.assign((bad_width_ && k == 0) ? 4 : 7, 0.01 * (k + 1));
+      p.positions.assign((bad_width_ && k == 0) ? 4 : 7, 0.01 * k);
       for (size_t i = 0; i < p.positions.size() && i < start.size(); ++i)
         p.positions[i] += start[i];
+      p.velocities.assign(7, (k == 0 || k + 1 == n_points_) ? 0.0 : 0.5);
       const double t = 0.02 * (k + 1);
       p.time_from_start.sec = static_cast<int32_t>(t);
       p.time_from_start.nanosec =
@@ -191,6 +234,41 @@ private:
     }
     gh->succeed(result);
   }
+  // Why the real blend would refuse this goal, or "" if it would not.
+  static std::string blend_refusal(const Blend::Goal &g) {
+    const size_t n = g.legs.size();
+    if (n == 0)
+      return "no legs";
+    if (g.blend_radius.size() != n - 1)
+      return std::to_string(n) + " legs need " + std::to_string(n - 1) +
+             " blend radii, got " + std::to_string(g.blend_radius.size());
+    for (const size_t m :
+         {g.speed_scale.size(), g.hold.size(), g.hold_orientation.size()})
+      if (m != 0 && m != n)
+        return "a per-leg array has " + std::to_string(m) + " values for " +
+               std::to_string(n) + " legs";
+    for (size_t k = 0; k < n; ++k) {
+      const auto &pts = g.legs[k].points;
+      const std::string what =
+          "leg " + std::to_string(k + 1) + "/" + std::to_string(n) + ": ";
+      if (pts.size() < 2)
+        return what + "fewer than 2 points";
+      for (const auto &p : pts)
+        if (p.velocities.size() != p.positions.size())
+          return what + "a point without velocities";
+      if (k == 0)
+        continue;
+      const auto &a = g.legs[k - 1].points.back().positions;
+      const auto &b = pts.front().positions;
+      if (a.size() != b.size())
+        return what + "does not start where leg " + std::to_string(k) + " ends";
+      for (size_t i = 0; i < a.size(); ++i)
+        if (std::abs(a[i] - b[i]) > 1e-5)
+          return what + "starts more than 1e-5 rad from where leg " +
+                 std::to_string(k) + " ends";
+    }
+    return "";
+  }
   void execute_blend(std::shared_ptr<BlendGoalHandle> gh) {
     {
       std::lock_guard<std::mutex> l(seen_m_);
@@ -198,9 +276,12 @@ private:
     }
     ++blend_goals_received_;
     auto result = std::make_shared<Blend::Result>();
-    if (!blend_succeed_) {
+    const std::string refused = blend_refusal(*gh->get_goal());
+    if (!refused.empty() || !blend_succeed_) {
       result->success = false;
-      result->message = "fake blend: no overlap";
+      result->message = refused.empty()
+                            ? "fake blend: no overlap"
+                            : "fake blend: invalid legs: " + refused;
       gh->abort(result);
       return;
     }
@@ -215,6 +296,7 @@ private:
     gh->succeed(result);
   }
   rclcpp::Node::SharedPtr node_;
+  rclcpp::CallbackGroup::SharedPtr group_;
   // header.frame_id on every plan. arm_mount by default: a planner that keeps
   // the contract. Unset mimics cuRobo, which leaves it empty.
   std::string frame_id_ = "arm_mount";
@@ -230,10 +312,14 @@ private:
   bool bad_width_;
   std::atomic<int> pose_goals_received_{0};
   int fail_plan_number_ = 0;
+  int gated_plan_number_ = 0;
   std::atomic<int> plans_executed_{0};
   bool blend_succeed_ = true;
   std::atomic<int> blend_goals_received_{0};
   std::vector<std::vector<double>> starts_seen_;
+  std::vector<geometry_msgs::msg::Pose> pose_targets_seen_;
+  std::vector<uint8_t> holds_seen_;
+  std::vector<std::vector<double>> joint_targets_seen_;
   Blend::Goal last_blend_;
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;

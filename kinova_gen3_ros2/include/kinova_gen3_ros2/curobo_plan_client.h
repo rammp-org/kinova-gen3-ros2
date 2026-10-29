@@ -7,6 +7,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/quaternion.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "rammp_arm_interfaces/action/go_to_ee_pose.hpp"
 #include "rammp_curobo_interfaces/action/blend.hpp"
@@ -73,13 +74,22 @@ public:
   // blend_radius: one per junction (m), legs.size() - 1 of them. speed_scale:
   // one per leg, or empty for all 1. hold: one per leg, the arm's
   // GoToEEPose::Goal::HOLD_* the leg was planned with, or empty for none;
-  // translated here as plan() translates it. The trajectory comes back at the
-  // legs' speed scales, so it is executed at speed scale 1.
-  void blend(const std::vector<trajectory_msgs::msg::JointTrajectory> &legs,
-             const std::vector<double> &blend_radius,
-             const std::vector<double> &speed_scale,
-             const std::vector<uint8_t> &hold, FeedbackCb on_fb,
-             DoneCb on_done);
+  // translated here as plan() translates it. hold_orientation: one per leg,
+  // the orientation a held leg's hold keeps (its goal's, as sent to plan()),
+  // read only for held legs; or empty. The trajectory comes back at the legs'
+  // speed scales, so it is executed at speed scale 1.
+  //
+  // ONE PLAN AT A TIME, as for every call here: the planner refuses a second
+  // goal while one is planning ("planner busy"), and cancel() reaches only the
+  // goal started last. A caller chaining several calls (plan, plan, blend)
+  // shares the planner with every other GoTo goal in between.
+  void
+  blend(const std::vector<trajectory_msgs::msg::JointTrajectory> &legs,
+        const std::vector<double> &blend_radius,
+        const std::vector<double> &speed_scale,
+        const std::vector<uint8_t> &hold,
+        const std::vector<geometry_msgs::msg::Quaternion> &hold_orientation,
+        FeedbackCb on_fb, DoneCb on_done);
   // Cancels whichever plan is in flight: pose, joint-space or blend.
   void cancel();
 

@@ -152,11 +152,13 @@ void CuroboPlanClient::blend(
     const std::vector<trajectory_msgs::msg::JointTrajectory> &legs,
     const std::vector<double> &blend_radius,
     const std::vector<double> &speed_scale, const std::vector<uint8_t> &hold,
+    const std::vector<geometry_msgs::msg::Quaternion> &hold_orientation,
     FeedbackCb on_fb, DoneCb on_done) {
   Blend::Goal goal;
   goal.legs = legs;
   goal.blend_radius = blend_radius;
   goal.speed_scale = speed_scale;
+  goal.hold_orientation = hold_orientation;
   try {
     for (const uint8_t h : hold)
       goal.hold.push_back(to_planner(h));

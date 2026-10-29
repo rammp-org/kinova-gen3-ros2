@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <array>
 #include <chrono>
 #include <functional>
 #include <future>
@@ -22,10 +23,13 @@ using namespace std::chrono_literals;
 using namespace kinova::interface;
 using GoToEEPoses = rammp_arm_interfaces::action::GoToEEPoses;
 using GoToJointConfigs = rammp_arm_interfaces::action::GoToJointConfigs;
+using EEPoseTarget = rammp_arm_interfaces::msg::EEPoseTarget;
+using JointConfigTarget = rammp_arm_interfaces::msg::JointConfigTarget;
 using PlannerHold = rammp_curobo_interfaces::action::PlanToPose::Goal;
 
 namespace {
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+constexpr double kInf = std::numeric_limits<double>::infinity();
 
 struct Sent {
   int code;
@@ -61,7 +65,7 @@ Sent send(rclcpp::Node::SharedPtr node, const std::string &name,
 
 // One server against the fake planner and a supervisor that "executes" each
 // accepted trajectory at once. Declared in dependency order, so the spin
-// thread stops first.
+// thread stops first. The fake's gate/started knobs are for the cancel test.
 template <class ServerT> struct Rig {
   rclcpp::Node::SharedPtr node;
   kinova_gen3_ros2::test::FakeCuroboServer fake;
@@ -73,9 +77,11 @@ template <class ServerT> struct Rig {
   FakeSupervisor sup;
   rclcpp::executors::MultiThreadedExecutor ex;
   std::unique_ptr<SpinThread> spin;
-  explicit Rig(const char *name)
+  explicit Rig(const char *name, std::shared_future<void> gate = {},
+               std::shared_ptr<std::promise<void>> started = nullptr)
       : node(std::make_shared<rclcpp::Node>(name)),
-        fake(node, /*succeed=*/true, /*n_points=*/3),
+        fake(node, /*succeed=*/true, /*n_points=*/3, /*reject=*/false,
+             std::move(gate), std::move(started), /*reject_cancel=*/true),
         grp(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
         planner(node, grp), router(dummy), server(node, router, planner, grp),
         sup(router) {
@@ -87,34 +93,36 @@ template <class ServerT> struct Rig {
 using PosesRig = Rig<kinova_gen3_ros2::GoToEEPosesServer>;
 using ConfigsRig = Rig<kinova_gen3_ros2::GoToJointConfigsServer>;
 
+// n targets with only the pose set: every other field at its default.
 GoToEEPoses::Goal poses_goal(size_t n) {
   GoToEEPoses::Goal g;
   for (size_t k = 0; k < n; ++k) {
-    geometry_msgs::msg::PoseStamped t;
-    t.header.frame_id = "arm_mount";
-    t.pose.position.x = 0.4;
-    t.pose.position.y = 0.1 * static_cast<double>(k);
-    t.pose.position.z = 0.3;
-    t.pose.orientation.w = 1.0;
+    EEPoseTarget t;
+    t.pose.header.frame_id = "arm_mount";
+    t.pose.pose.position.x = 0.4;
+    t.pose.pose.position.y = 0.1 * static_cast<double>(k);
+    t.pose.pose.position.z = 0.3;
+    t.pose.pose.orientation.w = 1.0;
     g.targets.push_back(t);
   }
   return g;
 }
 
+// n targets with only the joints set.
 GoToJointConfigs::Goal configs_goal(size_t n) {
   GoToJointConfigs::Goal g;
   for (size_t k = 0; k < n; ++k) {
-    trajectory_msgs::msg::JointTrajectoryPoint p;
-    p.positions = {
+    JointConfigTarget t;
+    t.target_joints = {
         0.1 * static_cast<double>(k), 0.262, 3.142, -2.269, 0.0, 0.96, 1.571};
-    g.targets.push_back(p);
+    g.targets.push_back(t);
   }
   return g;
 }
 
 // Each leg after the first must be planned from the last point of the leg the
 // planner returned before it, and the first from the measured state (zero in
-// FakeSupervisor).
+// FakeSupervisor). The fake blend also refuses legs that do not join.
 void expect_chained(const kinova_gen3_ros2::test::FakeCuroboServer &fake,
                     size_t n) {
   const auto starts = fake.starts_seen();
@@ -143,44 +151,29 @@ TEST_F(GotoManyTest, PosesRefusesMalformedGoalsAtSubmission) {
   const std::vector<std::pair<const char *, std::function<void(G &)>>> cases = {
       {"no targets", [](G &g) { g.targets.clear(); }},
       {"base_link target",
-       [](G &g) { g.targets[1].header.frame_id = "base_link"; }},
-      {"empty frame", [](G &g) { g.targets[2].header.frame_id = ""; }},
-      {"2 speeds for 3",
-       [](G &g) {
-         g.speed_scale = {0.5, 0.5};
-       }},
-      {"zero speed", [](G &g) { g.speed_scale = {0.0}; }},
-      {"fast leg",
-       [](G &g) {
-         g.speed_scale = {1.0, 1.5, 1.0};
-       }},
-      {"NaN speed", [](G &g) { g.speed_scale = {kNaN}; }},
-      {"unknown hold", [](G &g) { g.orientation_hold = {7}; }},
-      {"unknown hold on one leg",
-       [](G &g) {
-         g.orientation_hold = {0, 1, 3};
-       }},
-      {"2 holds for 3",
-       [](G &g) {
-         g.orientation_hold = {0, 0};
-       }},
-      {"1 radius for 2 junctions", [](G &g) { g.blend_radius = {0.01}; }},
-      {"3 radii for 2 junctions",
-       [](G &g) {
-         g.blend_radius = {0.01, 0.01, 0.01};
-       }},
-      {"negative radius",
-       [](G &g) {
-         g.blend_radius = {-0.01, 0.0};
-       }},
-      {"NaN radius",
-       [](G &g) {
-         g.blend_radius = {0.0, kNaN};
-       }},
-      {"infinite radius",
-       [](G &g) {
-         g.blend_radius = {std::numeric_limits<double>::infinity(), 0.0};
-       }},
+       [](G &g) { g.targets[1].pose.header.frame_id = "base_link"; }},
+      {"empty frame", [](G &g) { g.targets[2].pose.header.frame_id = ""; }},
+      {"zero speed", [](G &g) { g.targets[0].speed_scale = 0.0; }},
+      {"fast leg", [](G &g) { g.targets[1].speed_scale = 1.5; }},
+      {"NaN speed", [](G &g) { g.targets[2].speed_scale = kNaN; }},
+      {"unknown hold", [](G &g) { g.targets[1].orientation_hold = 3; }},
+      {"negative radius", [](G &g) { g.targets[0].blend_radius = -0.01; }},
+      {"NaN radius", [](G &g) { g.targets[1].blend_radius = kNaN; }},
+      {"infinite radius", [](G &g) { g.targets[0].blend_radius = kInf; }},
+      // Not used, but still checked: a bad value is a caller's bug.
+      {"NaN radius on the last target",
+       [](G &g) { g.targets[2].blend_radius = kNaN; }},
+      {"negative radius on the last target",
+       [](G &g) { g.targets[2].blend_radius = -0.01; }},
+      {"NaN position", [](G &g) { g.targets[1].pose.pose.position.y = kNaN; }},
+      {"infinite position",
+       [](G &g) { g.targets[0].pose.pose.position.z = kInf; }},
+      {"NaN orientation",
+       [](G &g) { g.targets[2].pose.pose.orientation.x = kNaN; }},
+      {"zero quaternion",
+       [](G &g) { g.targets[1].pose.pose.orientation.w = 0; }},
+      {"non-unit quaternion",
+       [](G &g) { g.targets[0].pose.pose.orientation.w = 1.01; }},
       {"gains on a position goal",
        [](G &g) {
          g.gains.profile =
@@ -200,12 +193,18 @@ TEST_F(GotoManyTest, PosesRefusesMalformedGoalsAtSubmission) {
   EXPECT_FALSE(rig.sup.got_goal);
 }
 
-TEST_F(GotoManyTest, PosesLegsChainFromThePreviousLegsLastPoint) {
+// Leg k is planned TO targets[k], in order, from where leg k-1 ends; what
+// executes is the blend of all of them.
+TEST_F(GotoManyTest, PosesLegsArePlannedToEachTargetInOrderChained) {
   PosesRig rig("goto_poses_chain");
-  const auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", poses_goal(3));
+  const auto goal = poses_goal(3);
+  const auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", goal);
   ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
+  const auto targets = rig.fake.pose_targets_seen();
+  ASSERT_EQ(targets.size(), 3u);
+  for (size_t k = 0; k < 3; ++k)
+    EXPECT_EQ(targets[k], goal.targets[k].pose.pose) << "leg " << k + 1;
   expect_chained(rig.fake, 3);
-  // What executes is the blend's trajectory, not any one leg.
   ASSERT_TRUE(rig.sup.got_goal);
   EXPECT_EQ(rig.sup.last_goal.trajectory.points.size(), 9u);
 }
@@ -230,44 +229,50 @@ TEST_F(GotoManyTest, PosesAFailingBlendFailsTheGoalAndNothingMoves) {
   EXPECT_FALSE(rig.sup.got_goal);
 }
 
-// The blend carries the per-leg speeds; scaling it again at execution would
-// apply them twice.
-TEST_F(GotoManyTest, PosesTheBlendExecutesAtSpeedScaleOne) {
-  PosesRig rig("goto_poses_speed");
-  auto g = poses_goal(2);
-  g.speed_scale = {0.5, 0.3};
+// Each target's own fields reach the plan of its leg and the blend; the
+// blend carries the speeds, so it executes at 1.0 (scaling it again would
+// apply them twice).
+TEST_F(GotoManyTest, PosesEachTargetsFieldsReachItsLegAndTheBlend) {
+  PosesRig rig("goto_poses_fields");
+  auto g = poses_goal(3);
+  g.targets[0].speed_scale = 0.4;
+  g.targets[0].orientation_hold = EEPoseTarget::HOLD_LEVEL;
+  g.targets[0].blend_radius = 0.03;
+  g.targets[1].speed_scale = 0.7;
+  g.targets[1].orientation_hold = EEPoseTarget::HOLD_NONE;
+  g.targets[2].orientation_hold = EEPoseTarget::HOLD_FIXED;
+  g.targets[2].blend_radius = 0.5; // the last target's: not used
+  g.targets[2].pose.pose.orientation.w = 0.0;
+  g.targets[2].pose.pose.orientation.x = 1.0;
   const auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", g);
   ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
-  EXPECT_EQ(rig.fake.last_blend().speed_scale, std::vector<double>({0.5, 0.3}));
+
+  const std::vector<uint8_t> holds = {
+      PlannerHold::HOLD_LEVEL, PlannerHold::HOLD_NONE, PlannerHold::HOLD_FIXED};
+  EXPECT_EQ(rig.fake.holds_seen(), holds) << "each leg planned with its hold";
+  const auto seen = rig.fake.last_blend();
+  EXPECT_EQ(seen.hold, holds);
+  EXPECT_EQ(seen.speed_scale, std::vector<double>({0.4, 0.7, 1.0}));
+  EXPECT_EQ(seen.blend_radius, std::vector<double>({0.03, 0.0}));
+  ASSERT_EQ(seen.hold_orientation.size(), 3u);
+  for (size_t k = 0; k < 3; ++k)
+    EXPECT_EQ(seen.hold_orientation[k], g.targets[k].pose.pose.orientation)
+        << "leg " << k + 1;
   EXPECT_DOUBLE_EQ(rig.sup.last_goal.speed_scale, 1.0);
 }
 
-TEST_F(GotoManyTest, PosesTheBlendRequestCarriesRadiiScalesAndHolds) {
-  PosesRig rig("goto_poses_blend_goal");
-  auto g = poses_goal(3);
-  g.speed_scale = {0.4}; // one value: every leg
-  g.orientation_hold = {GoToEEPoses::Goal::HOLD_LEVEL,
-                        GoToEEPoses::Goal::HOLD_NONE,
-                        GoToEEPoses::Goal::HOLD_FIXED};
-  g.blend_radius = {0.03, 0.0};
-  auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", g);
+// A target with only its pose set: full speed, no hold, stop on it.
+TEST_F(GotoManyTest, PosesTargetDefaults) {
+  PosesRig rig("goto_poses_defaults");
+  const auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", poses_goal(3));
   ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
-  auto seen = rig.fake.last_blend();
-  EXPECT_EQ(seen.blend_radius, std::vector<double>({0.03, 0.0}));
-  EXPECT_EQ(seen.speed_scale, std::vector<double>({0.4, 0.4, 0.4}));
-  EXPECT_EQ(seen.hold, std::vector<uint8_t>({PlannerHold::HOLD_LEVEL,
-                                             PlannerHold::HOLD_NONE,
-                                             PlannerHold::HOLD_FIXED}));
-  // ...and each leg is PLANNED with its hold too (the last plan: leg 3).
-  EXPECT_EQ(rig.fake.last_hold(), PlannerHold::HOLD_FIXED);
-
-  // Empty arrays: stop on every target, full speed, no holds.
-  r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", poses_goal(3));
-  ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
-  seen = rig.fake.last_blend();
-  EXPECT_EQ(seen.blend_radius, std::vector<double>({0.0, 0.0}));
+  EXPECT_EQ(rig.fake.holds_seen(),
+            std::vector<uint8_t>(3, PlannerHold::HOLD_NONE));
+  const auto seen = rig.fake.last_blend();
   EXPECT_EQ(seen.speed_scale, std::vector<double>({1.0, 1.0, 1.0}));
+  EXPECT_EQ(seen.blend_radius, std::vector<double>({0.0, 0.0}));
   EXPECT_EQ(seen.hold, std::vector<uint8_t>(3, PlannerHold::HOLD_NONE));
+  EXPECT_DOUBLE_EQ(rig.sup.last_goal.speed_scale, 1.0);
 }
 
 TEST_F(GotoManyTest, PosesOneTargetIsOneLegWithNoJunction) {
@@ -301,6 +306,56 @@ TEST_F(GotoManyTest, PosesImpedanceModeAndGainsReachTheTrajectoryGoal) {
   EXPECT_EQ(rig.sup.last_goal.gains.profile, GainsProfile::kSoft);
 }
 
+// A cancel that lands while leg 2 of 3 is planning. The fake will not
+// interrupt that plan (reject_cancel), so leg 2 still succeeds -- and the
+// chain must then stop rather than plan leg 3 or the blend, because
+// planner_.cancel() had nothing else in flight to reach.
+TEST_F(GotoManyTest, PosesACancelDuringALegStopsTheChain) {
+  // Declared before the rig, so they outlive its executor: a late result
+  // must never land in a destroyed promise.
+  std::promise<void> gate;
+  auto started = std::make_shared<std::promise<void>>();
+  auto leg2_started = started->get_future();
+  std::promise<int> code;
+  auto code_f = code.get_future();
+  PosesRig rig("goto_poses_cancel", gate.get_future().share(), started);
+  rig.fake.set_gated_plan_number(2);
+  // Opens the gate on every way out, before the rig joins its executor --
+  // otherwise an early ASSERT leaves a thread parked on it and the join hangs.
+  struct OpenGate {
+    std::promise<void> &p;
+    bool open = false;
+    void operator()() {
+      if (!open)
+        p.set_value();
+      open = true;
+    }
+    ~OpenGate() { (*this)(); }
+  } open_gate{gate};
+
+  auto client =
+      rclcpp_action::create_client<GoToEEPoses>(rig.node, "go_to_ee_poses");
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  rclcpp_action::Client<GoToEEPoses>::SendGoalOptions opts;
+  opts.result_callback =
+      [&](const rclcpp_action::ClientGoalHandle<GoToEEPoses>::WrappedResult
+              &wr) { code.set_value(wr.result ? wr.result->error_code : 0); };
+  auto gh_f = client->async_send_goal(poses_goal(3), opts);
+  ASSERT_EQ(gh_f.wait_for(5s), std::future_status::ready);
+  auto gh = gh_f.get();
+  ASSERT_TRUE(gh);
+  ASSERT_EQ(leg2_started.wait_for(5s), std::future_status::ready);
+
+  auto cancel_f = client->async_cancel_goal(gh);
+  ASSERT_EQ(cancel_f.wait_for(5s), std::future_status::ready);
+  open_gate(); // only now let leg 2 finish
+  ASSERT_EQ(code_f.wait_for(8s), std::future_status::ready);
+  EXPECT_EQ(code_f.get(), result_code::kPreempted);
+  EXPECT_EQ(rig.fake.starts_seen().size(), 2u) << "leg 3 must not be planned";
+  EXPECT_EQ(rig.fake.blend_goals_received(), 0);
+  EXPECT_FALSE(rig.sup.got_goal) << "a canceled goal must never reach the arm";
+}
+
 // --- GoToJointConfigs -------------------------------------------------------
 
 TEST_F(GotoManyTest, ConfigsRefusesMalformedGoalsAtSubmission) {
@@ -308,31 +363,21 @@ TEST_F(GotoManyTest, ConfigsRefusesMalformedGoalsAtSubmission) {
   using G = GoToJointConfigs::Goal;
   const std::vector<std::pair<const char *, std::function<void(G &)>>> cases = {
       {"no targets", [](G &g) { g.targets.clear(); }},
-      {"6 positions", [](G &g) { g.targets[1].positions.pop_back(); }},
-      {"8 positions", [](G &g) { g.targets[0].positions.push_back(0.0); }},
-      {"NaN position", [](G &g) { g.targets[2].positions[3] = kNaN; }},
-      {"velocities", [](G &g) { g.targets[0].velocities.assign(7, 0.0); }},
-      {"accelerations",
-       [](G &g) { g.targets[1].accelerations.assign(7, 0.0); }},
-      {"effort", [](G &g) { g.targets[2].effort.assign(7, 0.0); }},
-      {"time_from_start", [](G &g) { g.targets[0].time_from_start.sec = 1; }},
-      {"time_from_start ns",
-       [](G &g) { g.targets[0].time_from_start.nanosec = 1; }},
-      {"2 speeds for 3",
-       [](G &g) {
-         g.speed_scale = {0.5, 0.5};
-       }},
-      {"zero speed", [](G &g) { g.speed_scale = {0.0}; }},
-      {"1 radius for 2 junctions", [](G &g) { g.blend_radius = {0.01}; }},
-      {"negative radius",
-       [](G &g) {
-         g.blend_radius = {0.0, -1.0};
-       }},
+      {"NaN joint", [](G &g) { g.targets[2].target_joints[3] = kNaN; }},
+      {"infinite joint", [](G &g) { g.targets[0].target_joints[6] = kInf; }},
+      {"zero speed", [](G &g) { g.targets[1].speed_scale = 0.0; }},
+      {"fast leg", [](G &g) { g.targets[0].speed_scale = 1.5; }},
+      {"negative radius", [](G &g) { g.targets[1].blend_radius = -1.0; }},
+      {"NaN radius on the last target",
+       [](G &g) { g.targets[2].blend_radius = kNaN; }},
+      {"negative radius on the last target",
+       [](G &g) { g.targets[2].blend_radius = -0.01; }},
       {"gains on a position goal",
        [](G &g) {
          g.gains.profile =
              rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF;
        }},
+      {"unknown control_mode", [](G &g) { g.control_mode = 5; }},
   };
   for (const auto &[what, mutate] : cases) {
     auto g = configs_goal(3);
@@ -346,20 +391,42 @@ TEST_F(GotoManyTest, ConfigsRefusesMalformedGoalsAtSubmission) {
   EXPECT_FALSE(rig.sup.got_goal);
 }
 
-TEST_F(GotoManyTest, ConfigsLegsChainAndTheBlendExecutesAtSpeedScaleOne) {
+TEST_F(GotoManyTest, ConfigsLegsArePlannedToEachTargetInOrderChained) {
   ConfigsRig rig("goto_configs_chain");
   auto g = configs_goal(3);
-  g.speed_scale = {0.2, 0.5, 1.0};
-  g.blend_radius = {0.02, 0.05};
+  g.targets[0].speed_scale = 0.2;
+  g.targets[0].blend_radius = 0.02;
+  g.targets[1].speed_scale = 0.5;
+  g.targets[1].blend_radius = 0.05;
   const auto r = send<GoToJointConfigs>(rig.node, "go_to_joint_configs", g);
   ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
+  const auto targets = rig.fake.joint_targets_seen();
+  ASSERT_EQ(targets.size(), 3u);
+  for (size_t k = 0; k < 3; ++k)
+    EXPECT_EQ(targets[k],
+              std::vector<double>(g.targets[k].target_joints.begin(),
+                                  g.targets[k].target_joints.end()))
+        << "leg " << k + 1;
   expect_chained(rig.fake, 3);
   const auto seen = rig.fake.last_blend();
   EXPECT_EQ(seen.speed_scale, std::vector<double>({0.2, 0.5, 1.0}));
   EXPECT_EQ(seen.blend_radius, std::vector<double>({0.02, 0.05}));
   EXPECT_TRUE(seen.hold.empty()) << "joint-space legs carry no hold";
+  EXPECT_TRUE(seen.hold_orientation.empty());
   ASSERT_TRUE(rig.sup.got_goal);
   EXPECT_EQ(rig.sup.last_goal.trajectory.points.size(), 9u);
+  EXPECT_DOUBLE_EQ(rig.sup.last_goal.speed_scale, 1.0);
+}
+
+// A target with only its joints set: full speed, stop on it.
+TEST_F(GotoManyTest, ConfigsTargetDefaults) {
+  ConfigsRig rig("goto_configs_defaults");
+  const auto r =
+      send<GoToJointConfigs>(rig.node, "go_to_joint_configs", configs_goal(2));
+  ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
+  const auto seen = rig.fake.last_blend();
+  EXPECT_EQ(seen.speed_scale, std::vector<double>({1.0, 1.0}));
+  EXPECT_EQ(seen.blend_radius, std::vector<double>({0.0}));
   EXPECT_DOUBLE_EQ(rig.sup.last_goal.speed_scale, 1.0);
 }
 

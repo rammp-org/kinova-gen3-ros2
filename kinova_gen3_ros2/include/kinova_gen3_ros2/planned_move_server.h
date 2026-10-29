@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
@@ -14,6 +15,15 @@
 #include "kinova_lowlevel/interface/ports.h"
 #include "kinova_lowlevel/joint_types.h"
 namespace kinova_gen3_ros2 {
+
+namespace detail {
+// Whether a goal type has a speed_scale field at all.
+template <class G, class = void> struct has_speed_scale : std::false_type {};
+template <class G>
+struct has_speed_scale<G,
+                       std::void_t<decltype(std::declval<G &>().speed_scale)>>
+    : std::true_type {};
+} // namespace detail
 
 // Shared plan -> execute -> settle lifecycle for the high-level "go to a goal"
 // actions (GoToEEPose, GoToJointConfig, GoToPreset, and GoToEEPoses /
@@ -112,15 +122,20 @@ protected:
   check_plan(const CuroboPlanClient::Outcome &) {
     return std::nullopt;
   }
-  // The speed scale the plan is EXECUTED at: the goal's speed_scale. A server
-  // whose plan already carries its speeds (a blend of legs planned at their
-  // own scales) overrides this to return 1.0. Only a goal with ONE speed_scale
-  // has a default to give; a per-leg one has no single value to apply here.
-  virtual double execution_speed_scale(const typename ActionT::Goal &goal) {
-    if constexpr (std::is_floating_point_v<decltype(goal.speed_scale)>)
-      return goal.speed_scale;
-    else
-      return 1.0;
+  // Whether `goal` is being canceled, for a start_plan() that plans in several
+  // steps to ask between them: planner_.cancel() reaches only the step in
+  // flight. `goal` must be the very reference start_plan() was handed; it is
+  // matched by address, never read. A goal no longer tracked counts as
+  // canceled, so nothing more is planned for it.
+  bool canceling(const typename ActionT::Goal &goal) {
+    std::shared_ptr<GoalHandle> gh;
+    {
+      std::lock_guard<std::mutex> l(m_);
+      for (const auto &e : goals_)
+        if (e.second.gh->get_goal().get() == &goal)
+          gh = e.second.gh;
+    }
+    return !gh || gh->is_canceling(); // the ROS call outside m_
   }
 
   CuroboPlanClient &planner_; // subclasses call plan() / plan_to_joints()
@@ -137,6 +152,20 @@ private:
   // guard sits above the largest profile leash with headroom: it now means
   // "the arm is somewhere the plan never was", not "the arm is complying".
   static constexpr double kGotoPathTolImpedanceRad = 0.60;
+
+  // The speed scale the plan is EXECUTED at: the goal's speed_scale, or 1.0
+  // for a goal with none -- GoToEEPoses / GoToJointConfigs, whose speeds are
+  // per target and already in the blended trajectory. Chosen at compile time;
+  // a speed_scale that is not one number does not compile.
+  static double execution_speed_scale(const typename ActionT::Goal &goal) {
+    if constexpr (detail::has_speed_scale<typename ActionT::Goal>::value) {
+      static_assert(std::is_floating_point_v<decltype(goal.speed_scale)>,
+                    "a GoTo goal's speed_scale must be one number");
+      return goal.speed_scale;
+    } else {
+      return 1.0;
+    }
+  }
 
   rclcpp_action::GoalResponse
   handle_goal(const rclcpp_action::GoalUUID &,

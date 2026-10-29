@@ -123,13 +123,17 @@ are refused at submission, not ignored.
 planned as the single-target action plans it, from the last point of the leg
 before it; cuRobo's `blend` then joins the legs into one trajectory that passes
 each target still moving where its `blend_radius` allows, and that trajectory is
-executed once. `speed_scale` (and, for poses, `orientation_hold`) is per leg:
-empty, one value for every leg, or one per target. The blended trajectory
-carries the speeds, so it is executed at speed scale 1. A leg or a blend that
-cannot be planned ends the goal `PLANNING_FAILED` before anything moves, its
-`error_string` naming the leg (`leg 2/3: ...`) or `blend: ...`. Result and
-Feedback are the single-target actions'; while planning, `planner_state` is
-prefixed with the leg it belongs to.
+executed once. Each target is an `EEPoseTarget` / `JointConfigTarget` carrying
+its own leg's `speed_scale`, `orientation_hold` (poses only) and `blend_radius`
+(the corner into the next leg; unused on the last target, which stops). The
+blended trajectory carries the speeds, so it is executed at speed scale 1. A leg
+or a blend that cannot be planned ends the goal `PLANNING_FAILED` before
+anything moves, `error_string` reading `leg k/N: <reason>` (k from 1) or
+`blend: <reason>`. Result and Feedback are the single-target actions'; while
+planning, `planner_state` carries the same prefix. The planner takes one goal at
+a time, so another GoTo goal sent mid-chain can collide with it
+(`planner busy`); see
+[`docs/guide-goto-actions.md`](docs/guide-goto-actions.md).
 
 ### Published topics
 

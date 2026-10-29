@@ -26,20 +26,58 @@ single-target action plans it, from where the leg before it ends, and the legs
 are blended into one trajectory by cuRobo's `/rammp_curobo/blend`, so the arm
 passes the targets between still moving instead of stopping at each.
 
-- **Per leg:** `speed_scale`, and `orientation_hold` for poses. Empty means the
-  default for every leg, one value is used for every leg, and otherwise there is
-  one per target.
-- **Per junction:** `blend_radius` (m), how far the tool may pass from that
-  target to cut the corner. `0` stops on it; empty stops on every target. The
-  last target always stops.
+Each target carries its own leg's fields (`rammp_arm_interfaces/msg/EEPoseTarget`,
+`JointConfigTarget`), so a target with only its pose or joints set is a
+full-speed, unheld leg that stops on it:
+
+- **`speed_scale`** (default `1.0`): as on the single-target action, for the move
+  to this target only. The blended trajectory carries every leg's speed, so a
+  slow leg blends into a fast one, and the driver executes it at speed scale 1.
+- **`orientation_hold`** (poses only, default `HOLD_NONE`): as on `go_to_ee_pose`,
+  for this leg, kept through its overlaps with its neighbours. A hold is checked
+  against where the arm is when the leg starts, which for every leg but the first
+  is the previous target: a held leg's pose must agree with the previous
+  target's on the held components, or the leg fails to plan.
+- **`blend_radius`** (m, default `0`): how close the tool must pass this target,
+  and how far it may leave the planned path, to cut the corner into the next
+  leg. `0` stops on it. Not used on the last target, which always stops, but
+  still refused there if it is not finite and `>= 0`.
 - **One for the whole motion:** `control_mode` and `gains`.
 
 The planner cuts each corner only as far as the joint limits, collision, the
 held legs' holds and the radius all allow, and stops on the target where nothing
-can be cut. A leg that cannot be planned fails the goal before anything moves,
-with `error_string` naming it (`leg 2/3: ...`; `blend: ...` if the blend itself
-fails). Result and feedback are the single-target actions'; feedback's
-`planner_state` carries the same prefix.
+can be cut.
+
+**How a failure arrives.** A malformed goal is rejected at submission, as for
+every GoTo action: no targets, a pose frame other than `arm_mount`, a pose that
+is not finite or whose orientation is not a unit quaternion (within 1e-3), a
+non-finite joint, a `speed_scale` out of range, an unknown `orientation_hold`, a
+`blend_radius` (on any target, the last included) that is negative or not
+finite, and otherwise as the single-target action (an unknown `control_mode`,
+gains other than the default on a POSITION goal). A token that does not hold
+control is refused as for the single-target actions: after planning, when the
+trajectory reaches the arbiter. Today every GoTo action reports that as `-1`
+INVALID_GOAL ("supervisor rejected planned trajectory"), not the contract's
+`-8` NOT_AUTHORIZED. Otherwise a failure while planning ends the goal `-7` PLANNING_FAILED before
+anything moves, with `error_string`:
+
+- `leg k/N: <reason>` when the plan of leg `k` fails. `k` counts from 1, so
+  `leg 1/3` is the move to `targets[0]`. Nothing after it is planned.
+- `blend: <reason>` when every leg plans but they cannot be joined.
+
+Result and feedback are the single-target actions', except that while planning
+`planner_state` carries the same prefix: `leg 2/3: <cuRobo state>` or
+`blend: <state>`. A cancel during planning stops the chain before the next leg
+or the blend and settles `-6`, as for the single-target actions.
+
+**One plan at a time.** The planner takes one goal at a time, and the driver's
+planner client keeps one cancel slot for the goal it sent last. A chain sends
+several goals in turn, so another GoTo goal arriving mid-chain shares the
+planner with it: whichever reaches it second fails with cuRobo's `planner busy`
+(for the chain, as `leg k/N: planner busy ...`), and a cancel of one may reach
+the other's plan. This predates these actions -- two single-target goals collide
+the same way -- but a chain is in the planner for longer. Send one GoTo goal at
+a time.
 
 For the design rationale see
 [`superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/superpowers/specs/2026-08-14-goto-jointconfig-preset-design.md)
@@ -167,8 +205,8 @@ small delta) to exercise the success path.
 | `go_to_ee_pose`            |      yes      |        yes         |
 | `go_to_joint_config`       |      yes      |         no         |
 | `go_to_preset`             |      yes      |         no         |
-| `go_to_ee_poses`           | yes, per leg  |    yes, per leg    |
-| `go_to_joint_configs`      | yes, per leg  |         no         |
+| `go_to_ee_poses`           |  per target   |     per target     |
+| `go_to_joint_configs`      |  per target   |         no         |
 | `execute_joint_trajectory` |      yes      |         no         |
 
 `speed_scale` (default `1.0`, range: the driver's minimum up to `1.0`) runs the

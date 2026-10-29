@@ -17,42 +17,15 @@ namespace kinova_gen3_ros2 {
 // point of the leg before it, and the legs are then blended into one
 // trajectory (CuroboPlanClient::blend).
 
-// A per-leg value: empty -> dflt for every leg; one value -> that for every
-// leg; otherwise v[k]. per_leg_rejection() has already refused other lengths.
-template <class T> T per_leg(const std::vector<T> &v, size_t k, T dflt) {
-  if (v.empty())
-    return dflt;
-  return v.size() == 1 ? v[0] : v[k];
-}
-
-// Why a per-leg array of `size` values cannot serve `n` targets, or nullopt.
-inline std::optional<std::string> per_leg_rejection(const std::string &field,
-                                                    size_t size, size_t n) {
-  if (size == 0 || size == 1 || size == n)
+// Why a target's blend_radius is unacceptable, or nullopt. Checked on every
+// target, the last included, though the last one's is never used.
+inline std::optional<std::string> blend_radius_rejection(double r) {
+  if (std::isfinite(r) && r >= 0.0)
     return std::nullopt;
-  return field + " has " + std::to_string(size) + " values for " +
-         std::to_string(n) + " targets (expected 0, 1 or " + std::to_string(n) +
-         ")";
-}
-
-// Why this blend_radius cannot serve `n` targets, or nullopt. One per
-// junction, so n - 1 of them, or none at all (stop on every target).
-inline std::optional<std::string>
-blend_radius_rejection(const std::vector<double> &r, size_t n) {
-  if (!r.empty() && r.size() != n - 1)
-    return "blend_radius has " + std::to_string(r.size()) + " values for " +
-           std::to_string(n) + " targets (expected 0 or " +
-           std::to_string(n - 1) + ", one per junction)";
-  for (size_t i = 0; i < r.size(); ++i) {
-    if (!std::isfinite(r[i]) || r[i] < 0.0) {
-      char buf[96];
-      std::snprintf(buf, sizeof buf,
-                    "blend_radius[%zu] must be finite and >= 0; got %g", i,
-                    r[i]);
-      return std::string(buf);
-    }
-  }
-  return std::nullopt;
+  char buf[64];
+  std::snprintf(buf, sizeof buf, "blend_radius must be finite and >= 0; got %g",
+                r);
+  return std::string(buf);
 }
 
 // Plans leg k (0-based) from `start`; one plan()/plan_to_joints() call.
@@ -63,12 +36,15 @@ using PlanLegFn =
 using BlendLegsFn = std::function<void(
     const std::vector<trajectory_msgs::msg::JointTrajectory> &legs,
     CuroboPlanClient::FeedbackCb, CuroboPlanClient::DoneCb)>;
+// Whether the goal has been canceled (PlannedMoveServer::canceling).
+using CancelingFn = std::function<bool()>;
 
 namespace detail {
 struct LegChain {
   size_t n;
   PlanLegFn plan_leg;
   BlendLegsFn blend;
+  CancelingFn canceling;
   CuroboPlanClient::FeedbackCb on_fb;
   CuroboPlanClient::DoneCb on_done;
   std::vector<trajectory_msgs::msg::JointTrajectory> legs;
@@ -82,8 +58,20 @@ inline CuroboPlanClient::FeedbackCb prefixed(CuroboPlanClient::FeedbackCb fb,
   };
 }
 
+// planner_.cancel() reaches only the plan in flight, and nothing is in flight
+// between two steps of the chain. So the chain asks before each step, and a
+// canceled goal ends here, through on_done like any failure.
+inline bool stop_if_canceled(const LegChain &c) {
+  if (!c.canceling())
+    return false;
+  c.on_done({false, "canceled during planning", {}, 0.0});
+  return true;
+}
+
 inline void plan_leg(std::shared_ptr<LegChain> c, size_t k,
                      std::vector<double> start) {
+  if (stop_if_canceled(*c))
+    return;
   const std::string name =
       "leg " + std::to_string(k + 1) + "/" + std::to_string(c->n) + ": ";
   c->plan_leg(k, std::move(start), prefixed(c->on_fb, name),
@@ -105,6 +93,8 @@ inline void plan_leg(std::shared_ptr<LegChain> c, size_t k,
                   plan_leg(c, k + 1, c->legs.back().points.back().positions);
                   return;
                 }
+                if (stop_if_canceled(*c))
+                  return;
                 c->blend(c->legs, prefixed(c->on_fb, "blend: "),
                          [c](CuroboPlanClient::Outcome b) {
                            if (!b.ok)
@@ -117,17 +107,21 @@ inline void plan_leg(std::shared_ptr<LegChain> c, size_t k,
 
 // Plans legs 0..n-1, each from the last point of the leg before it (the first
 // from `start`), then blends them. on_done fires EXACTLY ONCE, with the
-// blend's outcome or with the first failure: "leg k/N: <reason>" for a leg,
-// "blend: <reason>" for the blend, and nothing after it is planned. Planner
-// feedback is relayed with the same prefix. The callbacks run wherever the
-// planner calls them (see CuroboPlanClient's THREADING note).
+// blend's outcome or with the first failure: "leg k/N: <reason>" for a leg
+// (k counted from 1), "blend: <reason>" for the blend, and nothing after it is
+// planned. A cancel seen before a leg or the blend ends the chain there, with
+// a failed outcome the server settles PREEMPTED. Planner feedback is relayed
+// with the same prefix. The callbacks run wherever the planner calls them (see
+// CuroboPlanClient's THREADING note).
 inline void plan_legs(size_t n, std::vector<double> start, PlanLegFn plan_leg,
-                      BlendLegsFn blend, CuroboPlanClient::FeedbackCb on_fb,
+                      BlendLegsFn blend, CancelingFn canceling,
+                      CuroboPlanClient::FeedbackCb on_fb,
                       CuroboPlanClient::DoneCb on_done) {
   auto c =
       std::make_shared<detail::LegChain>(detail::LegChain{n,
                                                           std::move(plan_leg),
                                                           std::move(blend),
+                                                          std::move(canceling),
                                                           std::move(on_fb),
                                                           std::move(on_done),
                                                           {}});

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
@@ -15,7 +16,8 @@
 namespace kinova_gen3_ros2 {
 
 // Shared plan -> execute -> settle lifecycle for the high-level "go to a goal"
-// actions (GoToEEPose, GoToJointConfig, GoToPreset). A concrete server supplies
+// actions (GoToEEPose, GoToJointConfig, GoToPreset, and GoToEEPoses /
+// GoToJointConfigs through several targets). A concrete server supplies
 // only validate() and start_plan(); everything concurrency-critical lives here,
 // once.
 //
@@ -109,6 +111,16 @@ protected:
   virtual std::optional<std::string>
   check_plan(const CuroboPlanClient::Outcome &) {
     return std::nullopt;
+  }
+  // The speed scale the plan is EXECUTED at: the goal's speed_scale. A server
+  // whose plan already carries its speeds (a blend of legs planned at their
+  // own scales) overrides this to return 1.0. Only a goal with ONE speed_scale
+  // has a default to give; a per-leg one has no single value to apply here.
+  virtual double execution_speed_scale(const typename ActionT::Goal &goal) {
+    if constexpr (std::is_floating_point_v<decltype(goal.speed_scale)>)
+      return goal.speed_scale;
+    else
+      return 1.0;
   }
 
   CuroboPlanClient &planner_; // subclasses call plan() / plan_to_joints()
@@ -275,10 +287,10 @@ private:
 
     // Impedance GoTo = plan with cuRobo exactly as a position GoTo, execute
     // the plan compliantly. Only the execution mode and its gains change.
-    kinova::interface::TrajectoryGoal tg =
-        to_trajectory_goal(outcome.trajectory, gh->get_goal()->speed_scale,
-                           to_control_mode(gh->get_goal()->control_mode),
-                           to_impedance_gains(gh->get_goal()->gains));
+    kinova::interface::TrajectoryGoal tg = to_trajectory_goal(
+        outcome.trajectory, execution_speed_scale(*gh->get_goal()),
+        to_control_mode(gh->get_goal()->control_mode),
+        to_impedance_gains(gh->get_goal()->gains));
     tg.path_tolerance = kinova::JointVec::Constant(
         tg.control_mode == kinova::interface::ControlModeKind::kImpedance
             ? kGotoPathTolImpedanceRad

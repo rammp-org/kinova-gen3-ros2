@@ -11,6 +11,7 @@ double mismatch_of(const CuroboPlanClient::PlanToPose::Result &) { return 0.0; }
 double mismatch_of(const CuroboPlanClient::PlanToJoints::Result &r) {
   return r.goal_mismatch_rad;
 }
+double mismatch_of(const CuroboPlanClient::Blend::Result &) { return 0.0; }
 
 // Arm contract -> planner contract. Modes are mapped BY NAME, never by
 // assigning the raw integer: the two enumerations are independent contracts
@@ -32,7 +33,7 @@ uint8_t to_planner(uint8_t hold) {
   }
 }
 
-// Shared dispatch for both plan actions. Only the goal type differs; the
+// Shared dispatch for every plan action. Only the goal type differs; the
 // exactly-once contract, the type-erased cancel and the result mapping are
 // identical, so they live here once rather than being duplicated per action.
 template <typename ActionT>
@@ -99,12 +100,15 @@ void dispatch_plan(typename rclcpp_action::Client<ActionT>::SharedPtr client,
 CuroboPlanClient::CuroboPlanClient(rclcpp::Node::SharedPtr node,
                                    rclcpp::CallbackGroup::SharedPtr cb_group,
                                    std::string action_name,
-                                   std::string joints_action_name)
+                                   std::string joints_action_name,
+                                   std::string blend_action_name)
     : node_(node) {
   client_ =
       rclcpp_action::create_client<PlanToPose>(node_, action_name, cb_group);
   client_joints_ = rclcpp_action::create_client<PlanToJoints>(
       node_, joints_action_name, cb_group);
+  client_blend_ =
+      rclcpp_action::create_client<Blend>(node_, blend_action_name, cb_group);
 }
 
 void CuroboPlanClient::plan(const geometry_msgs::msg::Pose &target,
@@ -142,6 +146,26 @@ void CuroboPlanClient::plan_to_joints(const std::vector<double> &target_joints,
   goal.start_joints = start_joints; // plan from where the arm actually is
   dispatch_plan<PlanToJoints>(client_joints_, goal, m_, active_cancel_,
                               std::move(on_fb), std::move(on_done));
+}
+
+void CuroboPlanClient::blend(
+    const std::vector<trajectory_msgs::msg::JointTrajectory> &legs,
+    const std::vector<double> &blend_radius,
+    const std::vector<double> &speed_scale, const std::vector<uint8_t> &hold,
+    FeedbackCb on_fb, DoneCb on_done) {
+  Blend::Goal goal;
+  goal.legs = legs;
+  goal.blend_radius = blend_radius;
+  goal.speed_scale = speed_scale;
+  try {
+    for (const uint8_t h : hold)
+      goal.hold.push_back(to_planner(h));
+  } catch (const std::invalid_argument &e) {
+    on_done({false, e.what(), {}, 0.0}); // as plan(): never a silent HOLD_NONE
+    return;
+  }
+  dispatch_plan<Blend>(client_blend_, goal, m_, active_cancel_,
+                       std::move(on_fb), std::move(on_done));
 }
 
 void CuroboPlanClient::cancel() {

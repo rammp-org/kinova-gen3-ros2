@@ -180,6 +180,14 @@ if(BUILD_TESTING)
     planned_move_servers goal_router curobo_plan_client message_mapping)
   ament_target_dependencies(goto_preset_integration_test
     rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
+
+  # GoToEEPoses and GoToJointConfigs: legs chained, blended, executed once.
+  ament_add_gtest(goto_many_integration_test test/goto_many_integration_test.cpp)
+  target_include_directories(goto_many_integration_test PRIVATE test)
+  target_link_libraries(goto_many_integration_test
+    planned_move_servers goal_router curobo_plan_client message_mapping)
+  ament_target_dependencies(goto_many_integration_test
+    rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
   ament_add_gtest(robot_description_test test/robot_description_test.cpp)
   target_link_libraries(robot_description_test robot_description)
   ament_target_dependencies(robot_description_test rclcpp std_msgs)

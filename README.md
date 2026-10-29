@@ -69,6 +69,8 @@ Node name: **`kinova_gen3_node`**.
 | `go_to_ee_pose`            | `rammp_arm_interfaces/action/GoToEEPose`             |
 | `go_to_joint_config`       | `rammp_arm_interfaces/action/GoToJointConfig`        |
 | `go_to_preset`             | `rammp_arm_interfaces/action/GoToPreset`             |
+| `go_to_ee_poses`           | `rammp_arm_interfaces/action/GoToEEPoses`            |
+| `go_to_joint_configs`      | `rammp_arm_interfaces/action/GoToJointConfigs`       |
 
 Goal:
 
@@ -115,6 +117,19 @@ All three GoTo goals also carry `control_mode`
 `ImpedanceGains gains`: an impedance GoTo plans with cuRobo exactly as before and
 executes the plan compliantly under the named gains. Gains on a position goal
 are refused at submission, not ignored.
+
+`go_to_ee_poses` and `go_to_joint_configs` are `go_to_ee_pose` and
+`go_to_joint_config` through a list of targets in ONE motion. Each leg is
+planned as the single-target action plans it, from the last point of the leg
+before it; cuRobo's `blend` then joins the legs into one trajectory that passes
+each target still moving where its `blend_radius` allows, and that trajectory is
+executed once. `speed_scale` (and, for poses, `orientation_hold`) is per leg:
+empty, one value for every leg, or one per target. The blended trajectory
+carries the speeds, so it is executed at speed scale 1. A leg or a blend that
+cannot be planned ends the goal `PLANNING_FAILED` before anything moves, its
+`error_string` naming the leg (`leg 2/3: ...`) or `blend: ...`. Result and
+Feedback are the single-target actions'; while planning, `planner_state` is
+prefixed with the leg it belongs to.
 
 ### Published topics
 

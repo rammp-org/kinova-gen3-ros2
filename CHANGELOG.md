@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`go_to_ee_poses` and `go_to_joint_configs`**: `GoToEEPose` / `GoToJointConfig`
+  through a list of targets in ONE motion (rammp-interfaces-ros2#21). Each leg is
+  planned from the last point of the one before, the legs are blended by cuRobo's
+  new `/rammp_curobo/blend` (RAMMP-CuRobo#47), and the result is executed once, at
+  speed scale 1 because it carries the per-leg speeds. A leg that fails ends the goal
+  `PLANNING_FAILED` before anything moves, naming it (`leg 2/3: ...`).
+  `kinova_gen3.repos` pins RAMMP-CuRobo at #47's commit until its release.
 - **The node no longer exits on arm-side events** (driver #96, #59, #100). It runs
   core's `ArmLink`: an arm that is off or unreachable is retried every second,
   forever, including an arm still booting; a fault (e-stop, protective stop, the arm

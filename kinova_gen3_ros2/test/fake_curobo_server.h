@@ -6,6 +6,7 @@
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "rammp_curobo_interfaces/action/blend.hpp"
 #include "rammp_curobo_interfaces/action/plan_to_joints.hpp"
 #include "rammp_curobo_interfaces/action/plan_to_pose.hpp"
 namespace kinova_gen3_ros2::test {
@@ -31,15 +32,26 @@ namespace kinova_gen3_ros2::test {
 //   - bad_width: if true, the first point of an otherwise-successful plan
 //     carries only 4 positions instead of 7 -- models a malformed/buggy
 //     planner response for testing the caller's fail-loud width guard.
+//
+// Also hosts /rammp_curobo/blend: it records the goal and returns the legs'
+// points end to end (set_blend_succeed(false) aborts it instead). A plan's
+// points step up from the start it was given, so each leg ends somewhere
+// different and a chain of legs can be followed.
 class FakeCuroboServer {
 public:
   using PlanToPose = rammp_curobo_interfaces::action::PlanToPose;
   using PlanToJoints = rammp_curobo_interfaces::action::PlanToJoints;
   using GoalHandle = rclcpp_action::ServerGoalHandle<PlanToPose>;
   using JointsGoalHandle = rclcpp_action::ServerGoalHandle<PlanToJoints>;
+  using Blend = rammp_curobo_interfaces::action::Blend;
+  using BlendGoalHandle = rclcpp_action::ServerGoalHandle<Blend>;
 
   // The frame the fake says it planned in. Set before any goal is sent.
   void set_frame_id(std::string f) { frame_id_ = std::move(f); }
+  // The n-th plan goal executed (1-based, either tier) aborts. Set before any
+  // goal is sent.
+  void set_fail_plan_number(int n) { fail_plan_number_ = n; }
+  void set_blend_succeed(bool b) { blend_succeed_ = b; }
 
   FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
                    bool reject = false, std::shared_future<void> gate = {},
@@ -75,6 +87,16 @@ public:
         [this](std::shared_ptr<JointsGoalHandle> gh) {
           execute<PlanToJoints>(gh);
         });
+    blend_server_ = rclcpp_action::create_server<Blend>(
+        node_, "/rammp_curobo/blend",
+        [](const rclcpp_action::GoalUUID &,
+           std::shared_ptr<const Blend::Goal>) {
+          return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+        },
+        [](std::shared_ptr<BlendGoalHandle>) {
+          return rclcpp_action::CancelResponse::ACCEPT;
+        },
+        [this](std::shared_ptr<BlendGoalHandle> gh) { execute_blend(gh); });
   }
 
   // What the caller actually asked us to plan FROM. Empty means the caller
@@ -106,6 +128,18 @@ public:
   // prove a plan() call was refused client-side rather than dispatched.
   int pose_goals_received() const { return pose_goals_received_; }
 
+  // Every plan's start_joints, in the order the plans were executed.
+  std::vector<std::vector<double>> starts_seen() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return starts_seen_;
+  }
+  // The last blend goal, and how many arrived.
+  Blend::Goal last_blend() const {
+    std::lock_guard<std::mutex> l(seen_m_);
+    return last_blend_;
+  }
+  int blend_goals_received() const { return blend_goals_received_; }
+
 private:
   void record_constraints(const PlanToPose::Goal &g) {
     last_hold_ = g.hold;
@@ -119,17 +153,20 @@ private:
   // tier.
   template <typename ActionT>
   void execute(std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> gh) {
+    const auto start = gh->get_goal()->start_joints;
     {
       std::lock_guard<std::mutex> l(seen_m_);
-      last_start_joints_ = gh->get_goal()->start_joints;
+      last_start_joints_ = start;
+      starts_seen_.push_back(start);
       record_constraints(*gh->get_goal());
     }
+    const int nth = ++plans_executed_;
     if (started_)
       started_->set_value();
     if (gate_.valid())
       gate_.wait();
     auto result = std::make_shared<typename ActionT::Result>();
-    if (!succeed_) {
+    if (!succeed_ || nth == fail_plan_number_) {
       result->success = false;
       result->message = "fake planner: no solution";
       gh->abort(result);
@@ -144,11 +181,36 @@ private:
     for (int k = 0; k < n_points_; ++k) {
       trajectory_msgs::msg::JointTrajectoryPoint p;
       p.positions.assign((bad_width_ && k == 0) ? 4 : 7, 0.01 * (k + 1));
+      for (size_t i = 0; i < p.positions.size() && i < start.size(); ++i)
+        p.positions[i] += start[i];
       const double t = 0.02 * (k + 1);
       p.time_from_start.sec = static_cast<int32_t>(t);
       p.time_from_start.nanosec =
           static_cast<uint32_t>((t - static_cast<int32_t>(t)) * 1e9);
       result->trajectory.points.push_back(p);
+    }
+    gh->succeed(result);
+  }
+  void execute_blend(std::shared_ptr<BlendGoalHandle> gh) {
+    {
+      std::lock_guard<std::mutex> l(seen_m_);
+      last_blend_ = *gh->get_goal();
+    }
+    ++blend_goals_received_;
+    auto result = std::make_shared<Blend::Result>();
+    if (!blend_succeed_) {
+      result->success = false;
+      result->message = "fake blend: no overlap";
+      gh->abort(result);
+      return;
+    }
+    result->success = true;
+    result->message = "fake blend ok";
+    result->trajectory.header.frame_id = frame_id_;
+    for (const auto &leg : gh->get_goal()->legs) {
+      result->trajectory.joint_names = leg.joint_names;
+      for (const auto &p : leg.points)
+        result->trajectory.points.push_back(p);
     }
     gh->succeed(result);
   }
@@ -158,6 +220,7 @@ private:
   std::string frame_id_ = "arm_mount";
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;
+  rclcpp_action::Server<Blend>::SharedPtr blend_server_;
   bool succeed_;
   int n_points_;
   bool reject_;
@@ -166,6 +229,12 @@ private:
   bool reject_cancel_;
   bool bad_width_;
   std::atomic<int> pose_goals_received_{0};
+  int fail_plan_number_ = 0;
+  std::atomic<int> plans_executed_{0};
+  bool blend_succeed_ = true;
+  std::atomic<int> blend_goals_received_{0};
+  std::vector<std::vector<double>> starts_seen_;
+  Blend::Goal last_blend_;
   mutable std::mutex seen_m_;
   std::vector<double> last_start_joints_;
   uint8_t last_hold_ = kNoHoldSeen;

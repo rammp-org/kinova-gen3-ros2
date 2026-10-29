@@ -16,7 +16,9 @@
 #include "kinova_gen3_ros2/curobo_plan_client.h"
 #include "kinova_gen3_ros2/goal_router.h"
 #include "kinova_gen3_ros2/goto_ee_pose_server.h"
+#include "kinova_gen3_ros2/goto_ee_poses_server.h"
 #include "kinova_gen3_ros2/goto_joint_config_server.h"
+#include "kinova_gen3_ros2/goto_joint_configs_server.h"
 #include "kinova_gen3_ros2/goto_preset_server.h"
 #include "kinova_gen3_ros2/arbitration_server.h"
 #include "kinova_gen3_ros2/gripper_server.h"
@@ -284,7 +286,7 @@ int main(int argc, char **argv) {
   auto cb_group =
       node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   kinova_gen3_ros2::CuroboPlanClient planner(node, cb_group);
-  // All three high-level servers share the router, planner and group, and must
+  // All the high-level servers share the router, planner and group, and must
   // be declared before `sup` so they outlive it (the router hands it their
   // ports).
   kinova_gen3_ros2::GoToEEPoseServer goto_server(node, router, planner,
@@ -294,6 +296,10 @@ int main(int argc, char **argv) {
   kinova_gen3_ros2::GoToPresetServer preset_server(
       node, router, planner, cb_group,
       kinova_gen3_ros2::load_preset_registry(*node));
+  kinova_gen3_ros2::GoToEEPosesServer poses_server(node, router, planner,
+                                                   cb_group);
+  kinova_gen3_ros2::GoToJointConfigsServer jcs_server(node, router, planner,
+                                                      cb_group);
 
   // Core takes a SupervisorDeps aggregate rather than positional arguments, so
   // the mode/port wiring reads by name.
@@ -342,6 +348,8 @@ int main(int argc, char **argv) {
   goto_server.set_command_sink(&arb);
   jc_server.set_command_sink(&arb);
   preset_server.set_command_sink(&arb);
+  poses_server.set_command_sink(&arb);
+  jcs_server.set_command_sink(&arb);
 
   // The link to the arm: connects (retrying forever while the arm is off or
   // the link is down), runs the RT loop, and on a fault hands the arm back to
@@ -394,7 +402,8 @@ int main(int argc, char **argv) {
       node->get_logger(),
       "kinova_gen3_node up (%s); arbitration=%s; actions: "
       "/execute_joint_trajectory, "
-      "/go_to_ee_pose, /go_to_joint_config, /go_to_preset; control: "
+      "/go_to_ee_pose, /go_to_joint_config, /go_to_preset, /go_to_ee_poses, "
+      "/go_to_joint_configs; control: "
       "/acquire_control, /release_control, /revoke_control, /estop, "
       "/control_status; "
       "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "

@@ -129,7 +129,7 @@ for diagnostics and for the capability engine.
 | Immediate reaction | driver RT loop | See 3. |
 | Thresholds, profile, mode in; latch state out | Supervisor, through a lock-free handoff (the `Seqlock` pattern already used by `FeedbackTap`) | Policy and conversation stay out of the RT path. |
 | `HaltReason`, refusing commands, clear | Supervisor | Existing halt/fault vocabulary. |
-| Service, status topic, diagnostics | this repo's node | ROS surface only; no detection logic. |
+| Service, diagnostics, debug topic **(updated 2026-10-30**: was a status topic**)** | this repo's node | ROS surface only; no detection logic. |
 
 RT rules from the driver's CLAUDE.md apply: no allocation, lock or block in
 `ControlMode::compute` or the executor cycle; extend `rt_safety_test.cpp` to cover
@@ -141,7 +141,9 @@ Trip rule **(my call)**: trip when any joint has `|r_i| > θ_i` for `N` consecut
 good cycles (start N = 5, i.e. 5 ms). `r` is already filtered; the debounce only
 rejects isolated bad samples. The trip record holds: the cycle count, joint, `r`
 (all seven), `θ` (all seven), `q`, `q̇`. The profile and the detection mode are on
-`/contact_monitor`, not in the record **(updated at implementation)**.
+`/contact_monitor`, not in the record **(updated at implementation)**. **(Updated
+2026-10-30, Swapnil's ruling:** `/contact_monitor` is removed; the profile and the
+detection mode are in the `Contact detection` diagnostics, with the whole record.**)**
 
 ### 3. Reaction
 
@@ -288,7 +290,7 @@ to the model is follow-up work.
 
 Startup parameter `contact_detection: off | observe | enforce`, default `enforce`.
 
-- `observe` runs everything and reports would-be trips (status topic, diagnostics
+- `observe` runs everything and reports would-be trips (diagnostics
   WARN, log) without acting. This is how the false-positive runs are done safely.
 - `off` and `observe` show WARN in the `Contact detection` diagnostics continuously
   **(updated at implementation**: its own task, not `Arm link`**)**, and print at
@@ -301,11 +303,20 @@ Startup parameter `contact_detection: off | observe | enforce`, default `enforce
 - Service `/set_contact_thresholds`: profile enum, optional seven custom values,
   token. Response: accepted, error string, the thresholds now active.
 - Topic `/contact_monitor` at the state rate (~50 Hz): `r` (7), active `θ` (7),
-  profile, mode, `settling | armed | latched`, the last trip record.
+  profile, mode, `settling | armed | latched`, the last trip record. **(Updated
+  2026-10-30, Swapnil's ruling:** removed before release, with its message
+  `ContactMonitorState`. It duplicated the diagnostics and overlapped `/ee_state`,
+  and a published type is hard to remove once clients use it. The diagnostics carry
+  the state and the whole trip record (`last_trip_thresholds_nm`, `last_trip_q_rad`,
+  `last_trip_qd_rad_s` added). For tuning, the read-only parameter
+  `contact_debug_topic` (default `false`) publishes `sensor_msgs/JointState` on
+  `/contact_monitor/residual` at 50 Hz, `effort` = `r`; it is not created when false
+  or with detection `off`.**)**
 - `Contact detection` diagnostics as above **(updated at implementation**: its own
-  task, not `Arm link`**)**. `docs/interface.md` gets the service, topic,
+  task, not `Arm link`**)**. `docs/interface.md` gets the service, debug topic,
   result code, parameters and a "contact stops" section.
-- Messages go in `rammp-interfaces-ros2`.
+- The service goes in `rammp-interfaces-ros2` **(updated 2026-10-30**: no message
+  any more**)**.
 
 ## Verification
 

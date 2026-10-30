@@ -24,7 +24,6 @@ publishes:
   - /control_status
   - /stream_status
   - /gripper_state
-  - /contact_monitor
   - /diagnostics
 subscribes:
   # Required: the model, latched, from arm_state_publisher (rammp-alternative.description.yaml).

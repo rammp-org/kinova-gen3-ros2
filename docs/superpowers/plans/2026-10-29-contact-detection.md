@@ -4,7 +4,7 @@
 
 **Goal:** Stop the Gen3 on unexpected contact: a momentum-observer residual per joint, checked every cycle in the driver's RT loop, switches the arm to a floating mode and latches until `/clear_faults`.
 
-**Architecture:** Core (`kinova-gen3-driver`) gets `Dynamics::coriolis`, a `MomentumObserver`, a `ContactMonitor` (observer + thresholds + debounce + latch, RT-safe, status out through a `Seqlock`), a `FloatMode` `ControlMode`, and an `RtExecutor` hook that adopts float on a trip and holds it while latched. The Supervisor owns profiles, the token-gated threshold command, the `HaltReason::kContact` halt, refusals and the clear. The ROS node gets parameters, a service, a status topic, diagnostics and the `/clear_faults` extension. Interfaces get one srv and one msg.
+**Architecture:** Core (`kinova-gen3-driver`) gets `Dynamics::coriolis`, a `MomentumObserver`, a `ContactMonitor` (observer + thresholds + debounce + latch, RT-safe, status out through a `Seqlock`), a `FloatMode` `ControlMode`, and an `RtExecutor` hook that adopts float on a trip and holds it while latched. The Supervisor owns profiles, the token-gated threshold command, the `HaltReason::kContact` halt, refusals and the clear. The ROS node gets parameters, a service, a status topic, diagnostics and the `/clear_faults` extension. Interfaces get one srv and one msg. (Updated 2026-10-30, Swapnil's ruling: the status topic and its msg are removed; the diagnostics carry the state, and an opt-in debug topic carries `r`. See Task 8 and Task 9.)
 
 **Tech Stack:** C++17, Eigen, Pinocchio 2.7 (cmeel `pin==2.7.0`), gtest; ROS 2 Humble, rclcpp, diagnostic_updater; rosidl.
 
@@ -439,6 +439,8 @@ float64[7] trip_qd
 - [x] **Step 2: Verify** with `colcon build --packages-select rammp_arm_interfaces`, then `ros2 interface show rammp_arm_interfaces/srv/SetContactThresholds`. Run them in the repo's container or CI image. Expected: the build succeeds and the interface prints.
 - [x] **Step 3: Commit** with message `feat(arm): SetContactThresholds, ContactMonitorState, CONTACT_STOP result code`, and open a PR (body through `unslop`).
 
+(Updated 2026-10-30, Swapnil's ruling: `ContactMonitorState.msg` is removed before release. It duplicated the node's `Contact detection` diagnostics, and a published type is hard to remove once clients use it. `SetContactThresholds.srv` and `CONTACT_STOP=-11` stay.)
+
 ## Part C: ROS node (this repo, `SwapnilPande/safety-contact-detection`)
 
 ### Task 9: Parameters, wiring, service, topic, diagnostics, `/clear_faults`
@@ -460,7 +462,7 @@ float64[7] trip_qd
     - `float_damping`, `float_spring` (double[7]), `float_drag_band_deg`
 - `contact_server.h`: `ContactServer(rclcpp::Node::SharedPtr, kinova::interface::CommandSink& gated /*the Arbiter*/, std::string detection);`
   - Service `/set_contact_thresholds` maps the request to `ContactThresholdsRequest` and refuses wrong-length `custom` itself, naming the expected 7.
-  - Topic `/contact_monitor` at 50 Hz from `on_query_contact()`.
+  - Topic `/contact_monitor` at 50 Hz from `on_query_contact()`. (Updated 2026-10-30, Swapnil's ruling: removed with `ContactMonitorState`. The diagnostics gain `last_trip_thresholds_nm`, `last_trip_q_rad` and `last_trip_qd_rad_s`. A read-only parameter `contact_debug_topic` (default `false`) publishes `sensor_msgs/JointState` on `/contact_monitor/residual` at 50 Hz, the seven arm joint names and `effort` = `r`, reliable QoS; not created when false or with detection `off`. `ContactServer` takes `bool debug_topic` and the arm joint names after `detection`.)
   - Diagnostics task `"Contact detection"` with the same hardware ID `kinova_gen3`:
     - OK: `armed (profile P)`
     - WARN: `settling`, `observe mode: not stopping the arm; N would-be trips[, last on joint J]`, `DISABLED (contact_detection=off)`
@@ -481,7 +483,7 @@ TEST(ContactParams, DefaultsMatchSpec)                     // values from Global
 TEST(ContactParams, InvalidThrowsNamingParameter)          // default above ceiling -> message contains "contact_thresholds_default" and "joint"
 TEST(ContactServer, RefusesBadRequests)                    // Review Focus 5: custom with 6 values, NaN, above ceiling, zero token -> accepted=false, message names the problem
 TEST(ContactServer, AppliesNamedProfile)
-TEST(ContactServer, PublishesState)
+TEST(ContactServer, PublishesState)                        // (Updated 2026-10-30: replaced by DebugTopicOffByDefault, DebugTopicNotCreatedWithDetectionOff, DebugTopicPublishesResidual, ContactDiagnostics.TripRecordKeyValues)
 TEST(ContactServer, DiagnosticsEachPhase)                  // settling/armed/latched/observe/off -> level + message
 TEST(LinkServer, ClearFaultsClearsContactWhenRunning)      // link kRunning + latched -> success, "contact stop cleared"
 TEST(LinkServer, ClearFaultsClearsBoth)                    // faulted + latched -> contact cleared and link clear requested

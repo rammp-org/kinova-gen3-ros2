@@ -112,7 +112,14 @@ for diagnostics and for the capability engine.
   reads only sensors and the model, so the command mode does not affect it, and a
   re-init at every goal's mode change would leave a blind window at each goal start.
 - A missed exchange (executor `missed` flag) does not step the observer; the next
-  good sample integrates with the true `dt` **(my call)**.
+  good sample integrates with the true `dt` **(my call)**. **(Updated 2026-10-30
+  after review:** the executor passes the measured time between feedback reads,
+  so misses, overruns and the `set_actuator_modes` handshake count; a step is
+  capped at `1/K` (40 ms). At `K·dt = 1` the Euler step lands on the external
+  torque of a still arm, while an uncapped `K·dt > 1` overshoots. The observer is
+  not re-seeded on a gap: the handshake likely runs past 40 ms on the arm, so a
+  re-seed would leave a `5/K` blind window at every goal's mode switch, which the
+  bullet above rules out.**)**
 
 ### 2. Where it runs
 
@@ -180,8 +187,10 @@ changes until a clear **(my call)**.
   implementation)**.
 - New motion goals, stream opens and gripper goals are refused with the same reason.
 - A separate `Contact detection` diagnostics task, next to `Arm link`, shows ERROR
-  `stopped on contact: joint N, |r| = x N·m > θ = y N·m (profile P); call
-  /clear_faults` with the trip record **(updated at implementation)**.
+  `stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now
+  P); call /clear_faults` with the trip record **(updated at implementation;
+  "at the trip" and "now" added 2026-10-30 after review, since the profile can
+  change while latched)**.
 
 A contact stop is **not** an `ArmLink` `kFaulted` state: faulted hands the arm back
 to its base, and here the driver keeps control to float. It is a halt with a new
@@ -217,7 +226,11 @@ engine `arm.py`, test scripts) must learn `−11`; the comment lists in
 
 Mirrors the driver's `GainsProfile` pattern:
 
-    enum class ContactProfile { kSensitive, kDefault, kLoose, kCustom };
+    enum class ContactProfile { kDefault, kSensitive, kLoose, kCustom };
+
+  **(Updated 2026-10-30 after review:** `kDefault` is 0, as is `PROFILE_DEFAULT` on
+  the wire, so a request that leaves `profile` unset selects the default, not the
+  most sensitive profile.**)**
 
 - Named profiles are per-joint threshold vectors from startup config. Changing
   one means editing config and restarting **(my call)**: a ROS parameter set
@@ -242,6 +255,13 @@ Mirrors the driver's `GainsProfile` pattern:
 **Starting numbers.** Thresholds are tuned together with Swapnil on the arm. The
 starting point is a trip at ≤30 N at the tool or forearm along the feeding
 approach, comfortably under ISO/TS 15066's face limit.
+
+**(Updated 2026-10-30 after the push tests, Swapnil's ruling:** sensitive
+`[8,8,6,6,2,2,2]`, default `[16,16,12,12,4,4,4]`, loose `[24,24,18,18,6,6,6]`,
+ceiling unchanged `[30,30,22,22,7,7,7]` N·m. The position-mode tour at speed 1.0
+peaked at 5.9 N·m on j1 and gave a would-be trip against the first default (now
+`sensitive`). At home the new default trips at about 23–48 N at the gripper,
+depending on direction. Measured floors: `docs/interface.md`, False positives.**)**
 
 Turning a force target into joint thresholds:
 

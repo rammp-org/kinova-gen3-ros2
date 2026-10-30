@@ -21,8 +21,8 @@
 - The contact latch survives everything except a clear (ArmLink faults, reconnects, e-stop, ownership changes). While latched the executor never leaves float.
 - Result code `kContactStop = -11`. Halt string `"halted: unexpected contact"`.
 - Float: `τ = g(q) − D q̇ − K_s (q − q_a)` with a dragged anchor, band `δ` = 2°. Starting `K_s` 28.6 N·m/rad on j1–j4, 8.6 N·m/rad on j5–j7 (so `K_s·δ` ≈ 1.0 / 0.3 N·m); `D` 5.0 N·m·s/rad on j1–j4, 1.5 on j5–j7; torque limit `[39,39,39,39,9,9,9]`. These are starting values and will be tuned on the arm.
-- Starting thresholds (N·m, j1..j7), to be tuned on the arm with Swapnil:
-  sensitive `[4,4,3,3,1.2,1.2,1.2]`, default `[8,8,6,6,2,2,2]`, loose `[20,20,15,15,5,5,5]`, ceiling `[30,30,22,22,7,7,7]`.
+- Thresholds (N·m, j1..j7), from the 2026-10-30 push tests and still tuned on the arm with Swapnil:
+  sensitive `[8,8,6,6,2,2,2]`, default `[16,16,12,12,4,4,4]`, loose `[24,24,18,18,6,6,6]`, ceiling `[30,30,22,22,7,7,7]`.
 - Detection modes: `enforce` (default), `observe`, `off`. Not switchable at runtime.
 - Branches: driver `SwapnilPande/contact-detection` off `origin/dev`; interfaces `SwapnilPande/contact-detection` off `origin/dev`; this repo `SwapnilPande/safety-contact-detection`. Stage explicit paths; never `git add -A`; never commit `.hil.yml`. Don't merge, tag or release.
 - No arm motion without Swapnil confirming each batch (what, speed, position vs impedance). abra and the arm are shared: ask before using them.
@@ -64,7 +64,7 @@ Below, "run driver tests `<filter>`" means this command with `FILTER=<filter>`. 
 **Interfaces:**
 - Produces: `void Dynamics::coriolis(const JointVec& q, const JointVec& qd, JointMat& C_out);`, RT-safe with no allocation after the constructor. It returns the Christoffel-consistent `C(q, q̇)` (Pinocchio `computeCoriolisMatrix`), so `Ṁ = C + Cᵀ`.
 
-- [ ] **Step 1: Write failing tests** in `tests/dynamics_test.cpp`:
+- [x] **Step 1: Write failing tests** in `tests/dynamics_test.cpp`:
 
 ```cpp
 TEST(Dynamics, CoriolisTimesQdMatchesNonlinearMinusGravity) {
@@ -82,10 +82,10 @@ TEST(Dynamics, MdotMinusTwoCIsSkewSymmetric) {
 
 The first test gets `nle` from `pinocchio::nonLinearEffects` on the test's own Pinocchio model built from `URDF_PATH`, reduced the way `Dynamics` reduces it. If that is awkward, drop that test and keep only the skew-symmetry test plus `C(q, 0) == 0`.
 
-- [ ] **Step 2: Run** driver tests `Dynamics.Coriolis*:Dynamics.MdotMinusTwoC*`. Expected: compile failure, because `coriolis` is not declared.
-- [ ] **Step 3: Implement** with `pinocchio::computeCoriolisMatrix(model, data, qcfg, qd)` after `pack(q)`, then copy `data.C` into `C_out`. Add a header comment in the style of `mass_matrix`.
-- [ ] **Step 4: Run** the same filter, then all of `Dynamics.*`. Expected: PASS.
-- [ ] **Step 5: Commit** `include/kinova_lowlevel/dynamics.h src/dynamics.cpp tests/dynamics_test.cpp` with message `feat(dynamics): coriolis matrix for the momentum observer`.
+- [x] **Step 2: Run** driver tests `Dynamics.Coriolis*:Dynamics.MdotMinusTwoC*`. Expected: compile failure, because `coriolis` is not declared.
+- [x] **Step 3: Implement** with `pinocchio::computeCoriolisMatrix(model, data, qcfg, qd)` after `pack(q)`, then copy `data.C` into `C_out`. Add a header comment in the style of `mass_matrix`.
+- [x] **Step 4: Run** the same filter, then all of `Dynamics.*`. Expected: PASS.
+- [x] **Step 5: Commit** `include/kinova_lowlevel/dynamics.h src/dynamics.cpp tests/dynamics_test.cpp` with message `feat(dynamics): coriolis matrix for the momentum observer`.
 
 ### Task 2: `MomentumObserver`
 
@@ -112,7 +112,7 @@ class MomentumObserver {
 
 The header comment carries the derivation and the sign convention, condensed from the teammate's `observer.py` (`feat/momentum-observer-demo:kinova_gen3_ros2/test/momentum_observer/observer.py`), with credit to it.
 
-- [ ] **Step 1: Write failing tests:**
+- [x] **Step 1: Write failing tests:**
 
 ```cpp
 TEST(MomentumObserver, RestConvergesToInjectedTorque) {
@@ -132,10 +132,10 @@ TEST(MomentumObserver, PushDuringMotionRecovered) {
 TEST(MomentumObserver, RejectsBadGain) { EXPECT_THROW(MomentumObserver(dyn, 0.0), std::invalid_argument); }
 ```
 
-- [ ] **Step 2: Run** driver tests `MomentumObserver.*`. Expected: compile failure.
-- [ ] **Step 3: Implement.** Preallocate `M_`, `C_`, `g_`, `p_`, `p0_`, `integral_` and `r_` as members. The integration is explicit Euler, as in the Python reference.
-- [ ] **Step 4: Run** `MomentumObserver.*`. Expected: PASS.
-- [ ] **Step 5: Commit** the three files plus the CMake list edits, with message `feat: momentum observer for external joint torque`.
+- [x] **Step 2: Run** driver tests `MomentumObserver.*`. Expected: compile failure.
+- [x] **Step 3: Implement.** Preallocate `M_`, `C_`, `g_`, `p_`, `p0_`, `integral_` and `r_` as members. The integration is explicit Euler, as in the Python reference.
+- [x] **Step 4: Run** `MomentumObserver.*`. Expected: PASS.
+- [x] **Step 5: Commit** the three files plus the CMake list edits, with message `feat: momentum observer for external joint torque`.
 
 ### Task 3: `FloatMode`
 
@@ -167,7 +167,7 @@ class FloatMode : public ControlMode {
 
 The anchor drag, per joint: `e = q − q_a`; if `|e| > δ`, set `q_a = q − sign(e)·δ`. Torque is `g − D·qd − K_s·(q − q_a)`, clamped to `±torque_limit`. `out.mode = kTorque`.
 
-- [ ] **Step 1: Write failing tests:**
+- [x] **Step 1: Write failing tests:**
 
 ```cpp
 TEST(FloatMode, AtRestCommandsGravityOnly)          // q = anchor, qd = 0 -> out.torque == g(q)
@@ -179,10 +179,10 @@ TEST(FloatMode, RejectsBadParams)
 TEST(RtSafety, FloatModeNoMajorFaultsSteadyState)  // reuse expect_*_steady_state pattern with FloatMode
 ```
 
-- [ ] **Step 2: Run** driver tests `FloatMode.*:RtSafety.FloatMode*`. Expected: compile failure.
-- [ ] **Step 3: Implement.** Write the docs sections: what float is for (spec §3), the law, and the parameter meanings.
-- [ ] **Step 4: Run** `FloatMode.*:RtSafety.FloatMode*`. Expected: PASS.
-- [ ] **Step 5: Commit** the files above, with message `feat: FloatMode, the contact-stop control law`.
+- [x] **Step 2: Run** driver tests `FloatMode.*:RtSafety.FloatMode*`. Expected: compile failure.
+- [x] **Step 3: Implement.** Write the docs sections: what float is for (spec §3), the law, and the parameter meanings.
+- [x] **Step 4: Run** `FloatMode.*:RtSafety.FloatMode*`. Expected: PASS.
+- [x] **Step 5: Commit** the files above, with message `feat: FloatMode, the contact-stop control law`.
 
 ### Task 4: `ContactMonitor`
 
@@ -242,14 +242,14 @@ class ContactMonitor {
 
 Semantics, in step order:
 1. Consume a pending clear: unlatch, reset the observer, phase becomes `kSettling`.
-2. If `missed`, or any of q/qd/tau is non-finite: increment `bad_samples` on non-finite input, then publish and return. The observer is not stepped and the debounce counters are unchanged. For a missed frame, the next good sample integrates with `dt` accumulated across the gap.
+2. If `missed`, or any of q/qd/tau is non-finite: increment `bad_samples` on non-finite input, then publish and return. The observer is not stepped and the debounce counters are unchanged. For a missed frame, the next good sample integrates with `dt` accumulated across the gap. (Updated 2026-10-30 after review: `dt_s` is the measured time between feedback reads, and a good step integrates at most `1/K`; see the spec.)
 3. Step the observer. While `time_since_reset < 5/K`, the phase is `kSettling` and the debounce counters stay zero.
 4. Per joint, count consecutive cycles with `|r_i| > θ_i` (reset to 0 when not over). The first joint to reach `debounce_cycles` increments `would_trips` and records `last`. In enforce it latches, which wins over everything until a clear. In observe it re-arms its counter.
 5. Publish `ContactStatus` to the Seqlock every cycle.
 
 Thresholds are handed to the RT thread through a two-buffer + atomic index, the same pattern as `JointTorqueMode::set_torque`.
 
-- [ ] **Step 1: Write failing tests** (feed `JointFeedback` directly; use the Task 2 rest/motion fixtures moved into `tests/fixtures.h`):
+- [x] **Step 1: Write failing tests** (feed `JointFeedback` directly; use the Task 2 rest/motion fixtures moved into `tests/fixtures.h`):
 
 ```cpp
 TEST(ContactMonitor, NoTripDuringSettling)                 // large tau_e from t=0 -> phase kSettling, no latch until 5/K
@@ -267,10 +267,10 @@ TEST(ContactMonitor, CtorRejectsBadConfig)
 TEST(RtSafety, ContactMonitorNoMajorFaultsSteadyState)
 ```
 
-- [ ] **Step 2: Run** driver tests `ContactMonitor.*:ContactThresholds.*:RtSafety.ContactMonitor*`. Expected: compile failure.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the same filter. Expected: PASS.
-- [ ] **Step 5: Commit** with message `feat: ContactMonitor, per-joint contact detection with latch`.
+- [x] **Step 2: Run** driver tests `ContactMonitor.*:ContactThresholds.*:RtSafety.ContactMonitor*`. Expected: compile failure.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** the same filter. Expected: PASS.
+- [x] **Step 5: Commit** with message `feat: ContactMonitor, per-joint contact detection with latch`.
 
 ### Task 5: Executor hook, plus sim external torque
 
@@ -294,7 +294,7 @@ Loop changes, with step numbers from `rt_executor.cpp`:
   - Otherwise freeze: `cmd.position = fb.q; cmd.velocity.setZero();`, skip `compute` this cycle, and step 3 adopts float at the next boundary.
 - No monitor attached: behaviour is byte-for-byte unchanged.
 
-- [ ] **Step 1: Write failing tests**, using `SimTransport` with initial `tau = g(q)` and real modes on `Dynamics(URDF_PATH)`:
+- [x] **Step 1: Write failing tests**, using `SimTransport` with initial `tau = g(q)` and real modes on `Dynamics(URDF_PATH)`:
 
 ```cpp
 TEST(ContactExecutor, PositionModeTripAdoptsFloat)                   // pos mode, after settle set_external_torque(6 on j2) -> within 50 cycles active is float: last_command().mode == kTorque
@@ -306,10 +306,10 @@ TEST(ContactExecutor, NoMonitorUnchanged)                            // existing
 TEST(ContactExecutor, LatchFlagInTelemetry)                          // ring sample has bit3 after the trip
 ```
 
-- [ ] **Step 2: Run** driver tests `ContactExecutor.*`. Expected: compile failure.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `ContactExecutor.*:RtSafety*-RtSafety.NanosleepPacingProducesSamples:RtExecutor*`. Expected: PASS, and the existing executor tests still pass.
-- [ ] **Step 5: Commit** with message `feat(executor): adopt FloatMode on a contact trip and hold it while latched`.
+- [x] **Step 2: Run** driver tests `ContactExecutor.*`. Expected: compile failure.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** `ContactExecutor.*:RtSafety*-RtSafety.NanosleepPacingProducesSamples:RtExecutor*`. Expected: PASS, and the existing executor tests still pass.
+- [x] **Step 5: Commit** with message `feat(executor): adopt FloatMode on a contact trip and hold it while latched`.
 
 ### Task 6: Supervisor, Arbiter and value types
 
@@ -322,7 +322,7 @@ TEST(ContactExecutor, LatchFlagInTelemetry)                          // ring sam
 **Interfaces:**
 - Produces in `value_types.h`:
   - `HaltReason::kContact`; `result_code::kContactStop = -11`
-  - `enum class ContactProfile { kSensitive, kDefault, kLoose, kCustom };`
+  - `enum class ContactProfile { kDefault, kSensitive, kLoose, kCustom };` (0..3, the wire's `PROFILE_*` values)
   - `struct ContactThresholdsRequest { ContactProfile profile = ContactProfile::kDefault; JointVec custom = JointVec::Zero(); Token token{}; };`
   - `struct ContactThresholdsResult { bool accepted = false; std::string message; ContactProfile profile = ContactProfile::kDefault; JointVec theta = JointVec::Zero(); };`
   - `struct ContactState { bool enabled = false; ContactProfile profile = ContactProfile::kDefault; ContactStatus status{}; };`
@@ -348,7 +348,7 @@ Behaviour:
   - `on_set_contact_thresholds` still works.
 - `halt_reason_string(kContact)` returns `"halted: unexpected contact"`.
 
-- [ ] **Step 1: Write failing tests**, with `FakeBackend`, a real `ContactMonitor` and `SimTransport` as in Task 5:
+- [x] **Step 1: Write failing tests**, with `FakeBackend`, a real `ContactMonitor` and `SimTransport` as in Task 5:
 
 ```cpp
 TEST(ContactSupervisor, InFlightGoalSettlesContactStop)    // error_code == -11, error_string == "halted: unexpected contact"
@@ -362,10 +362,10 @@ TEST(ContactThresholds, UnauthorizedRefusedByArbiter)
 TEST(ContactThresholds, CtorRejectsProfilesAboveCeiling)
 ```
 
-- [ ] **Step 2: Run** driver tests `ContactSupervisor.*:ContactThresholds.*`. Expected: compile failure.
-- [ ] **Step 3: Implement.** Update the docs and `CHANGELOG.md`.
-- [ ] **Step 4: Run** the full suite (`FILTER=*`). Expected: PASS.
-- [ ] **Step 5: Commit** with message `feat(interface): contact stop halt, threshold profiles, clear`.
+- [x] **Step 2: Run** driver tests `ContactSupervisor.*:ContactThresholds.*`. Expected: compile failure.
+- [x] **Step 3: Implement.** Update the docs and `CHANGELOG.md`.
+- [x] **Step 4: Run** the full suite (`FILTER=*`). Expected: PASS.
+- [x] **Step 5: Commit** with message `feat(interface): contact stop halt, threshold profiles, clear`.
 
 ### Task 7: Replay tool and Python parity
 
@@ -379,11 +379,11 @@ TEST(ContactThresholds, CtorRejectsProfilesAboveCeiling)
   - Stdout: per-joint motion RMS and peak, plus the would-be trips at the given thresholds.
 - `tools/contact/parity.py --observer-py PATH --csv in.csv --urdf F --cpp r.csv`: imports the teammate's `observer.py` from `PATH`, runs `run_observer` at the same gain, and prints the max |Δr| per joint. Exits 1 if any joint is over 0.05 N·m after the first `5/K` s.
 
-- [ ] **Step 1: Generate a fixture.** Write a CSV with the Task 2 trajectory and push to `tests/data/contact_synthetic.csv`. Write a gtest `ContactReplay.SyntheticPushFound` that runs the replay's core function, which is factored as `ReplayStats replay(const ReplayInput&, const ReplayOptions&)` in the app's own translation unit, compiled into `unit_tests`. It asserts one would-be trip on j4.
-- [ ] **Step 2: Run** driver tests `ContactReplay.*`. Expected: FAIL.
-- [ ] **Step 3: Implement** the app and `parity.py`. Run `parity.py` locally against the synthetic CSV, with `observer.py` taken from `git show origin/feat/momentum-observer-demo:kinova_gen3_ros2/test/momentum_observer/observer.py` written into the scratchpad. Expected: exit 0.
-- [ ] **Step 4: Run** `ContactReplay.*`. Expected: PASS.
-- [ ] **Step 5: Commit** with message `feat(apps): contact_replay and parity check against the Python observer`.
+- [x] **Step 1: Generate a fixture.** Write a CSV with the Task 2 trajectory and push to `tests/data/contact_synthetic.csv`. Write a gtest `ContactReplay.SyntheticPushFound` that runs the replay's core function, which is factored as `ReplayStats replay(const ReplayInput&, const ReplayOptions&)` in the app's own translation unit, compiled into `unit_tests`. It asserts one would-be trip on j4.
+- [x] **Step 2: Run** driver tests `ContactReplay.*`. Expected: FAIL.
+- [x] **Step 3: Implement** the app and `parity.py`. Run `parity.py` locally against the synthetic CSV, with `observer.py` taken from `git show origin/feat/momentum-observer-demo:kinova_gen3_ros2/test/momentum_observer/observer.py` written into the scratchpad. Expected: exit 0.
+- [x] **Step 4: Run** `ContactReplay.*`. Expected: PASS.
+- [x] **Step 5: Commit** with message `feat(apps): contact_replay and parity check against the Python observer`.
 
 Then open the driver PR to `dev`. Its body goes through the `unslop` skill and links #24, rammp-deployments#88, #102, the spec, and the teammate's branch.
 
@@ -397,8 +397,8 @@ Then open the driver PR to `dev`. Its body goes through the `unslop` skill and l
 
 `SetContactThresholds.srv`:
 ```
-uint8 PROFILE_SENSITIVE=0
-uint8 PROFILE_DEFAULT=1
+uint8 PROFILE_DEFAULT=0
+uint8 PROFILE_SENSITIVE=1
 uint8 PROFILE_LOOSE=2
 uint8 PROFILE_CUSTOM=3
 uint8 profile
@@ -435,9 +435,9 @@ float64[7] trip_q
 float64[7] trip_qd
 ```
 
-- [ ] **Step 1:** Add the files and the CMake entries.
-- [ ] **Step 2: Verify** with `colcon build --packages-select rammp_arm_interfaces`, then `ros2 interface show rammp_arm_interfaces/srv/SetContactThresholds`. Run them in the repo's container or CI image. Expected: the build succeeds and the interface prints.
-- [ ] **Step 3: Commit** with message `feat(arm): SetContactThresholds, ContactMonitorState, CONTACT_STOP result code`, and open a PR (body through `unslop`).
+- [x] **Step 1:** Add the files and the CMake entries.
+- [x] **Step 2: Verify** with `colcon build --packages-select rammp_arm_interfaces`, then `ros2 interface show rammp_arm_interfaces/srv/SetContactThresholds`. Run them in the repo's container or CI image. Expected: the build succeeds and the interface prints.
+- [x] **Step 3: Commit** with message `feat(arm): SetContactThresholds, ContactMonitorState, CONTACT_STOP result code`, and open a PR (body through `unslop`).
 
 ## Part C: ROS node (this repo, `SwapnilPande/safety-contact-detection`)
 
@@ -474,7 +474,7 @@ float64[7] trip_qd
   - With `off` or `observe`, also log a WARN.
   - On invalid config, FATAL and exit non-zero.
 
-- [ ] **Step 1: Write failing tests:**
+- [x] **Step 1: Write failing tests:**
 
 ```cpp
 TEST(ContactParams, DefaultsMatchSpec)                     // values from Global Constraints
@@ -489,12 +489,17 @@ TEST(LinkServer, ClearFaultsClearsBoth)                    // faulted + latched 
 
 Use a fake `CommandSink`, adding `fake_contact_sink.h` next to the other fakes.
 
-- [ ] **Step 2: Run** `colcon test ... -R "contact_|link_server_test"`. Expected: FAIL.
-- [ ] **Step 3: Implement.** Write the docs.
-- [ ] **Step 4: Run** the full `colcon test --packages-select kinova_gen3_ros2`, then `make smoke`. Expected: PASS, and the smoke log shows the `contact detection: enforce` line.
-- [ ] **Step 5: Commit** the explicit paths, with message `feat: contact detection surface (service, topic, diagnostics, /clear_faults)`. Open a PR (body through `unslop`) linking the driver and interfaces PRs, plus #24.
+- [x] **Step 2: Run** `colcon test ... -R "contact_|link_server_test"`. Expected: FAIL.
+- [x] **Step 3: Implement.** Write the docs.
+- [x] **Step 4: Run** the full `colcon test --packages-select kinova_gen3_ros2`, then `make smoke`. Expected: PASS, and the smoke log shows the `contact detection: enforce` line.
+- [x] **Step 5: Commit** the explicit paths, with message `feat: contact detection surface (service, topic, diagnostics, /clear_faults)`. Open a PR (body through `unslop`) linking the driver and interfaces PRs, plus #24.
 
 ## Part D: on-arm verification (no code; each motion batch confirmed by Swapnil)
+
+Status 2026-10-30: the still floor (1), the tours in both modes (2, with the default
+doubled after them) and the gripper force to trip at home (part of 3) are in the
+driver's `docs/integration/contact_detection_bench.md` and this repo's
+`docs/interface.md` (False positives). The rest is open.
 
 Ask Swapnil before taking abra or the arm. Use the driver branch image through `make real CORE_REF=...`, swapping sheppy-arm as in memory `dojo-native-node-testing`. Before each batch, state what will move, how fast, and in position or impedance mode, and wait for "go".
 

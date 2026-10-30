@@ -46,22 +46,24 @@ Below, "run driver tests `<filter>`" means this command with `FILTER=<filter>`. 
 ## Review Focus
 
 1. **Comms loss or an ArmLink fault while latched.** Expected: on the next `RtExecutor::run`, the arm comes back in float, still latched, with goals refused. It must not come back in the Supervisor's position hold. Test: Task 5 `ContactExecutor.LatchSurvivesRunRestart`.
-2. **A mode request racing the trip** (goal promotion or stream open in the same millisecond). Expected: the executor stays in float, and the pending request is adopted only after the clear. Test: Task 5 `ContactExecutor.RequestWhileLatchedDeferredUntilClear`.
-3. **Clearing while the person still presses.** Expected: blind for `5/K`, then a new trip. Test: Task 4 `ContactMonitor.ClearWhilePressedRetripsAfterSettle`.
-4. **Non-finite torque or velocity in feedback** (a garbled frame or a fault). Expected: the sample is skipped, the observer integral isn't poisoned, there's no trip on NaN, and the count is reported. Test: Task 4 `ContactMonitor.NonFiniteSampleSkipped`.
-5. **Bad threshold requests**: wrong length, NaN, ≤0, above the ceiling, unknown profile, or no token. Expected: refused, with the joint and the limit in the message; active thresholds unchanged. Tests: Task 6 `ContactThresholds.*` and Task 9 `ContactServer.RefusesBadRequests`.
+1. **A mode request racing the trip** (goal promotion or stream open in the same millisecond). Expected: the executor stays in float, and the pending request is adopted only after the clear. Test: Task 5 `ContactExecutor.RequestWhileLatchedDeferredUntilClear`.
+1. **Clearing while the person still presses.** Expected: blind for `5/K`, then a new trip. Test: Task 4 `ContactMonitor.ClearWhilePressedRetripsAfterSettle`.
+1. **Non-finite torque or velocity in feedback** (a garbled frame or a fault). Expected: the sample is skipped, the observer integral isn't poisoned, there's no trip on NaN, and the count is reported. Test: Task 4 `ContactMonitor.NonFiniteSampleSkipped`.
+1. **Bad threshold requests**: wrong length, NaN, ≤0, above the ceiling, unknown profile, or no token. Expected: refused, with the joint and the limit in the message; active thresholds unchanged. Tests: Task 6 `ContactThresholds.*` and Task 9 `ContactServer.RefusesBadRequests`.
 
----
+______________________________________________________________________
 
 ## Part A: driver (`rammp-org/kinova-gen3-driver`, branch off `origin/dev`)
 
 ### Task 1: `Dynamics::coriolis`
 
 **Files:**
+
 - Modify: `include/kinova_lowlevel/dynamics.h`, `src/dynamics.cpp`
 - Test: `tests/dynamics_test.cpp`
 
 **Interfaces:**
+
 - Produces: `void Dynamics::coriolis(const JointVec& q, const JointVec& qd, JointMat& C_out);`, RT-safe with no allocation after the constructor. It returns the Christoffel-consistent `C(q, q̇)` (Pinocchio `computeCoriolisMatrix`), so `Ṁ = C + Cᵀ`.
 
 - [x] **Step 1: Write failing tests** in `tests/dynamics_test.cpp`:
@@ -90,10 +92,12 @@ The first test gets `nle` from `pinocchio::nonLinearEffects` on the test's own P
 ### Task 2: `MomentumObserver`
 
 **Files:**
+
 - Create: `include/kinova_lowlevel/momentum_observer.h`, `src/momentum_observer.cpp`
 - Test: `tests/momentum_observer_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `Dynamics::mass_matrix`, `Dynamics::coriolis`, `Dynamics::gravity`.
 - Produces:
 
@@ -140,11 +144,13 @@ TEST(MomentumObserver, RejectsBadGain) { EXPECT_THROW(MomentumObserver(dyn, 0.0)
 ### Task 3: `FloatMode`
 
 **Files:**
+
 - Create: `include/kinova_lowlevel/float_mode.h`, `src/float_mode.cpp`
 - Test: `tests/float_mode_test.cpp`; add a steady-state case to `tests/rt_safety_test.cpp`
 - Docs: `docs/reference/api.md` under `## Control modes` (new `### FloatMode`), `docs/guide/control-modes.md`
 
 **Interfaces:**
+
 - Produces:
 
 ```cpp
@@ -187,10 +193,12 @@ TEST(RtSafety, FloatModeNoMajorFaultsSteadyState)  // reuse expect_*_steady_stat
 ### Task 4: `ContactMonitor`
 
 **Files:**
+
 - Create: `include/kinova_lowlevel/contact_monitor.h`, `src/contact_monitor.cpp`
 - Test: `tests/contact_monitor_test.cpp`
 
 **Interfaces:**
+
 - Consumes: `MomentumObserver` (Task 2), `Seqlock` from `feedback_tap.h`.
 - Produces:
 
@@ -241,11 +249,12 @@ class ContactMonitor {
 ```
 
 Semantics, in step order:
+
 1. Consume a pending clear: unlatch, reset the observer, phase becomes `kSettling`.
-2. If `missed`, or any of q/qd/tau is non-finite: increment `bad_samples` on non-finite input, then publish and return. The observer is not stepped and the debounce counters are unchanged. For a missed frame, the next good sample integrates with `dt` accumulated across the gap. (Updated 2026-10-30 after review: `dt_s` is the measured time between feedback reads, and a good step integrates at most `1/K`; see the spec.)
-3. Step the observer. While `time_since_reset < 5/K`, the phase is `kSettling` and the debounce counters stay zero.
-4. Per joint, count consecutive cycles with `|r_i| > θ_i` (reset to 0 when not over). The first joint to reach `debounce_cycles` increments `would_trips` and records `last`. In enforce it latches, which wins over everything until a clear. In observe it re-arms its counter.
-5. Publish `ContactStatus` to the Seqlock every cycle.
+1. If `missed`, or any of q/qd/tau is non-finite: increment `bad_samples` on non-finite input, then publish and return. The observer is not stepped and the debounce counters are unchanged. For a missed frame, the next good sample integrates with `dt` accumulated across the gap. (Updated 2026-10-30 after review: `dt_s` is the measured time between feedback reads, and a good step integrates at most `1/K`; see the spec.)
+1. Step the observer. While `time_since_reset < 5/K`, the phase is `kSettling` and the debounce counters stay zero.
+1. Per joint, count consecutive cycles with `|r_i| > θ_i` (reset to 0 when not over). The first joint to reach `debounce_cycles` increments `would_trips` and records `last`. In enforce it latches, which wins over everything until a clear. In observe it re-arms its counter.
+1. Publish `ContactStatus` to the Seqlock every cycle.
 
 Thresholds are handed to the RT thread through a two-buffer + atomic index, the same pattern as `JointTorqueMode::set_torque`.
 
@@ -275,23 +284,31 @@ TEST(RtSafety, ContactMonitorNoMajorFaultsSteadyState)
 ### Task 5: Executor hook, plus sim external torque
 
 **Files:**
+
 - Modify: `include/kinova_lowlevel/rt_executor.h`, `src/rt_executor.cpp`, `include/kinova_lowlevel/telemetry.h` (flag bit), `include/kinova_lowlevel/sim_transport.h`, `src/sim_transport.cpp`
 - Test: `tests/contact_executor_test.cpp`
 - Docs: `docs/reference/api.md` `## RtExecutor` (attach_contact, latch semantics, flag bit 3)
 
 **Interfaces:**
+
 - Produces:
   - `void RtExecutor::attach_contact(ContactMonitor& monitor, ControlMode& on_contact) noexcept;` Call it before `run()`; both arguments must outlive the executor.
   - `CycleSample::flags` bit3 (`8u`) means the contact latch is set this cycle.
   - `void SimTransport::set_external_torque(const JointVec& tau_ext);` Reported `tau` becomes `(what it reports today) − tau_ext`. It is safe to call while running, guarded like `set_arm_fault`.
 
 Loop changes, with step numbers from `rt_executor.cpp`:
+
 - At `run()` start, call `monitor.on_run_start()`.
+
 - Step 3, adopt: if latched and `active != on_contact`, adopt `on_contact` through the existing adopt path (`on_exit`, `set_actuator_modes`, `on_enter(fb)`), and **do not touch `requested_`**. If latched and already in float, skip adoption entirely: `requested_` stays pending. Otherwise, run the existing logic.
+
 - After step 4 (exchange): `const bool latched = monitor.step(fb, dt_s, missed);`.
+
 - Trip cycle: if `latched && active != on_contact`:
+
   - If `on_contact.required_modes() == active->required_modes()`, switch now (`on_exit`, `on_enter(fb)`, `active = &on_contact`).
   - Otherwise freeze: `cmd.position = fb.q; cmd.velocity.setZero();`, skip `compute` this cycle, and step 3 adopts float at the next boundary.
+
 - No monitor attached: behaviour is byte-for-byte unchanged.
 
 - [x] **Step 1: Write failing tests**, using `SimTransport` with initial `tau = g(q)` and real modes on `Dynamics(URDF_PATH)`:
@@ -314,12 +331,14 @@ TEST(ContactExecutor, LatchFlagInTelemetry)                          // ring sam
 ### Task 6: Supervisor, Arbiter and value types
 
 **Files:**
+
 - Modify: `include/kinova_lowlevel/interface/value_types.h`, `include/kinova_lowlevel/interface/ports.h`, `include/kinova_lowlevel/interface/supervisor.h`, `src/interface/supervisor.cpp`, `include/kinova_lowlevel/interface/arbiter.h`, `src/interface/arbiter.cpp`
 - Create: `include/kinova_lowlevel/interface/contact.h`, `src/interface/contact.cpp`
 - Test: `tests/interface/contact_supervisor_test.cpp`; also keep `tests/interface/fake_backend.h` compiling
 - Docs: `docs/reference/api.md` `## Arbitration` (HaltReason list: add `kContact`, and add the missing `kArmUnavailable`, because the list is touched anyway), `### CommandSink::on_halt`, `### Gating`, `### SupervisorDeps`, result codes. Also `CHANGELOG.md`.
 
 **Interfaces:**
+
 - Produces in `value_types.h`:
   - `HaltReason::kContact`; `result_code::kContactStop = -11`
   - `enum class ContactProfile { kDefault, kSensitive, kLoose, kCustom };` (0..3, the wire's `PROFILE_*` values)
@@ -338,14 +357,19 @@ TEST(ContactExecutor, LatchFlagInTelemetry)                          // ring sam
 - `Arbiter::on_set_contact_thresholds` uses the `admit(token)` pattern (`++rejected_`, message `"not authorized"`). `on_query_contact` is not gated.
 
 Behaviour:
+
 - The sampler watches `contact_->latched()` and calls `on_halt(HaltReason::kContact)` once per rising edge.
+
 - The sampler's halt settlement uses `kContactStop` for `kContact` and `kHalted` for everything else.
+
 - While latched:
+
   - `on_trajectory_goal` rejects.
   - `on_trajectory_accepted` settles `-11`.
   - `on_stream_open` returns `{false, kContactStop, "stopped on unexpected contact; call /clear_faults"}`.
   - `on_gripper_setpoint` drops the setpoint.
   - `on_set_contact_thresholds` still works.
+
 - `halt_reason_string(kContact)` returns `"halted: unexpected contact"`.
 
 - [x] **Step 1: Write failing tests**, with `FakeBackend`, a real `ContactMonitor` and `SimTransport` as in Task 5:
@@ -370,19 +394,27 @@ TEST(ContactThresholds, CtorRejectsProfilesAboveCeiling)
 ### Task 7: Replay tool and Python parity
 
 **Files:**
+
 - Create: `apps/contact_replay.cpp` (registered in CMake like the other apps), `tools/contact/parity.py`, `docs/guide/contact-detection.md` (tuning procedure, spec §4 steps 1–3, and the bench steps from Part D)
 
 **Interfaces:**
+
 - `contact_replay --urdf F --ee-frame E --csv in.csv --out r.csv [--gain 25] [--debounce 5] [--thresholds a,b,c,d,e,f,g]`:
+
   - Input columns: `t,q1..q7,qd1..qd7,tau1..tau7`, the teammate's recorder format. A `--tau-sign -1` flag handles raw core v1.2.0 recordings.
   - Output: `t,r1..r7`.
   - Stdout: per-joint motion RMS and peak, plus the would-be trips at the given thresholds.
+
 - `tools/contact/parity.py --observer-py PATH --csv in.csv --urdf F --cpp r.csv`: imports the teammate's `observer.py` from `PATH`, runs `run_observer` at the same gain, and prints the max |Δr| per joint. Exits 1 if any joint is over 0.05 N·m after the first `5/K` s.
 
 - [x] **Step 1: Generate a fixture.** Write a CSV with the Task 2 trajectory and push to `tests/data/contact_synthetic.csv`. Write a gtest `ContactReplay.SyntheticPushFound` that runs the replay's core function, which is factored as `ReplayStats replay(const ReplayInput&, const ReplayOptions&)` in the app's own translation unit, compiled into `unit_tests`. It asserts one would-be trip on j4.
+
 - [x] **Step 2: Run** driver tests `ContactReplay.*`. Expected: FAIL.
+
 - [x] **Step 3: Implement** the app and `parity.py`. Run `parity.py` locally against the synthetic CSV, with `observer.py` taken from `git show origin/feat/momentum-observer-demo:kinova_gen3_ros2/test/momentum_observer/observer.py` written into the scratchpad. Expected: exit 0.
+
 - [x] **Step 4: Run** `ContactReplay.*`. Expected: PASS.
+
 - [x] **Step 5: Commit** with message `feat(apps): contact_replay and parity check against the Python observer`.
 
 Then open the driver PR to `dev`. Its body goes through the `unslop` skill and links #24, rammp-deployments#88, #102, the spec, and the teammate's branch.
@@ -392,10 +424,12 @@ Then open the driver PR to `dev`. Its body goes through the `unslop` skill and l
 ### Task 8: `SetContactThresholds.srv`, `ContactMonitorState.msg`, result-code comments
 
 **Files:**
+
 - Create: `rammp_arm_interfaces/srv/SetContactThresholds.srv`, `rammp_arm_interfaces/msg/ContactMonitorState.msg`
 - Modify: `rammp_arm_interfaces/CMakeLists.txt` (rosidl list), `rammp_arm_interfaces/action/{ExecuteJointTrajectory,GoToEEPose,GoToJointConfig,GoToPreset}.action` (add `CONTACT_STOP=-11` to the error_code comment), and any `GoTo*s.action` present on `dev`
 
 `SetContactThresholds.srv`:
+
 ```
 uint8 PROFILE_DEFAULT=0
 uint8 PROFILE_SENSITIVE=1
@@ -412,6 +446,7 @@ float64[7] thresholds
 ```
 
 `ContactMonitorState.msg`:
+
 ```
 std_msgs/Header header
 uint8 DETECTION_OFF=0
@@ -446,21 +481,26 @@ float64[7] trip_qd
 ### Task 9: Parameters, wiring, service, topic, diagnostics, `/clear_faults`
 
 **Files:**
+
 - Create: `kinova_gen3_ros2/include/kinova_gen3_ros2/contact_server.h`, `kinova_gen3_ros2/src/contact_server.cpp`, `kinova_gen3_ros2/include/kinova_gen3_ros2/contact_params.h`, `kinova_gen3_ros2/src/contact_params.cpp`
 - Modify: `kinova_gen3_ros2/src/bringup_node.cpp` (after the modes at ~l.225–237, before `ArmLink` at ~l.350), `kinova_gen3_ros2/src/link_server.cpp` + header (`on_clear`), `kinova_gen3_ros2/src/ros2_backend.cpp` (`handle_goal` pre-check warn), `kinova_gen3_ros2/CMakeLists.txt` (a `contact_server` library like `link_server`, plus tests), the gripper action server (reject new goals while `on_query_contact().status.phase == kLatched`)
 - Test: `kinova_gen3_ros2/test/contact_server_test.cpp`, `kinova_gen3_ros2/test/contact_params_test.cpp`, extend `kinova_gen3_ros2/test/link_server_test.cpp`
 - Docs: `docs/interface.md` (service, topic, result `-11`, parameters, and a "Contact stops" section: what trips it, float, latch, clear, observe/off, the deliberate disable), `docs/on-robot-runbook.md` (what to do after a contact stop)
 
 **Interfaces:**
+
 - `contact_params.h`:
+
   - `struct ContactNodeConfig { std::string detection; kinova::ContactMonitorConfig monitor; kinova::interface::ContactProfiles profiles; kinova::FloatParams floating; };`
   - `ContactNodeConfig declare_contact_params(rclcpp::Node&);` throws `std::invalid_argument` naming the parameter.
   - Read-only parameters, with defaults from Global Constraints:
     - `contact_detection` (`"enforce"|"observe"|"off"`)
     - `contact_gain`, `contact_debounce_cycles`
-    - `contact_thresholds_sensitive|default|loose|ceiling` (double[7])
-    - `float_damping`, `float_spring` (double[7]), `float_drag_band_deg`
+    - `contact_thresholds_sensitive|default|loose|ceiling` (double\[7\])
+    - `float_damping`, `float_spring` (double\[7\]), `float_drag_band_deg`
+
 - `contact_server.h`: `ContactServer(rclcpp::Node::SharedPtr, kinova::interface::CommandSink& gated /*the Arbiter*/, std::string detection);`
+
   - Service `/set_contact_thresholds` maps the request to `ContactThresholdsRequest` and refuses wrong-length `custom` itself, naming the expected 7.
   - Topic `/contact_monitor` at 50 Hz from `on_query_contact()`. (Updated 2026-10-30, Swapnil's ruling: removed with `ContactMonitorState`. The diagnostics gain `last_trip_thresholds_nm`, `last_trip_q_rad` and `last_trip_qd_rad_s`. A read-only parameter `contact_debug_topic` (default `false`) publishes `sensor_msgs/JointState` on `/contact_monitor/residual` at 50 Hz, the seven arm joint names and `effort` = `r`, reliable QoS; not created when false or with detection `off`. `ContactServer` takes `bool debug_topic` and the arm joint names after `detection`.)
   - Diagnostics task `"Contact detection"` with the same hardware ID `kinova_gen3`:
@@ -468,8 +508,11 @@ float64[7] trip_qd
     - WARN: `settling`, `observe mode: not stopping the arm; N would-be trips[, last on joint J]`, `DISABLED (contact_detection=off)`
     - ERROR: `stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now P); call /clear_faults`
   - **(Plan call:** a separate task next to `Arm link`, in the same updater style. That way `LinkServer` doesn't need to know the Supervisor.)
+
 - `LinkServer` takes `std::function<bool()> clear_contact` (empty when detection is off). `on_clear` calls it first. If the link is faulted, it continues the existing path. If not faulted and a contact was cleared, it returns `success=true`, message `"contact stop cleared"`. Otherwise it returns the existing `"not faulted (<state>)"`.
+
 - `bringup_node.cpp`:
+
   - Build the `ContactMonitor` and `FloatMode` on `*dyn` (the RT-thread `Dynamics`, already shared by the modes on that thread), and call `exec.attach_contact(...)` unless detection is `off`.
   - Set `deps.contact` and `deps.contact_profiles`.
   - Log `contact detection: <mode>, default θ = [...] N·m, ceiling [...]` at startup.
@@ -506,11 +549,11 @@ driver's `docs/integration/contact_detection_bench.md` and this repo's
 Ask Swapnil before taking abra or the arm. Use the driver branch image through `make real CORE_REF=...`, swapping sheppy-arm as in memory `dojo-native-node-testing`. Before each batch, state what will move, how fast, and in position or impedance mode, and wait for "go".
 
 1. `observe`, no motion, 60 s: still floor per joint.
-2. `observe`, the teammate's `tour.py` at speed 0.6, then 1.0, nobody touching: motion RMS and peak per joint, plus `would_trips`. Set `default` to ≈ 3× the peak, then rerun and expect `would_trips == 0`.
-3. `observe`, still arm, slow hand pushes by Swapnil on the forearm and the tool: record `r` against `/ee_state` wrench, which is exact at rest. This maps θ to force.
-4. `enforce`, slow move, hand push: trip, float, latch, `-11` on the goal, `/clear_faults`, hold. Then at demo speed.
-5. Force build-up after a trip; the position-mode → float window (look for the #92 droop); the RT cycle time with and without the monitor (`--rt-csv`).
-6. `observe` with real payloads (spoon, container): `r` while carrying.
-7. Pose check: from logged `q` along the feeding approach, the smallest gripper or forearm force that crosses a θ, in the worst direction. Script in `tools/contact/`.
+1. `observe`, the teammate's `tour.py` at speed 0.6, then 1.0, nobody touching: motion RMS and peak per joint, plus `would_trips`. Set `default` to ≈ 3× the peak, then rerun and expect `would_trips == 0`.
+1. `observe`, still arm, slow hand pushes by Swapnil on the forearm and the tool: record `r` against `/ee_state` wrench, which is exact at rest. This maps θ to force.
+1. `enforce`, slow move, hand push: trip, float, latch, `-11` on the goal, `/clear_faults`, hold. Then at demo speed.
+1. Force build-up after a trip; the position-mode → float window (look for the #92 droop); the RT cycle time with and without the monitor (`--rt-csv`).
+1. `observe` with real payloads (spoon, container): `r` while carrying.
+1. Pose check: from logged `q` along the feeding approach, the smallest gripper or forearm force that crosses a θ, in the worst direction. Script in `tools/contact/`.
 
 Write the results as a bench report in the driver's `docs/integration/`, linked from #24. Replay recorded CSVs through `contact_replay` to tune offline between sessions.

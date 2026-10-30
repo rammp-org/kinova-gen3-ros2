@@ -92,7 +92,9 @@ Generalized-momentum observer (De Luca et al., IROS 2006), exactly as derived in
 the teammate's `observer.py`, ported to C++ on the driver's own `Dynamics`
 (so it uses whatever URDF and offsets the driver is running):
 
-    r = K ( p − p0 − ∫ ( τ + Cᵀ(q, q̇) q̇ − g(q) + r ) dt ),   p = M(q) q̇
+```
+r = K ( p − p0 − ∫ ( τ + Cᵀ(q, q̇) q̇ − g(q) + r ) dt ),   p = M(q) q̇
+```
 
 `τ` is the transport's torque after the dev sign flip and whatever torque offsets the driver is configured with
 (command-signed: `τ ≈ g(q)` at rest). `r` tracks the external joint torque through
@@ -123,13 +125,13 @@ for diagnostics and for the capability engine.
 
 ### 2. Where it runs
 
-| Piece | Lives in | Why |
-| --- | --- | --- |
-| `ContactMonitor`: observer, thresholds, debounce, latch | driver RT loop, every cycle after feedback | Safety must not depend on a non-RT thread being scheduled (the pump shares `dyn_mtx_` with the sampler). Reaction in the same cycle. |
-| Immediate reaction | driver RT loop | See 3. |
-| Thresholds, profile, mode in; latch state out | Supervisor, through a lock-free handoff (the `Seqlock` pattern already used by `FeedbackTap`) | Policy and conversation stay out of the RT path. |
-| `HaltReason`, refusing commands, clear | Supervisor | Existing halt/fault vocabulary. |
-| Service, diagnostics, debug topic **(updated 2026-10-30**: was a status topic**)** | this repo's node | ROS surface only; no detection logic. |
+| Piece                                                                                  | Lives in                                                                                      | Why                                                                                                                                  |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `ContactMonitor`: observer, thresholds, debounce, latch                                | driver RT loop, every cycle after feedback                                                    | Safety must not depend on a non-RT thread being scheduled (the pump shares `dyn_mtx_` with the sampler). Reaction in the same cycle. |
+| Immediate reaction                                                                     | driver RT loop                                                                                | See 3.                                                                                                                               |
+| Thresholds, profile, mode in; latch state out                                          | Supervisor, through a lock-free handoff (the `Seqlock` pattern already used by `FeedbackTap`) | Policy and conversation stay out of the RT path.                                                                                     |
+| `HaltReason`, refusing commands, clear                                                 | Supervisor                                                                                    | Existing halt/fault vocabulary.                                                                                                      |
+| Service, diagnostics, debug topic **(updated 2026-10-30**: was a status topic\*\*)\*\* | this repo's node                                                                              | ROS surface only; no detection logic.                                                                                                |
 
 RT rules from the driver's CLAUDE.md apply: no allocation, lock or block in
 `ControlMode::compute` or the executor cycle; extend `rt_safety_test.cpp` to cover
@@ -149,7 +151,9 @@ detection mode are in the `Contact detection` diagnostics, with the whole record
 
 **Float.** A new `ControlMode`, pre-constructed at startup (no allocation on trip):
 
-    τ_cmd = g(q) − D q̇ − K_s (q − q_a)
+```
+τ_cmd = g(q) − D q̇ − K_s (q − q_a)
+```
 
 with a dragged anchor: `q_a` starts at the measured `q` at the trip; whenever
 `|q_i − q_a,i| > δ`, `q_a,i` is dragged to stay `δ` behind `q_i`. So the arm yields to
@@ -179,7 +183,7 @@ the arm from demo speeds within ~0.2 s. **(my call: the dragged anchor is how
 
 **Gripper.** Nothing is commanded on a trip: as on any halt, the driver stops
 commanding the gripper and it keeps its current grip; it is never commanded open
-**(updated at implementation**: an in-flight gripper goal does not finish**)**. While latched, new gripper goals are refused like arm goals, so nothing
+**(updated at implementation**: an in-flight gripper goal does not finish\*\*)\*\*. While latched, new gripper goals are refused like arm goals, so nothing
 changes until a clear **(my call)**.
 
 **Latch.** The arm stays in float until cleared. While latched:
@@ -189,8 +193,7 @@ changes until a clear **(my call)**.
   implementation)**.
 - New motion goals, stream opens and gripper goals are refused with the same reason.
 - A separate `Contact detection` diagnostics task, next to `Arm link`, shows ERROR
-  `stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now
-  P); call /clear_faults` with the trip record **(updated at implementation;
+  `stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now P); call /clear_faults` with the trip record **(updated at implementation;
   "at the trip" and "now" added 2026-10-30 after review, since the profile can
   change while latched)**.
 
@@ -228,11 +231,13 @@ engine `arm.py`, test scripts) must learn `−11`; the comment lists in
 
 Mirrors the driver's `GainsProfile` pattern:
 
-    enum class ContactProfile { kDefault, kSensitive, kLoose, kCustom };
+```
+enum class ContactProfile { kDefault, kSensitive, kLoose, kCustom };
+```
 
-  **(Updated 2026-10-30 after review:** `kDefault` is 0, as is `PROFILE_DEFAULT` on
-  the wire, so a request that leaves `profile` unset selects the default, not the
-  most sensitive profile.**)**
+**(Updated 2026-10-30 after review:** `kDefault` is 0, as is `PROFILE_DEFAULT` on
+the wire, so a request that leaves `profile` unset selects the default, not the
+most sensitive profile.**)**
 
 - Named profiles are per-joint threshold vectors from startup config. Changing
   one means editing config and restarting **(my call)**: a ROS parameter set
@@ -269,11 +274,11 @@ Turning a force target into joint thresholds:
 
 1. `θ_i(default) = max(m × motion-floor peak_i, small absolute minimum)`, with the
    floor measured on the arm with nobody touching it at demo speeds (m ≈ 3 to start).
-2. Pose check, offline from logged `q` along the feeding approach: for contact
+1. Pose check, offline from logged `q` along the feeding approach: for contact
    points on the tool and forearm, compute the smallest force (worst direction)
    that crosses some `θ_i`. That is the detector's real force threshold at that pose.
    If it exceeds the target anywhere, lower `θ` or change the approach.
-3. Known blind spot: a force along a line through the joint axes (near-extended
+1. Known blind spot: a force along a line through the joint axes (near-extended
    arm, push along the arm) produces almost no joint torque. The pose check
    reports where the approach goes near such poses; the fix there is the approach.
 
@@ -316,7 +321,7 @@ Startup parameter `contact_detection: off | observe | enforce`, default `enforce
   task, not `Arm link`**)**. `docs/interface.md` gets the service, debug topic,
   result code, parameters and a "contact stops" section.
 - The service goes in `rammp-interfaces-ros2` **(updated 2026-10-30**: no message
-  any more**)**.
+  any more\*\*)\*\*.
 
 ## Verification
 
@@ -336,15 +341,15 @@ On the arm. Every motion batch is described to Swapnil (what, speed, position or
 impedance) and confirmed before it runs; the arm and abra are shared.
 
 1. No motion, `observe`: still floor per joint on the fitted model.
-2. Demo-speed and fast tours, nobody touching, `observe`: motion floor per joint →
+1. Demo-speed and fast tours, nobody touching, `observe`: motion floor per joint →
    default thresholds. Count would-be trips: the false-positive number for the docs.
-3. Still arm, slow hand pushes, `observe`: the quasi-static wrench is exact at
+1. Still arm, slow hand pushes, `observe`: the quasi-static wrench is exact at
    rest and serves as the force reference for the threshold-to-force mapping.
-4. Slow moves, `enforce`, hand pushes (Swapnil): trips, floats, latches, clears.
+1. Slow moves, `enforce`, hand pushes (Swapnil): trips, floats, latches, clears.
    Then demo speed.
-5. Measure force build-up after a trip and the position-mode stiff window.
-6. Real payloads (spoon, container), `observe`: their effect on `r`.
-7. Pose check over the logged feeding approach.
+1. Measure force build-up after a trip and the position-mode stiff window.
+1. Real payloads (spoon, container), `observe`: their effect on `r`.
+1. Pose check over the logged feeding approach.
 
 Results go in a bench report linked from #24.
 

@@ -146,6 +146,18 @@ class MomentumObserver:
         self.r = self.gain * (p - self._p0 - self._integral)
         return self.r.copy()
 
+    def rebase(self, model: ArmModel, q, qd, r) -> None:
+        """Swap the model mid-run and carry on from residual r instead of re-converging from zero.
+
+        For a payload picked up or put down: the caller knows how much of the
+        residual the new model now explains, and passes the shifted value.
+        """
+        self.model = model
+        self.r = np.asarray(r, float).copy()
+        if self._integral is not None:
+            p = model.mass(np.asarray(q, float)) @ np.asarray(qd, float)
+            self._integral = p - self._p0 - self.r / self.gain
+
 
 def run_observer(model: ArmModel, t, q, qd, tau, gain: float = 10.0) -> np.ndarray:
     """Vectorised convenience: arrays of shape (N,) and (N, 7) in, residual (N, 7) out."""

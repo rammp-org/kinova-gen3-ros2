@@ -58,6 +58,8 @@ sustained push of 5 N·m or more will show clearly. A finger tap will not.
 | `tour.py` | four joint-space waypoints around home through `GoToJointConfig`, speed scale 0.6 by default |
 | `arm_recorder.sh` | stop sheppy's arm container, run the recorder image as `momentum-arm` with the manifest's flags; `stop` hands it back |
 | `synthetic.py`, `test_observer.py` | synthetic sweep with injected pushes; 5 pytest cases, set `KINOVA_URDF` |
+| `contact.py`, `test_contact.py` | impulse detector, payload weighing, per-object profiles; 11 pytest cases (branch `feat/collision-payload`) |
+| `replay_contact.py` | score a recording against its tap markers per profile; calibrate and save the floor; `--grasp` replays a weigh |
 | `env.sh` | abra host env: ROS, interfaces workspace, Cyclone on loopback |
 
 ## State on abra

@@ -1,6 +1,8 @@
 # Momentum observer: a passive look at external torque
 
-An experiment, not a feature. Nothing here commands the arm. It replays a
+An experiment, not a feature (yet: see [Collision detection and payload
+weighing](#collision-detection-and-payload-weighing)). Nothing here commands
+the arm. It replays a
 recording of `/joint_states` through a generalized-momentum observer and plots
 the result beside the external wrench core already publishes, so the two can be
 compared on the same move.
@@ -109,8 +111,61 @@ residual on the elbow swings about 0.9 N·m RMS from the arm's own motion and th
 the same push stands out by a factor of 67. On the arm the model error adds a
 pose-dependent bias to both; the ratio is the number to compare.
 
+## Collision detection and payload weighing
+
+`contact.py` builds two features on the observer, and stops there: what to do
+about a collision is a later decision. It is passive like everything else here.
+The module docstring has the design; in short:
+
+- **Impulses only.** The residual is split into a slow band (0.2 s average) and
+  a fast band. Only the fast band fires, so leaning on the arm, hand-guiding,
+  resting on a table and the model's pose-dependent bias never do. A contact
+  that stays after a hit becomes the new baseline after `max_event_s` instead
+  of firing again.
+- **Payload weighing.** Tare with the arm still before the gripper closes,
+  weigh with it still after the lift. The object goes into the model as a
+  point mass, so its weight and inertia stop reading as external torque while
+  it is carried. Between tare and weigh the detector ignores only what a held
+  load can do (vertical force, horizontal moment at the gripper); a bump from
+  the side still fires.
+- **Profiles per held object.** Threshold per joint is `scale` times the
+  calibrated floor, never below `min_nm`. `fork` is fine (1.2x, 0.4 N·m);
+  `empty` and `bottle` are coarse (2x, 1 N·m). The numbers are starting points.
+
+```python
+mon = ContactMonitor(ArmModel(urdf), profile=PROFILES["empty"], floor=floor)
+ev = mon.step(t, q, qd, tau)          # every sample; a CollisionEvent at onset
+mon.begin_load_change()               # still, before the gripper closes
+est = mon.end_load_change()           # still, after the lift: est.payload.mass
+mon.set_profile(PROFILES["bottle"])
+```
+
+`test_contact.py` covers it on synthetic runs with a pose-dependent model error
+like abra's: a 0.5 kg bottle weighed to within 0.05 kg through a 4 N·m shoulder
+bias, carried at speed with no false alarm, and a 25 N side bump caught within
+80 ms.
+
+### On the arm
+
+`replay_contact.py` scores a recording offline, with the same CSVs and tap
+markers as above:
+
+1. **Floor.** Run the full test in the panel (baseline loop, phase marker,
+   tap loops). Replay calibrates the floor on the baseline loop and scores
+   each profile on the taps:
+   `python3 replay_contact.py --csv runs/run6.csv --urdf arm.urdf --save-floor floor.json`
+1. **Pick.** Record a pick of a bottle by hand-commanded moves: still, close
+   the gripper, lift, still, then the tour with taps on the bottle and the
+   forearm. Note the two still times and replay with
+   `--floor floor.json --grasp TARE,WEIGH`. It prints the weight, and every
+   event that is not a tap is a false alarm.
+
 ## Limits
 
+- The floor sets the finest threshold any profile can use without false
+  alarms, and on the arm it is the mass model (about 3 N·m on the shoulder in
+  motion). Moving slower lowers it; so would a corrected URDF from
+  `gravity_id` (kinova-gen3-driver `feat/torque-offset-calibration`).
 - `/joint_states` is decimated to about 50 Hz. The observer gain defaults to
   10 rad/s, which is as fast as that rate allows. A hand tap shows; a hard impact
   is smeared. The 1 kHz version belongs in core's RT loop, next to `FeedbackTap`.

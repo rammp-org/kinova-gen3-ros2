@@ -156,7 +156,7 @@ What happens on a trip, with `contact_detection:=enforce`:
 | ------------------------- | ------------------------------------------------------------------------------- |
 | OK                        | `armed (profile P)`                                                             |
 | WARN                      | `settling` (for 0.2 s after a start or a clear, and until the first run)        |
-| WARN                      | `observe mode: not stopping the arm; N would-be trips, last on joint J`         |
+| WARN                      | `observe mode: not stopping the arm; N would-be trips[, last on joint J]`       |
 | WARN                      | `DISABLED (contact_detection=off)`                                              |
 | ERROR                     | `stopped on contact: joint N, \|r\| = … > θ = … at the trip (profile now P); …` |
 
@@ -180,8 +180,11 @@ along its length) makes almost no joint torque and is not detected.
 
 ### False positives
 
-Peak `|r|` per joint with nobody touching the arm, measured on the arm in `observe` mode
-with the monitor at 1 kHz:
+Peak `|r|` per joint with nobody touching the arm, measured on the arm in `observe` mode.
+The monitor runs at 1 kHz, but these peaks are the largest `/contact_monitor` samples
+(50 Hz), so the in-loop peak runs higher: on the speed-1.0 position tour the 1 kHz trip
+record caught j1 at 8.01 N·m, against 5.89 in the samples. Read the margin to `θ` with
+that in mind.
 
 | peak `\|r\|`, N·m               | j1   | j2   | j3   | j4   | j5   | j6   | j7   |
 | ------------------------------- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
@@ -211,7 +214,7 @@ with the monitor at 1 kHz:
   mode.
 
 The full bench report, with the tap tests, is the driver's
-[contact detection bench report](https://github.com/rammp-org/kinova-gen3-driver/blob/SwapnilPande/contact-detection/docs/integration/contact_detection_bench.md).
+[contact detection bench report](https://github.com/rammp-org/kinova-gen3-driver/blob/dev/docs/integration/contact_detection_bench.md).
 Open work: a fast channel to tell taps from slow model error and payloads
 ([driver#111](https://github.com/rammp-org/kinova-gen3-driver/issues/111)), and the
 observer's wrench on `/ee_state`

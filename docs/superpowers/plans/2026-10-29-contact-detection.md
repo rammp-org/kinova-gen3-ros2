@@ -463,8 +463,8 @@ float64[7] trip_qd
   - Topic `/contact_monitor` at 50 Hz from `on_query_contact()`.
   - Diagnostics task `"Contact detection"` with the same hardware ID `kinova_gen3`:
     - OK: `armed (profile P)`
-    - WARN: `settling`, `observe mode: not stopping the arm`, `DISABLED (contact_detection=off)`
-    - ERROR: `stopped on contact: joint N, r = x N·m > θ = y N·m (profile P); call /clear_faults`
+    - WARN: `settling`, `observe mode: not stopping the arm; N would-be trips[, last on joint J]`, `DISABLED (contact_detection=off)`
+    - ERROR: `stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now P); call /clear_faults`
   - **(Plan call:** a separate task next to `Arm link`, in the same updater style. That way `LinkServer` doesn't need to know the Supervisor.)
 - `LinkServer` takes `std::function<bool()> clear_contact` (empty when detection is off). `on_clear` calls it first. If the link is faulted, it continues the existing path. If not faulted and a contact was cleared, it returns `success=true`, message `"contact stop cleared"`. Otherwise it returns the existing `"not faulted (<state>)"`.
 - `bringup_node.cpp`:

@@ -259,8 +259,8 @@ approach, comfortably under ISO/TS 15066's face limit.
 **(Updated 2026-10-30 after the push tests, Swapnil's ruling:** sensitive
 `[8,8,6,6,2,2,2]`, default `[16,16,12,12,4,4,4]`, loose `[24,24,18,18,6,6,6]`,
 ceiling unchanged `[30,30,22,22,7,7,7]` N·m. The position-mode tour at speed 1.0
-peaked at 5.9 N·m on j1 and gave a would-be trip against the first default (now
-`sensitive`). At home the new default trips at about 23–48 N at the gripper,
+peaked at 5.9 N·m on j1 in the 50 Hz `/contact_monitor` samples; the 1 kHz loop
+went past 8 (a would-be trip at j1 8.01 against the first default, now `sensitive`). At home the new default trips at about 23–48 N at the gripper,
 depending on direction. Measured floors: `docs/interface.md`, False positives.**)**
 
 Turning a force target into joint thresholds:

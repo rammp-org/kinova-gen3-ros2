@@ -8,7 +8,6 @@ using kinova::ContactDetection;
 using kinova::ContactPhase;
 using kinova::interface::ContactProfile;
 using kinova::interface::ContactState;
-using Msg = ContactServer::ContactMonitorStateMsg;
 using Req = ContactServer::SetContactThresholds::Request;
 
 // The wire profile bytes are core's enum values.
@@ -48,8 +47,10 @@ const char *phase_name(ContactPhase p) {
 
 ContactServer::ContactServer(rclcpp::Node::SharedPtr node,
                              kinova::interface::CommandSink &gated,
-                             std::string detection)
-    : node_(std::move(node)), sink_(gated), detection_(std::move(detection)) {
+                             std::string detection, bool debug_topic,
+                             std::vector<std::string> arm_joints)
+    : node_(std::move(node)), sink_(gated), detection_(std::move(detection)),
+      arm_joints_(std::move(arm_joints)) {
   // Its OWN mutually-exclusive group: the set goes through the Arbiter, whose
   // mutex StreamServer::on_open holds across a 250 ms mode settle, and must not
   // stall /estop or a trajectory cancel on the default group meanwhile.
@@ -60,12 +61,22 @@ ContactServer::ContactServer(rclcpp::Node::SharedPtr node,
       std::bind(&ContactServer::on_set, this, std::placeholders::_1,
                 std::placeholders::_2),
       rmw_qos_profile_services_default, set_group_);
-  // Same QoS as /joint_states and /gripper_state: state at a fixed rate,
-  // latest wins.
-  state_pub_ = node_->create_publisher<ContactMonitorStateMsg>(
-      "contact_monitor", rclcpp::SensorDataQoS());
-  timer_ = node_->create_wall_timer(std::chrono::milliseconds(20),
-                                    [this] { publish_state(); });
+  if (debug_topic && detection_ == "off") {
+    RCLCPP_WARN(node_->get_logger(),
+                "contact_debug_topic is on but contact detection is off: no "
+                "residual to publish, /contact_monitor/residual not created");
+  } else if (debug_topic) {
+    // Default (reliable) QoS, so a default subscriber, Foxglove or
+    // PlotJuggler matches it.
+    residual_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
+        "contact_monitor/residual", 10);
+    residual_timer_ = node_->create_wall_timer(std::chrono::milliseconds(20),
+                                               [this] { publish_residual(); });
+    RCLCPP_INFO(node_->get_logger(),
+                "contact_debug_topic: publishing the residual r on "
+                "/contact_monitor/residual (sensor_msgs/JointState, effort = r "
+                "in N·m) at 50 Hz");
+  }
   // Its own Updater, as LinkServer and GripperServer each own one.
   updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
   updater_->setHardwareID("kinova_gen3");
@@ -157,44 +168,13 @@ void ContactServer::on_set(
   copy_vec(out.theta, res->thresholds);
 }
 
-Msg to_contact_monitor_msg(const ContactState &s) {
-  Msg m;
-  m.detection = !s.enabled ? Msg::DETECTION_OFF
-                : s.status.detection == ContactDetection::kObserve
-                    ? Msg::DETECTION_OBSERVE
-                    : Msg::DETECTION_ENFORCE;
-  switch (s.status.phase) {
-  case ContactPhase::kSettling:
-    m.phase = Msg::PHASE_SETTLING;
-    break;
-  case ContactPhase::kArmed:
-    m.phase = Msg::PHASE_ARMED;
-    break;
-  case ContactPhase::kLatched:
-    m.phase = Msg::PHASE_LATCHED;
-    break;
-  }
-  m.profile = static_cast<uint8_t>(s.profile);
-  copy_vec(s.status.r, m.residual);
-  copy_vec(s.status.theta, m.thresholds);
-  m.would_trips = s.status.would_trips;
-  m.bad_samples = s.status.bad_samples;
-  m.has_trip = s.status.has_trip;
-  if (s.status.has_trip) {
-    const auto &t = s.status.last;
-    m.trip_joint = t.joint + 1;
-    copy_vec(t.r, m.trip_residual);
-    copy_vec(t.theta, m.trip_thresholds);
-    copy_vec(t.q, m.trip_q);
-    copy_vec(t.qd, m.trip_qd);
-  }
-  return m;
-}
-
-void ContactServer::publish_state() {
-  auto m = to_contact_monitor_msg(sink_.on_query_contact());
+void ContactServer::publish_residual() {
+  const kinova::JointVec r = sink_.on_query_contact().status.r;
+  sensor_msgs::msg::JointState m;
   m.header.stamp = node_->now();
-  state_pub_->publish(m);
+  m.name = arm_joints_;
+  m.effort.assign(r.data(), r.data() + r.size());
+  residual_pub_->publish(m);
 }
 
 void contact_diagnostics(const ContactState &s, const std::string &detection,
@@ -244,6 +224,9 @@ void contact_diagnostics(const ContactState &s, const std::string &detection,
   if (s.status.has_trip) {
     stat.add("last_trip_joint", s.status.last.joint + 1);
     stat.add("last_trip_residual_nm", join(s.status.last.r));
+    stat.add("last_trip_thresholds_nm", join(s.status.last.theta));
+    stat.add("last_trip_q_rad", join(s.status.last.q));
+    stat.add("last_trip_qd_rad_s", join(s.status.last.qd));
   }
 }
 

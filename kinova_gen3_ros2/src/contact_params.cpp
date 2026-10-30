@@ -120,6 +120,12 @@ ContactNodeConfig declare_contact_params(rclcpp::Node &node) {
         "float_drag_band_deg must be finite and > 0, got " +
         std::to_string(band_deg));
   c.floating.drag_band_rad = band_deg * kinova::kDeg2Rad;
+
+  c.debug_topic = node.declare_parameter(
+      "contact_debug_topic", false,
+      read_only("Publish the residual r on /contact_monitor/residual "
+                "(sensor_msgs/JointState, effort = r in N·m) at 50 Hz, for "
+                "tuning."));
   return c;
 }
 } // namespace kinova_gen3_ros2

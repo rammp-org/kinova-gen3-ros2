@@ -13,6 +13,7 @@ struct ContactNodeConfig {
   kinova::ContactMonitorConfig monitor;
   kinova::interface::ContactProfiles profiles;
   kinova::FloatParams floating;
+  bool debug_topic = false; // publish /contact_monitor/residual
 };
 
 // Declares the contact parameters, all READ-ONLY: a ROS parameter set carries
@@ -29,6 +30,7 @@ struct ContactNodeConfig {
 //   float_damping                        double[7], N·m·s/rad
 //   float_spring                         double[7], N·m/rad
 //   float_drag_band_deg                  anchor drag band, deg (2)
+//   contact_debug_topic                  /contact_monitor/residual (false)
 //
 // Throws std::invalid_argument naming the parameter (and the joint, for a
 // threshold) on anything invalid. Nothing is clamped.

@@ -94,14 +94,15 @@ ament_target_dependencies(link_server
   rclcpp std_srvs diagnostic_msgs diagnostic_updater)
 target_link_libraries(link_server kinova_lowlevel::kinova_lowlevel)
 
-# The ROS face of core's contact detector: /set_contact_thresholds,
-# /contact_monitor and the "Contact detection" /diagnostics entry, plus the
-# read-only startup parameters. Holds only a CommandSink&.
+# The ROS face of core's contact detector: /set_contact_thresholds, the
+# "Contact detection" /diagnostics entry and the opt-in
+# /contact_monitor/residual debug topic, plus the read-only startup
+# parameters. Holds only a CommandSink&.
 add_library(contact_server src/contact_server.cpp src/contact_params.cpp)
 target_include_directories(contact_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(contact_server
-  rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
+  rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(contact_server kinova_lowlevel::kinova_lowlevel)
 
 add_executable(kinova_gen3_node src/bringup_node.cpp)
@@ -152,7 +153,7 @@ if(BUILD_TESTING)
   target_include_directories(contact_server_test PRIVATE test)
   target_link_libraries(contact_server_test contact_server)
   ament_target_dependencies(contact_server_test
-    rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
+    rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(contact_params_test test/contact_params_test.cpp)
   target_link_libraries(contact_params_test contact_server)

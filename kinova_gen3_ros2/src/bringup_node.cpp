@@ -289,8 +289,9 @@ int main(int argc, char **argv) {
                   "will NOT stop on unexpected contact");
     else if (contact_cfg.detection == "observe")
       RCLCPP_WARN(node->get_logger(),
-                  "contact detection is in OBSERVE mode: contacts are "
-                  "reported on /contact_monitor, the arm is NOT stopped");
+                  "contact detection is in OBSERVE mode: would-be trips are "
+                  "reported on /diagnostics (Contact detection), the arm is "
+                  "NOT stopped");
   }
 
   SampleRing ring(1u << 16);
@@ -396,8 +397,9 @@ int main(int argc, char **argv) {
   kinova_gen3_ros2::GripperServer gripper_server(node, arb, expect_gripper,
                                                  &arb);
   // Wired to the Arbiter: the threshold set is gated on the token.
-  kinova_gen3_ros2::ContactServer contact_server(node, arb,
-                                                 contact_cfg.detection);
+  kinova_gen3_ros2::ContactServer contact_server(
+      node, arb, contact_cfg.detection, contact_cfg.debug_topic,
+      {js_names.begin(), js_names.begin() + kinova::kNumJoints});
   backend->set_gripper_sink(&arb);
   // 20 Hz is enough for a gripper and keeps the pump thread free of a second
   // publisher; Ros2Backend::publish_state stamps /joint_states from node->now()
@@ -474,8 +476,7 @@ int main(int argc, char **argv) {
       "/control_status; "
       "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "
       "/stream_status; gripper: /setpoint/gripper, /gripper_state; "
-      "link: /clear_faults; contact: /set_contact_thresholds, "
-      "/contact_monitor",
+      "link: /clear_faults; contact: /set_contact_thresholds",
       use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",

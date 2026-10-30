@@ -1,10 +1,11 @@
-// /set_contact_thresholds, /contact_monitor and the "Contact detection"
-// diagnostics, against a fake contact sink behind core's real Arbiter
-// (enforced), so the token gate is the real one. No robot.
+// /set_contact_thresholds, the "Contact detection" diagnostics and the
+// contact_debug_topic residual topic, against a fake contact sink behind core's
+// real Arbiter (enforced), so the token gate is the real one. No robot.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -13,6 +14,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "kinova_gen3_ros2/contact_server.h"
 #include "kinova_lowlevel/interface/arbiter.h"
 #include "fake_contact_sink.h"
@@ -23,10 +25,13 @@ using namespace std::chrono_literals;
 using diagnostic_msgs::msg::DiagnosticStatus;
 using kinova_gen3_ros2::ContactServer;
 using Srv = ContactServer::SetContactThresholds;
-using Msg = ContactServer::ContactMonitorStateMsg;
+using sensor_msgs::msg::JointState;
 
 namespace {
 const double kNaN = std::numeric_limits<double>::quiet_NaN();
+const std::vector<std::string> kArmJoints = {
+    "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6", "arm_joint_7"};
 
 struct Rig {
   FakeContactSink sink;
@@ -41,11 +46,13 @@ struct Rig {
   rclcpp::executors::MultiThreadedExecutor ex;
   std::thread spin;
 
-  explicit Rig(const std::string &name, std::string detection = "enforce") {
+  explicit Rig(const std::string &name, std::string detection = "enforce",
+               bool debug_topic = false) {
     token = arb.grant("contact_server_test").token;
     node = std::make_shared<rclcpp::Node>(name);
     client_node = std::make_shared<rclcpp::Node>(name + "_client");
-    server = std::make_unique<ContactServer>(node, arb, std::move(detection));
+    server = std::make_unique<ContactServer>(node, arb, std::move(detection),
+                                             debug_topic, kArmJoints);
     ex.add_node(node);
     spin = std::thread([this] { ex.spin(); });
   }
@@ -210,61 +217,105 @@ TEST_F(ContactServerTest, AppliesNamedProfile) {
             kinova::interface::ContactProfile::kDefault);
 }
 
-TEST_F(ContactServerTest, PublishesState) {
-  Rig r("contact_publishes");
+// contact_debug_topic is off by default: no residual topic, and no
+// /contact_monitor either.
+TEST_F(ContactServerTest, DebugTopicOffByDefault) {
+  Rig r("contact_debug_off");
+  // The graph works: the server's own /diagnostics publisher is counted.
+  EXPECT_GE(r.node->count_publishers("/diagnostics"), 1u);
+  EXPECT_EQ(r.node->count_publishers("/contact_monitor/residual"), 0u);
+  EXPECT_EQ(r.node->count_publishers("/contact_monitor"), 0u);
+}
+
+// With detection off there is nothing to publish, so the topic is not
+// created even when asked for.
+TEST_F(ContactServerTest, DebugTopicNotCreatedWithDetectionOff) {
+  Rig r("contact_debug_detection_off", "off", /*debug_topic=*/true);
+  EXPECT_GE(r.node->count_publishers("/diagnostics"), 1u);
+  EXPECT_EQ(r.node->count_publishers("/contact_monitor/residual"), 0u);
+}
+
+// On: a JointState with the arm joint names and effort = r, on a default
+// (reliable) subscription.
+TEST_F(ContactServerTest, DebugTopicPublishesResidual) {
+  Rig r("contact_debug_on", "enforce", /*debug_topic=*/true);
   {
     std::lock_guard<std::mutex> l(r.sink.m);
-    auto &s = r.sink.state;
-    s.profile = kinova::interface::ContactProfile::kLoose;
-    s.status.phase = kinova::ContactPhase::kLatched;
-    s.status.r << 0.1, 25, 0.3, 0.4, 0.5, 0.6, 0.7;
-    s.status.theta = r.sink.profiles.loose;
-    s.status.would_trips = 3;
-    s.status.bad_samples = 2;
-    s.status.has_trip = true;
-    s.status.last.joint = 1; // 0-based in core
-    s.status.last.r << 0, 25.5, 0, 0, 0, 0, 0;
-    s.status.last.theta = r.sink.profiles.loose;
-    s.status.last.q << 1, 2, 3, 4, 5, 6, 7;
-    s.status.last.qd << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7;
+    r.sink.state.status.r << 0.1, -25, 0.3, 0.4, 0.5, 0.6, 0.7;
   }
-  Msg got;
+  JointState got;
   bool seen = false;
   std::mutex m;
-  auto sub = r.client_node->create_subscription<Msg>(
-      "/contact_monitor", rclcpp::SensorDataQoS(), [&](Msg::SharedPtr msg) {
+  auto sub = r.client_node->create_subscription<JointState>(
+      "/contact_monitor/residual", 10, [&](JointState::SharedPtr msg) {
         std::lock_guard<std::mutex> l(m);
         got = *msg;
         seen = true;
       });
-  // The server's own 50 Hz timer publishes; nothing here calls publish_state.
+  // The server's own 50 Hz timer publishes.
   for (int i = 0; i < 100 && !seen; ++i)
     rclcpp::spin_some(r.client_node), std::this_thread::sleep_for(20ms);
   ASSERT_TRUE(seen);
-  EXPECT_EQ(got.detection, Msg::DETECTION_ENFORCE);
-  EXPECT_EQ(got.phase, Msg::PHASE_LATCHED);
-  EXPECT_EQ(got.profile, Srv::Request::PROFILE_LOOSE);
-  EXPECT_DOUBLE_EQ(got.residual[1], 25.0);
-  EXPECT_EQ(to_std(got.thresholds), to_std(r.sink.profiles.loose));
-  EXPECT_EQ(got.would_trips, 3u);
-  EXPECT_EQ(got.bad_samples, 2u);
-  EXPECT_TRUE(got.has_trip);
-  EXPECT_EQ(got.trip_joint, 2); // 1-based on the wire
-  EXPECT_DOUBLE_EQ(got.trip_residual[1], 25.5);
-  EXPECT_DOUBLE_EQ(got.trip_thresholds[1], 24.0);
-  EXPECT_DOUBLE_EQ(got.trip_q[6], 7.0);
-  EXPECT_DOUBLE_EQ(got.trip_qd[0], 0.1);
+  EXPECT_EQ(got.name, kArmJoints);
+  EXPECT_EQ(got.effort,
+            std::vector<double>({0.1, -25, 0.3, 0.4, 0.5, 0.6, 0.7}));
+  EXPECT_TRUE(got.position.empty());
+  EXPECT_TRUE(got.velocity.empty());
+  EXPECT_NE(rclcpp::Time(got.header.stamp).nanoseconds(), 0);
+}
 
-  // With detection off there is no monitor: the sink says enabled = false.
-  const auto off = kinova_gen3_ros2::to_contact_monitor_msg({});
-  EXPECT_EQ(off.detection, Msg::DETECTION_OFF);
-  EXPECT_FALSE(off.has_trip);
-  EXPECT_EQ(off.trip_joint, 0);
-  kinova::interface::ContactState obs;
-  obs.enabled = true;
-  obs.status.detection = kinova::ContactDetection::kObserve;
-  EXPECT_EQ(kinova_gen3_ros2::to_contact_monitor_msg(obs).detection,
-            Msg::DETECTION_OBSERVE);
+// The trip record the diagnostics carry, with the state around it.
+TEST(ContactDiagnostics, TripRecordKeyValues) {
+  kinova::interface::ContactState s;
+  s.enabled = true;
+  s.profile = kinova::interface::ContactProfile::kLoose;
+  s.status.phase = kinova::ContactPhase::kArmed;
+  s.status.r << 0.1, 25, 0.3, 0.4, 0.5, 0.6, 0.7;
+  s.status.theta << 24, 24, 18, 18, 6, 6, 6;
+  s.status.would_trips = 3;
+  s.status.bad_samples = 2;
+  auto values = [](const kinova::interface::ContactState &st) {
+    diagnostic_updater::DiagnosticStatusWrapper w;
+    kinova_gen3_ros2::contact_diagnostics(st, "enforce", w);
+    std::map<std::string, std::string> kv;
+    for (const auto &v : w.values)
+      kv[v.key] = v.value;
+    return kv;
+  };
+
+  // No trip yet: no trip record.
+  auto kv = values(s);
+  EXPECT_EQ(kv["detection"], "enforce");
+  EXPECT_EQ(kv["phase"], "armed");
+  EXPECT_EQ(kv["profile"], "loose");
+  EXPECT_EQ(kv["residual_nm"], "[0.10, 25.00, 0.30, 0.40, 0.50, 0.60, 0.70]");
+  EXPECT_EQ(kv["thresholds_nm"],
+            "[24.00, 24.00, 18.00, 18.00, 6.00, 6.00, 6.00]");
+  EXPECT_EQ(kv["would_trips"], "3");
+  EXPECT_EQ(kv["bad_samples"], "2");
+  for (const auto &k :
+       {"last_trip_joint", "last_trip_residual_nm", "last_trip_thresholds_nm",
+        "last_trip_q_rad", "last_trip_qd_rad_s"})
+    EXPECT_EQ(kv.count(k), 0u) << k;
+
+  s.status.phase = kinova::ContactPhase::kLatched;
+  s.status.has_trip = true;
+  s.status.last.joint = 1; // 0-based in core
+  s.status.last.r << 0, 25.5, 0, 0, 0, 0, 0;
+  s.status.last.theta << 16, 16, 12, 12, 4, 4, 4;
+  s.status.last.q << 1, 2, 3, 4, 5, 6, -7;
+  s.status.last.qd << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, -0.7;
+  kv = values(s);
+  EXPECT_EQ(kv["last_trip_joint"], "2"); // 1-based
+  EXPECT_EQ(kv["last_trip_residual_nm"],
+            "[0.00, 25.50, 0.00, 0.00, 0.00, 0.00, 0.00]");
+  // θ at the trip, not today's.
+  EXPECT_EQ(kv["last_trip_thresholds_nm"],
+            "[16.00, 16.00, 12.00, 12.00, 4.00, 4.00, 4.00]");
+  EXPECT_EQ(kv["last_trip_q_rad"],
+            "[1.00, 2.00, 3.00, 4.00, 5.00, 6.00, -7.00]");
+  EXPECT_EQ(kv["last_trip_qd_rad_s"],
+            "[0.10, 0.20, 0.30, 0.40, 0.50, 0.60, -0.70]");
 }
 
 TEST(ContactDiagnostics, DiagnosticsEachPhase) {

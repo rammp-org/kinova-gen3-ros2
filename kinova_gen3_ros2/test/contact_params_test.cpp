@@ -62,10 +62,19 @@ TEST_F(ContactParams, DefaultsMatchSpec) {
   EXPECT_EQ(c.floating.spring, vec({28.6, 28.6, 28.6, 28.6, 8.6, 8.6, 8.6}));
   EXPECT_DOUBLE_EQ(c.floating.drag_band_rad, 2.0 * kinova::kDeg2Rad);
   EXPECT_EQ(c.floating.torque_limit, vec({39, 39, 39, 39, 9, 9, 9}));
+  EXPECT_FALSE(c.debug_topic);
 
   // Read-only: a live set is refused, not silently ignored.
   EXPECT_FALSE(n->set_parameter(rclcpp::Parameter("contact_detection", "off"))
                    .successful);
+  EXPECT_FALSE(n->set_parameter(rclcpp::Parameter("contact_debug_topic", true))
+                   .successful);
+}
+
+TEST_F(ContactParams, DebugTopicCanBeEnabled) {
+  auto n = node_with("contact_params_debug",
+                     {rclcpp::Parameter("contact_debug_topic", true)});
+  EXPECT_TRUE(declare_contact_params(*n).debug_topic);
 }
 
 TEST_F(ContactParams, ObserveAndOffAreAccepted) {

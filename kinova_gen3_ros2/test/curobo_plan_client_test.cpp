@@ -374,10 +374,13 @@ run_blend(const char *name,
   rclcpp::executors::MultiThreadedExecutor ex;
   ex.add_node(node);
   SpinThread spin(ex);
-  std::promise<CuroboPlanClient::Outcome> p;
-  auto f = p.get_future();
-  client.blend(legs, radii, scales, holds, orientations, nullptr,
-               [&](CuroboPlanClient::Outcome o) { p.set_value(std::move(o)); });
+  // Shared with the callback, so an outcome arriving after the timeout below
+  // lands in a live promise rather than a destroyed one.
+  auto p = std::make_shared<std::promise<CuroboPlanClient::Outcome>>();
+  auto f = p->get_future();
+  client.blend(
+      legs, radii, scales, holds, orientations, nullptr,
+      [p](CuroboPlanClient::Outcome o) { p->set_value(std::move(o)); });
   if (f.wait_for(5s) != std::future_status::ready) {
     ADD_FAILURE() << name << ": on_done never fired";
     return {{}, fake.last_blend(), fake.blend_goals_received()};
@@ -416,9 +419,11 @@ TEST_F(CuroboClientTest, AnUnknownBlendHoldFailsLoudInsteadOfBlending) {
   EXPECT_EQ(b.received, 0);
 }
 
-// The fake blend is what the GoTo tests chain legs against, so it must refuse
-// what the real one refuses; otherwise a chaining bug would pass them.
-TEST_F(CuroboClientTest, TheFakeBlendRefusesWhatTheRealOneRefuses) {
+// The fake blend is what the GoTo tests chain legs against, so the refusals
+// it does model must really fire; otherwise a chaining bug would pass them.
+// It models legs that do not join (1e-5 rad), points without velocities,
+// one-point legs and wrong array lengths -- not the rest of the real blend's.
+TEST_F(CuroboClientTest, TheFakeBlendRefusesBadJoinsVelocitiesAndShortLegs) {
   auto gap = two_legs();
   gap[1].points[0].positions[3] += 0.002;
   auto no_velocities = two_legs();

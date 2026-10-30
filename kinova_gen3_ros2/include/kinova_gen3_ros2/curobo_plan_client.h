@@ -99,8 +99,8 @@ private:
   rclcpp_action::Client<PlanToJoints>::SharedPtr client_joints_;
   rclcpp_action::Client<Blend>::SharedPtr client_blend_;
   std::mutex m_;
-  // Type-erased cancel for the in-flight goal, so one cancel() serves both
-  // action types. Null when nothing is in flight.
+  // Type-erased cancel for the in-flight goal, so one cancel() serves all
+  // three action types. Null when nothing is in flight.
   std::function<void()> active_cancel_;
 };
 } // namespace kinova_gen3_ros2

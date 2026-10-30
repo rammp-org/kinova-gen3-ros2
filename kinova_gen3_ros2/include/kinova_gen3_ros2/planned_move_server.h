@@ -17,7 +17,11 @@
 namespace kinova_gen3_ros2 {
 
 namespace detail {
-// Whether a goal type has a speed_scale field at all.
+// Whether a goal type has a speed_scale field at all. A goal without one
+// executes at 1.0 (execution_speed_scale): GoToEEPoses / GoToJointConfigs,
+// whose blend already carries each target's speed. A top-level speed_scale
+// must never be added to those goals -- it would apply ON TOP of the per-leg
+// speeds -- and both servers static_assert that it is absent.
 template <class G, class = void> struct has_speed_scale : std::false_type {};
 template <class G>
 struct has_speed_scale<G,

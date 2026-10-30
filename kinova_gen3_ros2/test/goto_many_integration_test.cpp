@@ -5,6 +5,7 @@
 #include <future>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,6 +27,7 @@ using GoToJointConfigs = rammp_arm_interfaces::action::GoToJointConfigs;
 using EEPoseTarget = rammp_arm_interfaces::msg::EEPoseTarget;
 using JointConfigTarget = rammp_arm_interfaces::msg::JointConfigTarget;
 using PlannerHold = rammp_curobo_interfaces::action::PlanToPose::Goal;
+using FakeCurobo = kinova_gen3_ros2::test::FakeCuroboServer;
 
 namespace {
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -34,33 +36,50 @@ constexpr double kInf = std::numeric_limits<double>::infinity();
 struct Sent {
   int code;
   std::string error;
+  std::vector<std::string> planner_states; // every non-empty one, in order
 };
 
 // Send a goal and block for its result; kGoalRejected if not accepted.
 template <class ActionT>
 Sent send(rclcpp::Node::SharedPtr node, const std::string &name,
           const typename ActionT::Goal &goal) {
+  using GH = rclcpp_action::ClientGoalHandle<ActionT>;
   auto client = rclcpp_action::create_client<ActionT>(node, name);
   if (!client->wait_for_action_server(5s))
-    return {kServerMissing, ""};
-  std::promise<Sent> result;
-  auto fut = result.get_future();
+    return {kServerMissing, "", {}};
+  // Shared with the callbacks, so one that fires after a timeout below lands
+  // in live state rather than a destroyed promise.
+  struct Shared {
+    std::mutex m;
+    std::vector<std::string> states;
+    std::promise<Sent> result;
+  };
+  auto sh = std::make_shared<Shared>();
+  auto fut = sh->result.get_future();
   typename rclcpp_action::Client<ActionT>::SendGoalOptions opts;
-  opts.result_callback =
-      [&](const typename rclcpp_action::ClientGoalHandle<ActionT>::WrappedResult
-              &wr) {
-        result.set_value(
-            wr.result ? Sent{wr.result->error_code, wr.result->error_string}
-                      : Sent{kNoResult, ""});
+  opts.feedback_callback =
+      [sh](typename GH::SharedPtr,
+           const std::shared_ptr<const typename ActionT::Feedback> fb) {
+        std::lock_guard<std::mutex> l(sh->m);
+        if (!fb->planner_state.empty())
+          sh->states.push_back(fb->planner_state);
       };
+  opts.result_callback = [sh](const typename GH::WrappedResult &wr) {
+    sh->result.set_value(
+        wr.result ? Sent{wr.result->error_code, wr.result->error_string, {}}
+                  : Sent{kNoResult, "", {}});
+  };
   auto gh_future = client->async_send_goal(goal, opts);
   if (gh_future.wait_for(5s) != std::future_status::ready)
-    return {kTimedOut, ""};
+    return {kTimedOut, "", {}};
   if (gh_future.get() == nullptr)
-    return {kGoalRejected, ""};
+    return {kGoalRejected, "", {}};
   if (fut.wait_for(8s) != std::future_status::ready)
-    return {kTimedOut, ""};
-  return fut.get();
+    return {kTimedOut, "", {}};
+  Sent r = fut.get();
+  std::lock_guard<std::mutex> l(sh->m);
+  r.planner_states = sh->states;
+  return r;
 }
 
 // One server against the fake planner and a supervisor that "executes" each
@@ -92,6 +111,64 @@ template <class ServerT> struct Rig {
 };
 using PosesRig = Rig<kinova_gen3_ros2::GoToEEPosesServer>;
 using ConfigsRig = Rig<kinova_gen3_ros2::GoToJointConfigsServer>;
+
+// A rig whose fake holds plan number `leg` on a gate. The gate outlives the
+// rig, and is opened on every way out BEFORE the rig joins its executor --
+// otherwise an early return leaves a thread parked on it and the join hangs.
+template <class RigT> struct GatedRig {
+  std::promise<void> gate;
+  std::shared_ptr<std::promise<void>> started =
+      std::make_shared<std::promise<void>>();
+  std::future<void> leg_started = started->get_future();
+  RigT rig;
+  struct OpenGate {
+    std::promise<void> &p;
+    bool open = false;
+    void operator()() {
+      if (!open)
+        p.set_value();
+      open = true;
+    }
+    ~OpenGate() { (*this)(); }
+  } open_gate{gate};
+  GatedRig(const char *name, int leg)
+      : rig(name, gate.get_future().share(), started) {
+    rig.fake.set_gated_plan_number(leg);
+  }
+};
+
+// Cancels `goal` while its held leg is planning, then lets that leg finish
+// (the fake will not interrupt it: reject_cancel), and returns the result
+// code. Nothing in flight is left for planner_.cancel() to reach, so only the
+// chain's own check can stop what comes next.
+template <class ActionT, class RigT>
+int cancel_during_leg(GatedRig<RigT> &g, const std::string &name,
+                      const typename ActionT::Goal &goal) {
+  using GH = rclcpp_action::ClientGoalHandle<ActionT>;
+  auto client = rclcpp_action::create_client<ActionT>(g.rig.node, name);
+  if (!client->wait_for_action_server(5s))
+    return kServerMissing;
+  auto code = std::make_shared<std::promise<int>>(); // outlives a timeout
+  auto code_f = code->get_future();
+  typename rclcpp_action::Client<ActionT>::SendGoalOptions opts;
+  opts.result_callback = [code](const typename GH::WrappedResult &wr) {
+    code->set_value(wr.result ? wr.result->error_code : kNoResult);
+  };
+  auto gh_f = client->async_send_goal(goal, opts);
+  if (gh_f.wait_for(5s) != std::future_status::ready)
+    return kTimedOut;
+  auto gh = gh_f.get();
+  if (!gh)
+    return kGoalRejected;
+  if (g.leg_started.wait_for(5s) != std::future_status::ready)
+    return kTimedOut;
+  if (client->async_cancel_goal(gh).wait_for(5s) != std::future_status::ready)
+    return kTimedOut;
+  g.open_gate(); // only now let the held leg finish
+  if (code_f.wait_for(8s) != std::future_status::ready)
+    return kTimedOut;
+  return code_f.get();
+}
 
 // n targets with only the pose set: every other field at its default.
 GoToEEPoses::Goal poses_goal(size_t n) {
@@ -310,50 +387,51 @@ TEST_F(GotoManyTest, PosesImpedanceModeAndGainsReachTheTrajectoryGoal) {
 // interrupt that plan (reject_cancel), so leg 2 still succeeds -- and the
 // chain must then stop rather than plan leg 3 or the blend, because
 // planner_.cancel() had nothing else in flight to reach.
+// A cancel while leg 2 of 3 plans: leg 3 is never planned, nor the blend.
 TEST_F(GotoManyTest, PosesACancelDuringALegStopsTheChain) {
-  // Declared before the rig, so they outlive its executor: a late result
-  // must never land in a destroyed promise.
-  std::promise<void> gate;
-  auto started = std::make_shared<std::promise<void>>();
-  auto leg2_started = started->get_future();
-  std::promise<int> code;
-  auto code_f = code.get_future();
-  PosesRig rig("goto_poses_cancel", gate.get_future().share(), started);
-  rig.fake.set_gated_plan_number(2);
-  // Opens the gate on every way out, before the rig joins its executor --
-  // otherwise an early ASSERT leaves a thread parked on it and the join hangs.
-  struct OpenGate {
-    std::promise<void> &p;
-    bool open = false;
-    void operator()() {
-      if (!open)
-        p.set_value();
-      open = true;
-    }
-    ~OpenGate() { (*this)(); }
-  } open_gate{gate};
+  GatedRig<PosesRig> g("goto_poses_cancel", 2);
+  EXPECT_EQ(cancel_during_leg<GoToEEPoses>(g, "go_to_ee_poses", poses_goal(3)),
+            result_code::kPreempted);
+  EXPECT_EQ(g.rig.fake.starts_seen().size(), 2u) << "leg 3 must not be planned";
+  EXPECT_EQ(g.rig.fake.blend_goals_received(), 0);
+  EXPECT_FALSE(g.rig.sup.got_goal)
+      << "a canceled goal must never reach the arm";
+}
 
-  auto client =
-      rclcpp_action::create_client<GoToEEPoses>(rig.node, "go_to_ee_poses");
-  ASSERT_TRUE(client->wait_for_action_server(5s));
-  rclcpp_action::Client<GoToEEPoses>::SendGoalOptions opts;
-  opts.result_callback =
-      [&](const rclcpp_action::ClientGoalHandle<GoToEEPoses>::WrappedResult
-              &wr) { code.set_value(wr.result ? wr.result->error_code : 0); };
-  auto gh_f = client->async_send_goal(poses_goal(3), opts);
-  ASSERT_EQ(gh_f.wait_for(5s), std::future_status::ready);
-  auto gh = gh_f.get();
-  ASSERT_TRUE(gh);
-  ASSERT_EQ(leg2_started.wait_for(5s), std::future_status::ready);
+// A cancel while the LAST leg plans: the check before the blend stops it.
+TEST_F(GotoManyTest, PosesACancelDuringTheLastLegStopsBeforeTheBlend) {
+  GatedRig<PosesRig> g("goto_poses_cancel_last", 3);
+  EXPECT_EQ(cancel_during_leg<GoToEEPoses>(g, "go_to_ee_poses", poses_goal(3)),
+            result_code::kPreempted);
+  EXPECT_EQ(g.rig.fake.starts_seen().size(), 3u);
+  EXPECT_EQ(g.rig.fake.blend_goals_received(), 0) << "no blend after a cancel";
+  EXPECT_FALSE(g.rig.sup.got_goal);
+}
 
-  auto cancel_f = client->async_cancel_goal(gh);
-  ASSERT_EQ(cancel_f.wait_for(5s), std::future_status::ready);
-  open_gate(); // only now let leg 2 finish
-  ASSERT_EQ(code_f.wait_for(8s), std::future_status::ready);
-  EXPECT_EQ(code_f.get(), result_code::kPreempted);
+// A plan that "succeeds" with no points: the leg fails, named, as there is no
+// last point to start the next leg from.
+TEST_F(GotoManyTest, PosesAnEmptyLegIsNamedAndNothingMoves) {
+  PosesRig rig("goto_poses_empty_leg");
+  rig.fake.set_empty_plan_number(2);
+  const auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", poses_goal(3));
+  EXPECT_EQ(r.code, result_code::kPlanningFailed);
+  EXPECT_EQ(r.error, "leg 2/3: planner returned an empty trajectory");
   EXPECT_EQ(rig.fake.starts_seen().size(), 2u) << "leg 3 must not be planned";
   EXPECT_EQ(rig.fake.blend_goals_received(), 0);
-  EXPECT_FALSE(rig.sup.got_goal) << "a canceled goal must never reach the arm";
+  EXPECT_FALSE(rig.sup.got_goal);
+}
+
+// While planning, planner_state is the planner's state prefixed by the step
+// it belongs to.
+TEST_F(GotoManyTest, PosesPlannerStateIsPrefixedByLegAndBlend) {
+  PosesRig rig("goto_poses_feedback");
+  const auto r = send<GoToEEPoses>(rig.node, "go_to_ee_poses", poses_goal(3));
+  ASSERT_EQ(r.code, result_code::kSuccessful) << r.error;
+  const std::string plan = FakeCurobo::kPlanState;
+  const std::vector<std::string> expected = {
+      "leg 1/3: " + plan, "leg 2/3: " + plan, "leg 3/3: " + plan,
+      std::string("blend: ") + FakeCurobo::kBlendState};
+  EXPECT_EQ(r.planner_states, expected);
 }
 
 // --- GoToJointConfigs -------------------------------------------------------
@@ -413,6 +491,11 @@ TEST_F(GotoManyTest, ConfigsLegsArePlannedToEachTargetInOrderChained) {
   EXPECT_EQ(seen.blend_radius, std::vector<double>({0.02, 0.05}));
   EXPECT_TRUE(seen.hold.empty()) << "joint-space legs carry no hold";
   EXPECT_TRUE(seen.hold_orientation.empty());
+  ASSERT_EQ(r.planner_states.size(), 4u);
+  EXPECT_EQ(r.planner_states[1],
+            std::string("leg 2/3: ") + FakeCurobo::kPlanState);
+  EXPECT_EQ(r.planner_states[3],
+            std::string("blend: ") + FakeCurobo::kBlendState);
   ASSERT_TRUE(rig.sup.got_goal);
   EXPECT_EQ(rig.sup.last_goal.trajectory.points.size(), 9u);
   EXPECT_DOUBLE_EQ(rig.sup.last_goal.speed_scale, 1.0);
@@ -428,6 +511,26 @@ TEST_F(GotoManyTest, ConfigsTargetDefaults) {
   EXPECT_EQ(seen.speed_scale, std::vector<double>({1.0, 1.0}));
   EXPECT_EQ(seen.blend_radius, std::vector<double>({0.0}));
   EXPECT_DOUBLE_EQ(rig.sup.last_goal.speed_scale, 1.0);
+}
+
+TEST_F(GotoManyTest, ConfigsACancelDuringALegStopsTheChain) {
+  GatedRig<ConfigsRig> g("goto_configs_cancel", 2);
+  EXPECT_EQ(cancel_during_leg<GoToJointConfigs>(g, "go_to_joint_configs",
+                                                configs_goal(3)),
+            result_code::kPreempted);
+  EXPECT_EQ(g.rig.fake.starts_seen().size(), 2u) << "leg 3 must not be planned";
+  EXPECT_EQ(g.rig.fake.blend_goals_received(), 0);
+  EXPECT_FALSE(g.rig.sup.got_goal);
+}
+
+TEST_F(GotoManyTest, ConfigsACancelDuringTheLastLegStopsBeforeTheBlend) {
+  GatedRig<ConfigsRig> g("goto_configs_cancel_last", 3);
+  EXPECT_EQ(cancel_during_leg<GoToJointConfigs>(g, "go_to_joint_configs",
+                                                configs_goal(3)),
+            result_code::kPreempted);
+  EXPECT_EQ(g.rig.fake.starts_seen().size(), 3u);
+  EXPECT_EQ(g.rig.fake.blend_goals_received(), 0) << "no blend after a cancel";
+  EXPECT_FALSE(g.rig.sup.got_goal);
 }
 
 TEST_F(GotoManyTest, ConfigsAFailingLegIsNamedAndNothingMoves) {

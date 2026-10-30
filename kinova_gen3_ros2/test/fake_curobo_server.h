@@ -1,11 +1,13 @@
 #pragma once
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <future>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -41,12 +43,16 @@ namespace kinova_gen3_ros2::test {
 // A plan starts EXACTLY at the start it was given and steps up from it, with
 // velocities, at rest at both ends -- as the real planner's legs do -- so each
 // leg ends somewhere different and a chain of legs can be followed. Every
-// plan's start, target and hold is recorded in order.
+// plan's start, target and hold is recorded in order. Every plan and blend
+// publishes one feedback, state kPlanState / kBlendState, before its result.
+// set_empty_plan_number(n) makes the n-th plan succeed with no points.
 //
-// Also hosts /rammp_curobo/blend: it refuses what the real one refuses (legs
-// with fewer than 2 points or without velocities, a leg not starting within
-// 1e-5 rad of where the one before it ends, per-leg or per-junction arrays of
-// the wrong length), records the goal, and returns the legs' points end to end
+// Also hosts /rammp_curobo/blend. It refuses SOME of what the real one refuses:
+// a leg with fewer than 2 points or a point without velocities, a leg not
+// starting within 1e-5 rad of where the one before it ends, and per-leg or
+// per-junction arrays of the wrong length. It does NOT model "planner busy",
+// speed scales out of range, a zero-length hold orientation, or unevenly
+// spaced points. It records the goal and returns the legs' points end to end
 // (set_blend_succeed(false) aborts it instead).
 class FakeCuroboServer {
 public:
@@ -66,6 +72,11 @@ public:
   // Only the n-th plan (1-based, either tier) signals `started` and waits on
   // `gate`. 0, the default: every plan does. Set before any goal is sent.
   void set_gated_plan_number(int n) { gated_plan_number_ = n; }
+  // The n-th plan (1-based, either tier) succeeds with an EMPTY trajectory.
+  void set_empty_plan_number(int n) { empty_plan_number_ = n; }
+  // The feedback state every plan / blend publishes.
+  static constexpr const char *kPlanState = "fake planning";
+  static constexpr const char *kBlendState = "fake blending";
 
   FakeCuroboServer(rclcpp::Node::SharedPtr node, bool succeed, int n_points = 3,
                    bool reject = false, std::shared_future<void> gate = {},
@@ -74,11 +85,19 @@ public:
       : node_(node), succeed_(succeed), n_points_(n_points), reject_(reject),
         gate_(std::move(gate)), started_(std::move(started)),
         reject_cancel_(reject_cancel), bad_width_(bad_width) {
-    // Its own reentrant group, as the real planner node has: a plan held on
-    // `gate` then blocks only itself, not the node's default group that a
-    // test's own clients answer on. Kept as a member: the node holds its
-    // groups only weakly, and a dropped group's callbacks never run.
-    group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    // Its own group, so a plan held on `gate` blocks only this fake, not the
+    // node's default group that a test's own clients answer on. Kept as a
+    // member: the node holds its groups only weakly, and a dropped group's
+    // callbacks never run.
+    //
+    // MUTUALLY EXCLUSIVE, not reentrant. A plan executes inside the server's
+    // accept callback; on a reentrant group the caller's result request can be
+    // handled on another thread meanwhile, and a succeed() that lands while
+    // that request is being filed is lost under Humble's rclcpp_action -- with
+    // feedback's 20 ms pause in the window, every multi-leg chain hung. Here
+    // the request waits until the plan is done and is answered at once.
+    group_ = node_->create_callback_group(
+        rclcpp::CallbackGroupType::MutuallyExclusive);
     const auto opts = rcl_action_server_get_default_options();
     server_ = rclcpp_action::create_server<PlanToPose>(
         node_, "/rammp_curobo/plan_to_pose",
@@ -207,6 +226,7 @@ private:
       started_->set_value();
     if (gate_.valid() && gated)
       gate_.wait();
+    publish_state(gh, kPlanState);
     auto result = std::make_shared<typename ActionT::Result>();
     if (!succeed_ || nth == fail_plan_number_) {
       result->success = false;
@@ -220,7 +240,7 @@ private:
     result->trajectory.joint_names = {"joint_1", "joint_2", "joint_3",
                                       "joint_4", "joint_5", "joint_6",
                                       "joint_7"};
-    for (int k = 0; k < n_points_; ++k) {
+    for (int k = 0; k < (nth == empty_plan_number_ ? 0 : n_points_); ++k) {
       trajectory_msgs::msg::JointTrajectoryPoint p;
       p.positions.assign((bad_width_ && k == 0) ? 4 : 7, 0.01 * k);
       for (size_t i = 0; i < p.positions.size() && i < start.size(); ++i)
@@ -234,7 +254,21 @@ private:
     }
     gh->succeed(result);
   }
-  // Why the real blend would refuse this goal, or "" if it would not.
+  // One feedback, with a pause on each side. Feedback, goal response and
+  // result travel separately, and a caller drops feedback for a goal it does
+  // not know yet (its goal response not handled) or has already settled.
+  template <typename ActionT>
+  static void publish_state(
+      const std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> &gh,
+      const char *state) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    auto fb = std::make_shared<typename ActionT::Feedback>();
+    fb->state = state;
+    gh->publish_feedback(fb);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  // Why this fake's blend refuses this goal, or "" if it does not: a subset of
+  // the real blend's refusals (see the class comment).
   static std::string blend_refusal(const Blend::Goal &g) {
     const size_t n = g.legs.size();
     if (n == 0)
@@ -275,6 +309,7 @@ private:
       last_blend_ = *gh->get_goal();
     }
     ++blend_goals_received_;
+    publish_state(gh, kBlendState);
     auto result = std::make_shared<Blend::Result>();
     const std::string refused = blend_refusal(*gh->get_goal());
     if (!refused.empty() || !blend_succeed_) {
@@ -313,6 +348,7 @@ private:
   std::atomic<int> pose_goals_received_{0};
   int fail_plan_number_ = 0;
   int gated_plan_number_ = 0;
+  int empty_plan_number_ = 0;
   std::atomic<int> plans_executed_{0};
   bool blend_succeed_ = true;
   std::atomic<int> blend_goals_received_{0};

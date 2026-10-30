@@ -26,6 +26,11 @@ public:
       : PlannedMoveServer<Action>(node, "go_to_joint_configs", router, planner,
                                   cb_group) {}
 
+  // The blend carries every target's speed and is executed at 1.0. A
+  // top-level speed_scale here would scale it a second time.
+  static_assert(!detail::has_speed_scale<Action::Goal>::value,
+                "a many-target goal must not carry a top-level speed_scale");
+
 protected:
   std::optional<std::string> validate(const Action::Goal &goal) override {
     if (goal.targets.empty())

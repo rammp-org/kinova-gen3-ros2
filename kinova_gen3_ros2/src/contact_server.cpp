@@ -205,7 +205,13 @@ void contact_diagnostics(const ContactState &s, const std::string &detection,
     stat.summary(DiagnosticStatus::WARN,
                  "DISABLED (contact_detection=" + detection + ")");
   } else if (s.status.detection == ContactDetection::kObserve) {
-    stat.summary(DiagnosticStatus::WARN, "observe mode: not stopping the arm");
+    // The would-be trips, so a false-positive run reads off /diagnostics.
+    std::string m = "observe mode: not stopping the arm; " +
+                    std::to_string(s.status.would_trips) + " would-be trips";
+    const int j = s.status.last.joint;
+    if (s.status.has_trip && j >= 0 && j < kinova::kNumJoints)
+      m += ", last on joint " + std::to_string(j + 1);
+    stat.summary(DiagnosticStatus::WARN, m);
   } else if (s.status.phase == ContactPhase::kSettling) {
     stat.summary(DiagnosticStatus::WARN, "settling");
   } else if (s.status.phase == ContactPhase::kArmed) {
@@ -214,11 +220,13 @@ void contact_diagnostics(const ContactState &s, const std::string &detection,
     const auto &t = s.status.last;
     const int j = t.joint;
     char b[160];
+    // θ is the trip record's; the profile is today's, and may have changed
+    // since.
     if (s.status.has_trip && j >= 0 && j < kinova::kNumJoints)
       std::snprintf(
           b, sizeof b,
-          "stopped on contact: joint %d, |r| = %.2f N·m > θ = %.2f N·m "
-          "(profile %s); call /clear_faults",
+          "stopped on contact: joint %d, |r| = %.2f N·m > θ = %.2f N·m at "
+          "the trip (profile now %s); call /clear_faults",
           j + 1, std::abs(t.r[j]), t.theta[j], profile.c_str());
     else
       std::snprintf(b, sizeof b,

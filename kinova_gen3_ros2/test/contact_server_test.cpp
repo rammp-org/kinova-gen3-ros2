@@ -298,7 +298,16 @@ TEST(ContactDiagnostics, DiagnosticsEachPhase) {
   w = diag(s, "enforce");
   EXPECT_EQ(w.level, DiagnosticStatus::ERROR);
   EXPECT_EQ(w.message, "stopped on contact: joint 3, |r| = 6.40 N·m > θ = 6.00 "
-                       "N·m (profile default); call /clear_faults");
+                       "N·m at the trip (profile now default); call "
+                       "/clear_faults");
+  // The profile can change while latched: θ stays the trip's, the profile is
+  // today's, and the message says which is which.
+  kinova::interface::ContactState relaxed = s;
+  relaxed.profile = kinova::interface::ContactProfile::kLoose;
+  relaxed.status.theta << 24, 24, 18, 18, 6, 6, 6;
+  EXPECT_EQ(diag(relaxed, "enforce").message,
+            "stopped on contact: joint 3, |r| = 6.40 N·m > θ = 6.00 N·m at "
+            "the trip (profile now loose); call /clear_faults");
   const auto trip_r =
       std::find_if(w.values.begin(), w.values.end(), [](const auto &kv) {
         return kv.key == "last_trip_residual_nm";
@@ -310,9 +319,16 @@ TEST(ContactDiagnostics, DiagnosticsEachPhase) {
   kinova::interface::ContactState obs = s;
   obs.status.detection = kinova::ContactDetection::kObserve;
   obs.status.phase = ContactPhase::kArmed;
+  obs.status.would_trips = 3;
   w = diag(obs, "observe");
   EXPECT_EQ(w.level, DiagnosticStatus::WARN);
-  EXPECT_EQ(w.message, "observe mode: not stopping the arm");
+  EXPECT_EQ(w.message,
+            "observe mode: not stopping the arm; 3 would-be trips, last on "
+            "joint 3");
+  obs.status.would_trips = 0;
+  obs.status.has_trip = false;
+  EXPECT_EQ(diag(obs, "observe").message,
+            "observe mode: not stopping the arm; 0 would-be trips");
 
   w = diag({}, "off");
   EXPECT_EQ(w.level, DiagnosticStatus::WARN);

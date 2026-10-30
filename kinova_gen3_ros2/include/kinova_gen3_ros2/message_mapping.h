@@ -59,6 +59,11 @@ to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
 // no payload, so the client sees a bare rejection (see kinova-gen3-ros2#39).
 std::optional<std::string> speed_scale_rejection(double s);
 
+// Why new work is refused while a contact stop is latched, or nullopt when it
+// is not. The driver refuses the same, but a GoalResponse carries no message.
+std::optional<std::string>
+contact_rejection(const kinova::interface::ContactState &s);
+
 // Why a GoToEEPose target in `frame_id` is unacceptable, or nullopt. Goals are
 // in arm_mount: gravity-aligned on level ground, origin at the arm's base.
 // base_link gets a message of its own: on a tilted mount it is not arm_mount.

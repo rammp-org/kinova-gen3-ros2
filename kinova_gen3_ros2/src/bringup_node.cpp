@@ -3,6 +3,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,12 +20,16 @@
 #include "kinova_gen3_ros2/goto_joint_config_server.h"
 #include "kinova_gen3_ros2/goto_preset_server.h"
 #include "kinova_gen3_ros2/arbitration_server.h"
+#include "kinova_gen3_ros2/contact_params.h"
+#include "kinova_gen3_ros2/contact_server.h"
 #include "kinova_gen3_ros2/gripper_server.h"
 #include "kinova_gen3_ros2/link_server.h"
 #include "kinova_gen3_ros2/stream_server.h"
 #include "kinova_lowlevel/arm_link.h"
+#include "kinova_lowlevel/contact_monitor.h"
 #include "kinova_lowlevel/dynamics.h"
 #include "kinova_lowlevel/feedback_tap.h"
+#include "kinova_lowlevel/float_mode.h"
 #include "kinova_lowlevel/gripper_controller.h"
 #include "kinova_lowlevel/interface/arbiter.h"
 #include "kinova_lowlevel/interface/supervisor.h"
@@ -135,11 +140,15 @@ int main(int argc, char **argv) {
   // absent, e.g. an unprefixed model on the topic), and that must reach the
   // FATAL below rather than std::terminate. Emplaced once and never reset, so
   // every reference taken below stays valid for the process lifetime.
-  std::optional<Dynamics> dyn, pump_dyn;
+  // sim_dyn: --sim only, the simulator's own gravity model (Dynamics is not
+  // thread-safe, and the sim exchanges on the RT thread alongside `dyn`).
+  std::optional<Dynamics> dyn, pump_dyn, sim_dyn;
   std::vector<std::string> js_names;
   try {
     dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
     pump_dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
+    if (use_sim)
+      sim_dyn.emplace(UrdfXml{*urdf_xml}, ee_frame);
     js_names =
         kinova_gen3_ros2::joint_state_names(*urdf_xml, dyn->joint_names());
   } catch (const std::exception &e) {
@@ -177,7 +186,14 @@ int main(int argc, char **argv) {
   std::unique_ptr<Transport> base;
   if (use_sim) {
     JointFeedback init;
-    base = std::make_unique<SimTransport>(init);
+    auto sim = std::make_unique<SimTransport>(init);
+    // Without a model the sim reports tau = 0 in position mode, where the real
+    // arm reports ~g(q); the contact observer reads that as a full-gravity push
+    // and trips ~200 ms after start.
+    sim->set_gravity_model([&g = *sim_dyn](const JointVec &q, JointVec &tau) {
+      g.gravity(q, tau);
+    });
+    base = std::move(sim);
   } else {
 #ifndef KINOVA_NO_KORTEX
     if (ip.empty()) {
@@ -235,12 +251,56 @@ int main(int argc, char **argv) {
   // non-finite, so the default here is already the hardware's rating rather
   // than a guess.
   JointVelocityMode vel(*dyn);
+
+  // Unexpected-contact detection. The monitor and the float mode it switches
+  // to run on the RT thread, so they share `dyn` with the modes. Read-only
+  // parameters: thresholds are startup config, live tuning is PROFILE_CUSTOM
+  // on the token-gated /set_contact_thresholds. With "off" no monitor is built
+  // or attached.
+  kinova_gen3_ros2::ContactNodeConfig contact_cfg;
+  std::optional<ContactMonitor> contact;
+  std::optional<FloatMode> floating;
+  try {
+    contact_cfg = kinova_gen3_ros2::declare_contact_params(*node);
+    if (contact_cfg.detection != "off") {
+      contact.emplace(*dyn, contact_cfg.monitor);
+      floating.emplace(*dyn, contact_cfg.floating);
+    }
+  } catch (const std::exception &e) {
+    RCLCPP_FATAL(node->get_logger(), "contact detection config: %s", e.what());
+    rclcpp::shutdown();
+    return 1;
+  }
+  {
+    const auto vec = [](const JointVec &v) {
+      char b[128];
+      std::snprintf(b, sizeof b, "[%g, %g, %g, %g, %g, %g, %g]", v[0], v[1],
+                    v[2], v[3], v[4], v[5], v[6]);
+      return std::string(b);
+    };
+    RCLCPP_INFO(node->get_logger(),
+                "contact detection: %s, default θ = %s N·m, ceiling %s N·m",
+                contact_cfg.detection.c_str(),
+                vec(contact_cfg.profiles.normal).c_str(),
+                vec(contact_cfg.profiles.ceiling).c_str());
+    if (contact_cfg.detection == "off")
+      RCLCPP_WARN(node->get_logger(),
+                  "contact detection is OFF (contact_detection=off): the arm "
+                  "will NOT stop on unexpected contact");
+    else if (contact_cfg.detection == "observe")
+      RCLCPP_WARN(node->get_logger(),
+                  "contact detection is in OBSERVE mode: contacts are "
+                  "reported on /contact_monitor, the arm is NOT stopped");
+  }
+
   SampleRing ring(1u << 16);
   ExecutorConfig exec_cfg{rate, Pacing::kSleepSpin, {prio, cpu, true}};
   // A fault confirmed in feedback ends the RT run so ArmLink can hand the arm
   // back to its base and wait for /clear_faults (ArmLink requires it).
   exec_cfg.exit_on_fault = true;
   RtExecutor exec(tap, ring, exec_cfg);
+  if (contact)
+    exec.attach_contact(*contact, *floating);
 
   auto backend =
       std::make_shared<kinova_gen3_ros2::Ros2Backend>(node, js_names);
@@ -309,6 +369,10 @@ int main(int argc, char **argv) {
       backend.get();     // Ros2Backend publishes /joint_states + /ee_state
   deps.action = &router; // GoalRouter demuxes the single ActionServerPort
   deps.grip = &grip;     // was nullptr: every setpoint was silently dropped
+  // Null with contact_detection=off. The Supervisor refuses to construct
+  // unless the profiles validate and share the monitor's ceiling.
+  deps.contact = contact ? &*contact : nullptr;
+  deps.contact_profiles = contact_cfg.profiles;
   interface::Supervisor sup(deps);
   // Supervisor implements CommandSink, StreamSink AND GripperSink, so it is
   // passed three times -- the idiom core's own tests use (Arbiter arb{sink,
@@ -327,7 +391,13 @@ int main(int argc, char **argv) {
   // Wired to the Arbiter, exactly like StreamServer: that is what makes the
   // gripper's token load-bearing. There is no session to open --
   // Arbiter::on_gripper_setpoint gates on admit(token) alone.
-  kinova_gen3_ros2::GripperServer gripper_server(node, arb, expect_gripper);
+  // arb again as the contact source: new gripper setpoints are refused (with a
+  // WARN) while a contact stop is latched.
+  kinova_gen3_ros2::GripperServer gripper_server(node, arb, expect_gripper,
+                                                 &arb);
+  // Wired to the Arbiter: the threshold set is gated on the token.
+  kinova_gen3_ros2::ContactServer contact_server(node, arb,
+                                                 contact_cfg.detection);
   backend->set_gripper_sink(&arb);
   // 20 Hz is enough for a gripper and keeps the pump thread free of a second
   // publisher; Ros2Backend::publish_state stamps /joint_states from node->now()
@@ -348,8 +418,13 @@ int main(int argc, char **argv) {
   // its base and waits for /clear_faults. The Supervisor listens, so goals halt
   // and work is refused while the arm is unavailable.
   ArmLink link(tap, exec, &sup);
-  kinova_gen3_ros2::LinkServer link_server(
-      node, link, use_sim ? std::string("sim") : ip, g_stop);
+  // /clear_faults also clears a contact stop, first.
+  std::function<bool()> clear_contact;
+  if (contact)
+    clear_contact = [&sup] { return sup.clear_contact(); };
+  kinova_gen3_ros2::LinkServer link_server(node, link,
+                                           use_sim ? std::string("sim") : ip,
+                                           g_stop, std::move(clear_contact));
 
   // A signal during setup is a requested stop: do not connect to the arm.
   if (g_stop.load()) {
@@ -399,7 +474,8 @@ int main(int argc, char **argv) {
       "/control_status; "
       "streaming: /open_stream, /close_stream, /list_controllers, /setpoint/*, "
       "/stream_status; gripper: /setpoint/gripper, /gripper_state; "
-      "link: /clear_faults",
+      "link: /clear_faults; contact: /set_contact_thresholds, "
+      "/contact_monitor",
       use_sim ? "sim" : "real", mode_str.c_str());
   RCLCPP_INFO(node->get_logger(),
               "max_ref_speed [rad/s] = %.2f %.2f %.2f %.2f %.2f %.2f %.2f (%s)",

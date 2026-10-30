@@ -168,6 +168,17 @@ mode_gains_rejection(uint8_t control_mode,
   return std::nullopt;
 }
 
+std::optional<std::string>
+contact_rejection(const kinova::interface::ContactState &s) {
+  if (!s.enabled || s.status.phase != kinova::ContactPhase::kLatched)
+    return std::nullopt;
+  const std::string joint =
+      s.status.has_trip
+          ? " (joint " + std::to_string(s.status.last.joint + 1) + ")"
+          : "";
+  return "stopped on unexpected contact" + joint + "; call /clear_faults";
+}
+
 std::optional<std::string> speed_scale_rejection(double s) {
   if (!std::isfinite(s))
     return std::string("speed_scale must be finite");

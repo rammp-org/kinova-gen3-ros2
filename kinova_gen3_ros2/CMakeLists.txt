@@ -94,12 +94,22 @@ ament_target_dependencies(link_server
   rclcpp std_srvs diagnostic_msgs diagnostic_updater)
 target_link_libraries(link_server kinova_lowlevel::kinova_lowlevel)
 
+# The ROS face of core's contact detector: /set_contact_thresholds,
+# /contact_monitor and the "Contact detection" /diagnostics entry, plus the
+# read-only startup parameters. Holds only a CommandSink&.
+add_library(contact_server src/contact_server.cpp src/contact_params.cpp)
+target_include_directories(contact_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(contact_server
+  rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
+target_link_libraries(contact_server kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_gen3_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
   ros2_backend robot_description planned_move_servers goal_router curobo_plan_client
   message_mapping arbitration_server stream_server gripper_server link_server
-  kinova_lowlevel::kinova_lowlevel)
+  contact_server kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)
@@ -137,6 +147,16 @@ if(BUILD_TESTING)
   target_link_libraries(link_server_test link_server)
   ament_target_dependencies(link_server_test
     rclcpp std_srvs diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(contact_server_test test/contact_server_test.cpp)
+  target_include_directories(contact_server_test PRIVATE test)
+  target_link_libraries(contact_server_test contact_server)
+  ament_target_dependencies(contact_server_test
+    rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(contact_params_test test/contact_params_test.cpp)
+  target_link_libraries(contact_params_test contact_server)
+  ament_target_dependencies(contact_params_test rclcpp)
 
   ament_add_gtest(ros2_backend_test test/ros2_backend_test.cpp)
   target_include_directories(ros2_backend_test PRIVATE test)

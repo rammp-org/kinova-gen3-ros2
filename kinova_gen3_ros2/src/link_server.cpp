@@ -5,8 +5,10 @@
 namespace kinova_gen3_ros2 {
 
 LinkServer::LinkServer(rclcpp::Node::SharedPtr node, kinova::ArmLink &link,
-                       std::string arm, const std::atomic<bool> &stop)
-    : node_(std::move(node)), link_(link), arm_(std::move(arm)), stop_(stop) {
+                       std::string arm, const std::atomic<bool> &stop,
+                       std::function<bool()> clear_contact)
+    : node_(std::move(node)), link_(link), arm_(std::move(arm)), stop_(stop),
+      clear_contact_(std::move(clear_contact)) {
   // Its OWN mutually-exclusive group: on_clear waits up to kClearWait for the
   // arm to re-enter low-level, and must not hold up /estop, the ownership
   // services or a trajectory cancel on the default group meanwhile.
@@ -53,8 +55,20 @@ void LinkServer::diagnostics(
 
 void LinkServer::on_clear(const std::shared_ptr<Trigger::Request>,
                           std::shared_ptr<Trigger::Response> res) {
+  // One call clears whatever is latched: the contact stop first (it is not a
+  // link state, and it survives faults, so a faulted link may also be
+  // latched), then the link if it is faulted.
+  const bool contact_cleared = clear_contact_ && clear_contact_();
+  const std::string contact_msg = contact_cleared ? "contact stop cleared" : "";
   const uint64_t before = link_.status().clears_done;
   if (!link_.request_clear()) {
+    if (contact_cleared) {
+      res->success = true;
+      res->message = contact_msg;
+      RCLCPP_INFO(node_->get_logger(), "/clear_faults: %s",
+                  res->message.c_str());
+      return;
+    }
     const auto s = link_.status();
     res->success = false;
     res->message =
@@ -79,6 +93,8 @@ void LinkServer::on_clear(const std::shared_ptr<Trigger::Request>,
   else
     res->message = std::string(kinova::to_string(s.state)) +
                    (s.reason.empty() ? std::string() : ": " + s.reason);
+  if (contact_cleared)
+    res->message = contact_msg + "; " + res->message;
   RCLCPP_INFO(node_->get_logger(), "/clear_faults: %s", res->message.c_str());
 }
 } // namespace kinova_gen3_ros2

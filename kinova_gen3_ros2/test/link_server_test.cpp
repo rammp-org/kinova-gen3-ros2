@@ -2,6 +2,7 @@
 // over SimTransport (no robot).
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <gtest/gtest.h>
@@ -44,10 +45,13 @@ struct Rig {
   rclcpp::executors::MultiThreadedExecutor ex;
   std::thread spin;
 
-  explicit Rig(const std::string &name) {
+  // clear_contact: stands in for Supervisor::clear_contact (empty = detection
+  // off).
+  explicit Rig(const std::string &name,
+               std::function<bool()> clear_contact = {}) {
     node = std::make_shared<rclcpp::Node>(name);
-    server =
-        std::make_unique<kinova_gen3_ros2::LinkServer>(node, link, "sim", stop);
+    server = std::make_unique<kinova_gen3_ros2::LinkServer>(
+        node, link, "sim", stop, std::move(clear_contact));
     ex.add_node(node);
     spin = std::thread([this] { ex.spin(); });
   }
@@ -148,6 +152,49 @@ TEST_F(LinkServerTest, ClearWhileStoppingAnswersAtOnce) {
   EXPECT_FALSE(res->success);
   EXPECT_EQ(res->message, "stopping");
   EXPECT_LT(std::chrono::steady_clock::now() - t0, 2s);
+}
+
+// A contact stop is not a link fault: the link is running, and one
+// /clear_faults clears the latch.
+TEST_F(LinkServerTest, ClearFaultsClearsContactWhenRunning) {
+  std::atomic<int> calls{0};
+  Rig r("link_clear_contact", [&] { return ++calls == 1; });
+  r.start();
+  ASSERT_TRUE(r.wait_state(kinova::LinkState::kRunning));
+  auto res = r.clear();
+  ASSERT_TRUE(res);
+  EXPECT_TRUE(res->success);
+  EXPECT_EQ(res->message, "contact stop cleared");
+  EXPECT_EQ(calls.load(), 1);
+  // Nothing latched any more: refused as before.
+  res = r.clear();
+  ASSERT_TRUE(res);
+  EXPECT_FALSE(res->success);
+  EXPECT_EQ(res->message, "not faulted (running)");
+  EXPECT_EQ(calls.load(), 2);
+}
+
+// Faulted AND latched: one call clears both, contact first.
+TEST_F(LinkServerTest, ClearFaultsClearsBoth) {
+  std::atomic<int> calls{0};
+  std::atomic<bool> link_faulted_at_contact_clear{false};
+  Rig *rig = nullptr;
+  Rig r("link_clear_both", [&] {
+    link_faulted_at_contact_clear =
+        rig->link.status().state == kinova::LinkState::kFaulted;
+    return ++calls == 1;
+  });
+  rig = &r;
+  r.sim.set_arm_fault(true);
+  r.start();
+  ASSERT_TRUE(r.wait_state(kinova::LinkState::kFaulted));
+  const auto res = r.clear();
+  ASSERT_TRUE(res);
+  EXPECT_TRUE(res->success) << res->message;
+  EXPECT_EQ(res->message, "contact stop cleared; running");
+  EXPECT_EQ(calls.load(), 1);
+  EXPECT_TRUE(link_faulted_at_contact_clear.load());
+  EXPECT_EQ(r.link.status().state, kinova::LinkState::kRunning);
 }
 
 TEST(LinkDiagnostics, EachStateMapsToItsLevel) {

@@ -124,6 +124,29 @@ TEST_F(GotoJointConfigTest, NonFiniteTargetIsRejected) {
   EXPECT_FALSE(sup.got_goal);
 }
 
+// Refused before planning while a contact stop is latched, rather than planned
+// and then refused by the driver with no reason.
+TEST_F(GotoJointConfigTest, AGoalWhileContactLatchedIsRefusedBeforePlanning) {
+  auto node = std::make_shared<rclcpp::Node>("goto_jc_contact");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,
+                                                /*n_points=*/3);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  sup.contact.enabled = true;
+  sup.contact.status.phase = kinova::ContactPhase::kLatched;
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  EXPECT_EQ(send_and_get_code(node, kTarget), kGoalRejected);
+  EXPECT_FALSE(sup.got_goal);
+}
+
 TEST_F(GotoJointConfigTest, SpeedScaleReachesTheTrajectoryGoal) {
   auto node = std::make_shared<rclcpp::Node>("goto_jc_speed");
   kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,

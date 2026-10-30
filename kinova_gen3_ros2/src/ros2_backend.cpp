@@ -83,6 +83,11 @@ Ros2Backend::handle_goal(const rclcpp_action::GoalUUID &,
     RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
     return rclcpp_action::GoalResponse::REJECT;
   }
+  // A contact stop: the driver refuses too, with no message.
+  if (auto why = contact_rejection(sink_->on_query_contact())) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
   const GoalResponse r = sink_->on_trajectory_goal(to_trajectory_goal(*goal));
   return (r == GoalResponse::kAccept)
              ? rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE

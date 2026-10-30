@@ -83,7 +83,44 @@ Because the feedback's `actual` field is the driver's live measured q, the
 `measured_j6` stream IS the confirmation of real motion (no separate query needed).
 Cross-check the final `measured_j6` ≈ start+0.10.
 
-## 4. Record the run
+## 4. After a contact stop
+
+The node starts with `contact_detection: enforce, default θ = [...] N·m, ceiling [...]`
+in its log. Any other mode also logs a WARN. Check that line before moving the arm.
+
+A contact stop looks like this: the arm goes limp and stays where it is pushed, with no
+drift. The goal settles `error_code=-11` (`halted: unexpected contact`), and
+`Contact detection` on `/diagnostics` reads ERROR
+`stopped on contact: joint N, r = x N·m > θ = y N·m (profile P); call /clear_faults`.
+Goals, stream opens and gripper setpoints are refused until it is cleared.
+
+1. **Make it safe first.** The arm is floating, not holding. Do not lean on it, and
+   keep your hand on the e-stop. Whatever the gripper holds stays held.
+1. **Find out why.** Read the trip record:
+   `ros2 topic echo --once --qos-reliability best_effort /contact_monitor` and look at
+   `trip_joint`, `trip_residual` and `trip_thresholds`. A real contact (a person, the
+   table, the plate) means the motion or the scene is wrong. A trip with nothing
+   touching means the threshold is too low for that motion or payload: note the joint,
+   the `r` and the motion for tuning, and do not just raise the threshold and rerun.
+1. **Clear it with nothing touching the arm.** Then
+   `ros2 service call /clear_faults std_srvs/srv/Trigger`. Expect
+   `success: true, message: 'contact stop cleared'` (or
+   `contact stop cleared; running` if the arm had also faulted). The arm then holds at
+   its pose in position mode. It does not resume the goal. If something still presses
+   on it, it trips again within ~0.2 s.
+1. **Record it** with the run (section 5): time, motion and speed, profile, `trip_joint`,
+   `trip_residual` against `trip_thresholds`, and whether the contact was real.
+
+For a motion that is meant to touch something (the bite transfer, scooping) the client
+switches to a looser profile first:
+`ros2 service call /set_contact_thresholds rammp_arm_interfaces/srv/SetContactThresholds "{profile: 2, token: [...]}"`
+(2 = loose; with `arbitration_mode:=enforced` the token is required). Measuring the
+false-positive floor uses `contact_detection:=observe`, which reports would-be trips
+on `/contact_monitor` (`would_trips`) and never stops the arm, so keep the e-stop in
+hand. Never run attended motion with `contact_detection:=off` unless that is the
+deliberate point of the session.
+
+## 5. Record the run
 
 Append below: date, exact command, observed motion (measured joint delta),
 result code, and any `faults`/`dropped`/`majflt` reported by the node's telemetry

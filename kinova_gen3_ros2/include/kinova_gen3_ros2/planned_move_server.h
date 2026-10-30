@@ -151,6 +151,12 @@ private:
       RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
       return rclcpp_action::GoalResponse::REJECT;
     }
+    // A contact stop: refused now, not planned and then refused by the
+    // driver with no reason.
+    if (auto why = contact_rejection(sink_->on_query_contact())) {
+      RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+      return rclcpp_action::GoalResponse::REJECT;
+    }
     if (auto why = validate(*goal)) { // fail loud
       RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
       return rclcpp_action::GoalResponse::REJECT;

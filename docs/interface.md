@@ -25,17 +25,18 @@ planner and three of the four action servers accept goals that can never succeed
 
 ## Publishes
 
-| Topic             | Type                                    | Rate      | Meaning                                                                                                                                                                                                                         |
-| ----------------- | --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/joint_states`   | `sensor_msgs/JointState`                | ~50 Hz    | Seven arm joints (`arm_joint_1`…`arm_joint_7`, named by the model) plus `arm_robotiq_85_left_knuckle_joint`. Best-effort QoS. Pump ticks decimated by `state_publish_divisor` (default 2).                                      |
-| `/ee_state`       | `rammp_arm_interfaces/EeState`          | ~50 Hz    | Pose of `--ee-frame` (default `arm_end_effector_link`, the flange; `arm_tool_frame` is 0.120 m beyond it) in `arm_mount`, twist and measured external wrench `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`. |
-| `/control_status` | `rammp_common_interfaces/ControlStatus` | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.                                                                                                                                            |
-| `/stream_status`  | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                                                                                                                                                                 |
-| `/gripper_state`  | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                                                                                                                     |
-| `/diagnostics`    | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Four REP 107 tasks: `Arbitration`, `Arm`, `Arm link`, `Gripper`.                                                                                                                                                                |
+| Topic              | Type                                       | Rate      | Meaning                                                                                                                                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/joint_states`    | `sensor_msgs/JointState`                   | ~50 Hz    | Seven arm joints (`arm_joint_1`…`arm_joint_7`, named by the model) plus `arm_robotiq_85_left_knuckle_joint`. Best-effort QoS. Pump ticks decimated by `state_publish_divisor` (default 2).                                                                                                                                       |
+| `/ee_state`        | `rammp_arm_interfaces/EeState`             | ~50 Hz    | Pose of `--ee-frame` (default `arm_end_effector_link`, the flange; `arm_tool_frame` is 0.120 m beyond it) in `arm_mount`, twist and measured external wrench `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`.                                                                                                  |
+| `/control_status`  | `rammp_common_interfaces/ControlStatus`    | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.                                                                                                                                                                                                                                             |
+| `/stream_status`   | `rammp_arm_interfaces/StreamStatus`        | on change | The streaming session as core sees it. Latched.                                                                                                                                                                                                                                                                                  |
+| `/gripper_state`   | `rammp_arm_interfaces/GripperState`        | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                                                                                                                                                                                                                      |
+| `/contact_monitor` | `rammp_arm_interfaces/ContactMonitorState` | 50 Hz     | The contact detector: `detection`, `phase` (`SETTLING`/`ARMED`/`LATCHED`), `profile`, `residual` (estimated external joint torque, N·m) and active `thresholds` per joint, `would_trips`, `bad_samples`, and the last trip (`trip_joint` 1-based, its `r`, `θ`, `q`, `q̇`). Best-effort QoS. See [Contact stops](#contact-stops). |
+| `/diagnostics`     | `diagnostic_msgs/DiagnosticArray`          | 1 Hz      | Five REP 107 tasks: `Arbitration`, `Arm`, `Arm link`, `Gripper`, `Contact detection`.                                                                                                                                                                                                                                            |
 
-`/joint_states` and `/ee_state` are best-effort, so CLI subscribers must match:
-`ros2 topic echo --qos-reliability best_effort /joint_states`.
+`/joint_states`, `/ee_state` and `/contact_monitor` are best-effort, so CLI subscribers
+must match: `ros2 topic echo --qos-reliability best_effort /joint_states`.
 
 **Gripper `velocity` and `effort` are NaN in `/joint_states`, permanently.**
 `sensor_msgs/JointState.effort` is documented in N·m or N; the gripper's is a 0..1
@@ -82,21 +83,26 @@ section is the only place these are declared. They are the module's primary inte
 | `go_to_joint_config`       | `GoToJointConfig`        | **Requires the cuRobo planner**                       |
 | `go_to_preset`             | `GoToPreset`             | **Requires the cuRobo planner**                       |
 
+A goal stopped by an unexpected contact settles `-11` CONTACT_STOP (`halted: unexpected contact`), distinct from `-9` HALTED, because it needs a `/clear_faults` before the arm
+moves again. While a contact stop is latched, new goals are rejected outright and the
+node log says why (`rejecting goal: stopped on unexpected contact (joint N); call /clear_faults`). See [Contact stops](#contact-stops).
+
 Under `arbitration_mode:=enforced`, every goal carries a token from
 `/acquire_control`; an untokened goal is refused. A cancel carries no payload, so the
 driver replays the goal's stored token.
 
 ## Services
 
-| Service             | Type               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/acquire_control`  | `AcquireControl`   | Mints a token, or adopts the caller's non-zero `token`. **Seizes**: succeeds even if another owner holds the arm, halting their motion. Re-acquiring with the same key halts too.                                                                                                                                                                                                                       |
-| `/release_control`  | `ReleaseControl`   | Refused unless the token matches the current owner                                                                                                                                                                                                                                                                                                                                                      |
-| `/revoke_control`   | `RevokeControl`    | Operator recovery; needs no token                                                                                                                                                                                                                                                                                                                                                                       |
-| `/open_stream`      | `OpenStream`       | Names a controller, returns the channels to publish on. `timeout_s` must be > 0.                                                                                                                                                                                                                                                                                                                        |
-| `/close_stream`     | `CloseStream`      | Ends the session                                                                                                                                                                                                                                                                                                                                                                                        |
-| `/list_controllers` | `ListControllers`  | The registry with live availability — 7 of 8 available                                                                                                                                                                                                                                                                                                                                                  |
-| `/clear_faults`     | `std_srvs/Trigger` | Clears a latched arm fault and takes the arm back into low-level servoing. Answers within ~10 s: `success` only if the driver is commanding again; `message` is the resulting state and why. With no outcome in 10 s it says so; the clear may still finish later (watch `Arm link`). `stopping` (at once) while the node shuts down. Refused (`not faulted (<state>)`) unless faulted. Needs no token. |
+| Service                   | Type                   | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/acquire_control`        | `AcquireControl`       | Mints a token, or adopts the caller's non-zero `token`. **Seizes**: succeeds even if another owner holds the arm, halting their motion. Re-acquiring with the same key halts too.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/release_control`        | `ReleaseControl`       | Refused unless the token matches the current owner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/revoke_control`         | `RevokeControl`        | Operator recovery; needs no token                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/open_stream`            | `OpenStream`           | Names a controller, returns the channels to publish on. `timeout_s` must be > 0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `/close_stream`           | `CloseStream`          | Ends the session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `/list_controllers`       | `ListControllers`      | The registry with live availability — 7 of 8 available                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `/clear_faults`           | `std_srvs/Trigger`     | Clears whatever is latched: a contact stop first, then a latched arm fault, taking the arm back into low-level servoing. One call clears both. With only a contact stop (link `running`): `success`, `contact stop cleared`, and the arm holds where it is. With a fault: answers within ~10 s, `success` only if the driver is commanding again; `message` is the resulting state and why (prefixed `contact stop cleared; ` if one was cleared too). With no outcome in 10 s it says so; the clear may still finish later (watch `Arm link`). `stopping` (at once) while the node shuts down. Refused (`not faulted (<state>)`) when nothing is latched. Needs no token.                    |
+| `/set_contact_thresholds` | `SetContactThresholds` | Switches the contact thresholds: `PROFILE_SENSITIVE`, `PROFILE_DEFAULT`, `PROFILE_LOOSE` (from the parameters below, `custom` empty), or `PROFILE_CUSTOM` with exactly 7 values in `custom` (N·m, joints 1..7). Holds until the next call. **Token-gated** like a goal. Refused, with `message` naming the problem and the joint and limit, for: an unknown profile, `custom` of the wrong length, a value that is not finite, ≤ 0 or above `contact_thresholds_ceiling`, or no valid token. Nothing is clamped. `profile` and `thresholds` in the response are what is active after the call, accepted or not. Refused with `contact detection not available` when `contact_detection:=off`. |
 
 ### The arm link
 
@@ -112,13 +118,83 @@ says which state the link is in:
 After a clear the arm holds where it is now. It never resumes an
 interrupted goal. The `Arm` task goes STALE when feedback is more than 1 s old.
 
+### Contact stops
+
+The driver watches a momentum observer's estimate `r` of the external torque on each
+joint (N·m). Any joint with `|r_i|` above its threshold `θ_i` for 5 consecutive RT
+cycles (5 ms) is a contact. Detection runs whenever the RT loop runs, including the
+idle hold between goals: touching a still arm trips it like touching a moving one.
+After each start, and after each clear, `r` settles for `5/contact_gain` s (0.2 s)
+before anything counts (`phase=SETTLING`).
+
+What happens on a trip, with `contact_detection:=enforce`:
+
+1. **Float.** The arm switches to a float mode in the RT loop:
+   `τ = g(q) − D q̇ − K_s (q − q_a)`. It yields to the push, slows under the joint
+   damping `D`, and stays where it is left; the weak spring `K_s` holds it against
+   model creep with at most ~1 N·m (j1–j4) or ~0.3 N·m (j5–j7). From a position-mode
+   move, float is adopted at the next cycle boundary.
+1. **Latch.** It stays in float until a `/clear_faults`. In-flight goals settle `-11`
+   CONTACT_STOP; new goals, stream opens and gripper setpoints are refused with
+   `stopped on unexpected contact; call /clear_faults`. As on any halt, the gripper
+   stops being commanded and keeps its grip; it is never commanded open. The latch survives everything except a clear: arm faults, link
+   loss and reconnect, e-stop and ownership changes. If the arm comes back from a link
+   outage still latched, it comes back in float, not the position hold.
+1. **Report.** `Contact detection` on `/diagnostics` goes ERROR:
+   `stopped on contact: joint N, r = x N·m > θ = y N·m (profile P); call /clear_faults`,
+   and `/contact_monitor` shows `phase=LATCHED` with the trip record.
+1. **Clear.** `/clear_faults` clears it; the arm holds where it is now in position mode
+   and never resumes the stopped goal. If someone is still pressing on the arm, it
+   trips again once `r` has settled (0.2 s), which is safe.
+
+| `Contact detection` level | Message                                                     |
+| ------------------------- | ----------------------------------------------------------- |
+| OK                        | `armed (profile P)`                                         |
+| WARN                      | `settling` (for 0.2 s after a start or a clear)             |
+| WARN                      | `observe mode: not stopping the arm`                        |
+| WARN                      | `DISABLED (contact_detection=off)`                          |
+| ERROR                     | `stopped on contact: joint N, r = … > θ = … (profile P); …` |
+
+**Profiles.** The driver starts in `default`. A client expecting contact switches to a
+looser profile for that motion and back afterwards: the bite transfer, carrying a
+payload heavy enough to show in `r` (a filled container), scooping, pressing a utensil
+onto a plate. `PROFILE_CUSTOM` is how thresholds are tuned live on the arm. The named
+profiles and the ceiling are startup parameters and change only with a restart: a ROS
+parameter set carries no token, so a live edit would let any process retune the arm.
+
+**`observe` and `off`.** `contact_detection:=observe` runs the detector and reports
+would-be trips (`would_trips` on `/contact_monitor`, `phase` stays `ARMED`) but never
+stops the arm; it is how false-positive runs are done safely. `contact_detection:=off`
+builds no detector at all: `/contact_monitor` reports `detection=OFF`,
+`/set_contact_thresholds` is refused, and nothing stops the arm on contact. Both are
+deliberate choices made at launch, not switchable at runtime, and both print a WARN at
+startup and keep the `Contact detection` task at WARN for as long as the node runs.
+
+**Blind spot.** A force along a line through the joint axes (a near-extended arm pushed
+along its length) makes almost no joint torque and is not detected.
+
 ## Parameters
 
-| Name                    | Default    | Meaning                                                                                                                                                                        |
-| ----------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `arbitration_mode`      | `disabled` | `enforced` or `disabled`. **Read-only at launch** — core's mode is a constructor argument with no setter, so a dynamic parameter would appear to work and silently do nothing. |
-| `estop_clear_max_age_s` | `1.0`      | Age beyond which an e-stop *clear* is ignored. Engaging is never age-checked.                                                                                                  |
-| `expect_gripper`        | `true`     | Whether to WARN on `/diagnostics` when no gripper is reported.                                                                                                                 |
+| Name                           | Default                                   | Meaning                                                                                                                                                                        |
+| ------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `arbitration_mode`             | `disabled`                                | `enforced` or `disabled`. **Read-only at launch** — core's mode is a constructor argument with no setter, so a dynamic parameter would appear to work and silently do nothing. |
+| `estop_clear_max_age_s`        | `1.0`                                     | Age beyond which an e-stop *clear* is ignored. Engaging is never age-checked.                                                                                                  |
+| `expect_gripper`               | `true`                                    | Whether to WARN on `/diagnostics` when no gripper is reported.                                                                                                                 |
+| `contact_detection`            | `enforce`                                 | `enforce`, `observe` or `off`. See [Contact stops](#contact-stops). **Read-only at launch**, like every `contact_*` and `float_*` parameter.                                   |
+| `contact_gain`                 | `25.0`                                    | Observer gain `K`, rad/s. Settling after a start or clear is `5/K` s.                                                                                                          |
+| `contact_debounce_cycles`      | `5`                                       | Consecutive RT cycles over `θ` that make a trip.                                                                                                                               |
+| `contact_thresholds_sensitive` | `[4.0, 4.0, 3.0, 3.0, 1.2, 1.2, 1.2]`     | `PROFILE_SENSITIVE`, N·m, joints 1..7.                                                                                                                                         |
+| `contact_thresholds_default`   | `[8.0, 8.0, 6.0, 6.0, 2.0, 2.0, 2.0]`     | `PROFILE_DEFAULT`, active at start.                                                                                                                                            |
+| `contact_thresholds_loose`     | `[20.0, 20.0, 15.0, 15.0, 5.0, 5.0, 5.0]` | `PROFILE_LOOSE`.                                                                                                                                                               |
+| `contact_thresholds_ceiling`   | `[30.0, 30.0, 22.0, 22.0, 7.0, 7.0, 7.0]` | Per-joint upper bound on every profile and every custom value.                                                                                                                 |
+| `float_damping`                | `[5.0, 5.0, 5.0, 5.0, 1.5, 1.5, 1.5]`     | Float-mode joint damping `D`, N·m·s/rad.                                                                                                                                       |
+| `float_spring`                 | `[28.6, 28.6, 28.6, 28.6, 8.6, 8.6, 8.6]` | Float-mode anchor spring `K_s`, N·m/rad.                                                                                                                                       |
+| `float_drag_band_deg`          | `2.0`                                     | How far the float anchor trails the arm, deg.                                                                                                                                  |
+
+The thresholds are starting values, to be tuned on the arm. Every array must have
+exactly 7 entries, and every threshold must be finite, > 0 and ≤ the ceiling; anything
+else is fatal at startup (the node logs which parameter and joint and exits 1). Write
+array entries as floats (`8.0`, not `8`): a YAML integer array is a type error.
 
 ## Requirements
 

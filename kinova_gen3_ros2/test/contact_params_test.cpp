@@ -50,9 +50,9 @@ TEST_F(ContactParams, DefaultsMatchSpec) {
   EXPECT_EQ(c.monitor.detection, kinova::ContactDetection::kEnforce);
   EXPECT_DOUBLE_EQ(c.monitor.gain, 25.0);
   EXPECT_EQ(c.monitor.debounce_cycles, 5);
-  EXPECT_EQ(c.profiles.sensitive, vec({4, 4, 3, 3, 1.2, 1.2, 1.2}));
-  EXPECT_EQ(c.profiles.normal, vec({8, 8, 6, 6, 2, 2, 2}));
-  EXPECT_EQ(c.profiles.loose, vec({20, 20, 15, 15, 5, 5, 5}));
+  EXPECT_EQ(c.profiles.sensitive, vec({8, 8, 6, 6, 2, 2, 2}));
+  EXPECT_EQ(c.profiles.normal, vec({16, 16, 12, 12, 4, 4, 4}));
+  EXPECT_EQ(c.profiles.loose, vec({24, 24, 18, 18, 6, 6, 6}));
   EXPECT_EQ(c.profiles.ceiling, vec({30, 30, 22, 22, 7, 7, 7}));
   // The monitor starts on the default profile under the same ceiling, which
   // the Supervisor requires.
@@ -83,7 +83,7 @@ TEST_F(ContactParams, InvalidThrowsNamingParameter) {
   auto above = node_with(
       "contact_params_above",
       {rclcpp::Parameter("contact_thresholds_default",
-                         std::vector<double>{8, 8, 6, 6, 2, 2, 7.5})});
+                         std::vector<double>{16, 16, 12, 12, 4, 4, 7.5})});
   const std::string m = refusal(*above);
   EXPECT_NE(m.find("contact_thresholds_default"), std::string::npos) << m;
   EXPECT_NE(m.find("joint 7"), std::string::npos) << m;
@@ -92,7 +92,7 @@ TEST_F(ContactParams, InvalidThrowsNamingParameter) {
   auto short_vec =
       node_with("contact_params_short",
                 {rclcpp::Parameter("contact_thresholds_loose",
-                                   std::vector<double>{20, 20, 15})});
+                                   std::vector<double>{24, 24, 18})});
   const std::string s = refusal(*short_vec);
   EXPECT_NE(s.find("contact_thresholds_loose"), std::string::npos) << s;
   EXPECT_NE(s.find("7"), std::string::npos) << s;

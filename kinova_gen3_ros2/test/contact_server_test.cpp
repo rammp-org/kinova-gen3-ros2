@@ -217,13 +217,13 @@ TEST_F(ContactServerTest, PublishesState) {
     auto &s = r.sink.state;
     s.profile = kinova::interface::ContactProfile::kLoose;
     s.status.phase = kinova::ContactPhase::kLatched;
-    s.status.r << 0.1, 21, 0.3, 0.4, 0.5, 0.6, 0.7;
+    s.status.r << 0.1, 25, 0.3, 0.4, 0.5, 0.6, 0.7;
     s.status.theta = r.sink.profiles.loose;
     s.status.would_trips = 3;
     s.status.bad_samples = 2;
     s.status.has_trip = true;
     s.status.last.joint = 1; // 0-based in core
-    s.status.last.r << 0, 21.5, 0, 0, 0, 0, 0;
+    s.status.last.r << 0, 25.5, 0, 0, 0, 0, 0;
     s.status.last.theta = r.sink.profiles.loose;
     s.status.last.q << 1, 2, 3, 4, 5, 6, 7;
     s.status.last.qd << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7;
@@ -244,14 +244,14 @@ TEST_F(ContactServerTest, PublishesState) {
   EXPECT_EQ(got.detection, Msg::DETECTION_ENFORCE);
   EXPECT_EQ(got.phase, Msg::PHASE_LATCHED);
   EXPECT_EQ(got.profile, Srv::Request::PROFILE_LOOSE);
-  EXPECT_DOUBLE_EQ(got.residual[1], 21.0);
+  EXPECT_DOUBLE_EQ(got.residual[1], 25.0);
   EXPECT_EQ(to_std(got.thresholds), to_std(r.sink.profiles.loose));
   EXPECT_EQ(got.would_trips, 3u);
   EXPECT_EQ(got.bad_samples, 2u);
   EXPECT_TRUE(got.has_trip);
   EXPECT_EQ(got.trip_joint, 2); // 1-based on the wire
-  EXPECT_DOUBLE_EQ(got.trip_residual[1], 21.5);
-  EXPECT_DOUBLE_EQ(got.trip_thresholds[1], 20.0);
+  EXPECT_DOUBLE_EQ(got.trip_residual[1], 25.5);
+  EXPECT_DOUBLE_EQ(got.trip_thresholds[1], 24.0);
   EXPECT_DOUBLE_EQ(got.trip_q[6], 7.0);
   EXPECT_DOUBLE_EQ(got.trip_qd[0], 0.1);
 
@@ -272,7 +272,7 @@ TEST(ContactDiagnostics, DiagnosticsEachPhase) {
   kinova::interface::ContactState s;
   s.enabled = true;
   s.profile = kinova::interface::ContactProfile::kDefault;
-  s.status.theta << 8, 8, 6, 6, 2, 2, 2;
+  s.status.theta << 16, 16, 12, 12, 4, 4, 4;
   auto diag = [](const kinova::interface::ContactState &st,
                  const std::string &det) {
     diagnostic_updater::DiagnosticStatusWrapper w;
@@ -293,12 +293,12 @@ TEST(ContactDiagnostics, DiagnosticsEachPhase) {
   s.status.phase = ContactPhase::kLatched;
   s.status.has_trip = true;
   s.status.last.joint = 2;
-  s.status.last.r << 0, 0, -6.4, 0, 0, 0, 0;
+  s.status.last.r << 0, 0, -12.8, 0, 0, 0, 0;
   s.status.last.theta = s.status.theta;
   w = diag(s, "enforce");
   EXPECT_EQ(w.level, DiagnosticStatus::ERROR);
-  EXPECT_EQ(w.message, "stopped on contact: joint 3, |r| = 6.40 N·m > θ = 6.00 "
-                       "N·m at the trip (profile now default); call "
+  EXPECT_EQ(w.message, "stopped on contact: joint 3, |r| = 12.80 N·m > θ = "
+                       "12.00 N·m at the trip (profile now default); call "
                        "/clear_faults");
   // The profile can change while latched: θ stays the trip's, the profile is
   // today's, and the message says which is which.
@@ -306,14 +306,14 @@ TEST(ContactDiagnostics, DiagnosticsEachPhase) {
   relaxed.profile = kinova::interface::ContactProfile::kLoose;
   relaxed.status.theta << 24, 24, 18, 18, 6, 6, 6;
   EXPECT_EQ(diag(relaxed, "enforce").message,
-            "stopped on contact: joint 3, |r| = 6.40 N·m > θ = 6.00 N·m at "
+            "stopped on contact: joint 3, |r| = 12.80 N·m > θ = 12.00 N·m at "
             "the trip (profile now loose); call /clear_faults");
   const auto trip_r =
       std::find_if(w.values.begin(), w.values.end(), [](const auto &kv) {
         return kv.key == "last_trip_residual_nm";
       });
   ASSERT_NE(trip_r, w.values.end());
-  EXPECT_NE(trip_r->value.find("-6.4"), std::string::npos)
+  EXPECT_NE(trip_r->value.find("-12.8"), std::string::npos)
       << trip_r->value; // signed
 
   kinova::interface::ContactState obs = s;

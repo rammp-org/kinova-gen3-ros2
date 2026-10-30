@@ -5,7 +5,7 @@
 #include "kinova_lowlevel/interface/ports.h"
 
 // Stand-in for the Supervisor's contact side. on_set_contact_thresholds
-// resolves against the spec's starting profiles with core's own
+// resolves against the node's default profile parameters with core's own
 // resolve_contact, as the Supervisor does, so refusals carry core's text; a
 // test dictates what on_query_contact reports. Wrap it in a real Arbiter to
 // get the token gate. No modes, no URDF, no threads.
@@ -14,9 +14,9 @@ struct FakeContactSink : public kinova::interface::CommandSink {
   mutable std::mutex m;
   kinova::interface::ContactProfiles profiles = [] {
     kinova::interface::ContactProfiles p;
-    p.sensitive << 4, 4, 3, 3, 1.2, 1.2, 1.2;
-    p.normal << 8, 8, 6, 6, 2, 2, 2;
-    p.loose << 20, 20, 15, 15, 5, 5, 5;
+    p.sensitive << 8, 8, 6, 6, 2, 2, 2;
+    p.normal << 16, 16, 12, 12, 4, 4, 4;
+    p.loose << 24, 24, 18, 18, 6, 6, 6;
     p.ceiling << 30, 30, 22, 22, 7, 7, 7;
     return p;
   }();

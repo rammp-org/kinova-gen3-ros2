@@ -75,13 +75,12 @@ ContactNodeConfig declare_contact_params(rclcpp::Node &node) {
     return out;
   };
   const std::string theta_what = "Contact thresholds, N·m, joints 1..7.";
-  c.profiles.sensitive =
-      declare_vec(node, "contact_thresholds_sensitive",
-                  vec({4, 4, 3, 3, 1.2, 1.2, 1.2}), theta_what);
+  c.profiles.sensitive = declare_vec(node, "contact_thresholds_sensitive",
+                                     vec({8, 8, 6, 6, 2, 2, 2}), theta_what);
   c.profiles.normal = declare_vec(node, "contact_thresholds_default",
-                                  vec({8, 8, 6, 6, 2, 2, 2}), theta_what);
+                                  vec({16, 16, 12, 12, 4, 4, 4}), theta_what);
   c.profiles.loose = declare_vec(node, "contact_thresholds_loose",
-                                 vec({20, 20, 15, 15, 5, 5, 5}), theta_what);
+                                 vec({24, 24, 18, 18, 6, 6, 6}), theta_what);
   c.profiles.ceiling = declare_vec(
       node, "contact_thresholds_ceiling", vec({30, 30, 22, 22, 7, 7, 7}),
       "Per-joint ceiling bounding every profile and custom value, N·m.");

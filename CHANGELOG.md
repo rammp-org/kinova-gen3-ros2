@@ -9,7 +9,7 @@
   (`EEPoseTarget` / `JointConfigTarget`) carries its own leg's `speed_scale`,
   `orientation_hold` (poses) and `blend_radius`. Each leg is planned from the last
   point of the one before, the legs are blended by cuRobo's new
-  `/rammp_curobo/blend` (RAMMP-CuRobo#47), and the result is executed once, at speed
+  `/rammp_curobo/blend` (RAMMP-CuRobo#48), and the result is executed once, at speed
   scale 1 because it carries the per-leg speeds. A failure while planning ends the
   goal `PLANNING_FAILED` before anything moves, as `leg k/N: <reason>` (k from 1) or
   `blend: <reason>`; `planner_state` carries the same prefix. A cancel stops the

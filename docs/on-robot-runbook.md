@@ -91,7 +91,7 @@ in its log. Any other mode also logs a WARN. Check that line before moving the a
 A contact stop looks like this: the arm goes limp and stays where it is pushed, with no
 drift. The goal settles `error_code=-11` (`halted: unexpected contact`), and
 `Contact detection` on `/diagnostics` reads ERROR
-`stopped on contact: joint N, r = x N·m > θ = y N·m (profile P); call /clear_faults`.
+`stopped on contact: joint N, |r| = x N·m > θ = y N·m (profile P); call /clear_faults`.
 Goals, stream opens and gripper setpoints are refused until it is cleared.
 
 1. **Make it safe first.** The arm is floating, not holding. Do not lean on it, and

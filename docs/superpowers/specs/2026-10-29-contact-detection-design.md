@@ -132,8 +132,9 @@ formulation, not a slower rate.
 
 Trip rule **(my call)**: trip when any joint has `|r_i| > θ_i` for `N` consecutive
 good cycles (start N = 5, i.e. 5 ms). `r` is already filtered; the debounce only
-rejects isolated bad samples. The trip record holds: time, joint, `r` (all seven),
-`θ` (all seven), profile, control mode, `q`, `q̇`.
+rejects isolated bad samples. The trip record holds: the cycle count, joint, `r`
+(all seven), `θ` (all seven), `q`, `q̇`. The profile and the detection mode are on
+`/contact_monitor`, not in the record **(updated at implementation)**.
 
 ### 3. Reaction
 
@@ -167,17 +168,20 @@ the arm from demo speeds within ~0.2 s. **(my call: the dragged anchor is how
   recommendation is that moves near the user run in impedance mode (the capability
   engine already supports `control_mode: IMPEDANCE`).
 
-**Gripper.** Nothing is commanded on a trip; it keeps its current grip **(my call:
-an in-flight gripper goal is allowed to finish; the gripper has its own force
-limit)**. While latched, new gripper goals are refused like arm goals, so nothing
+**Gripper.** Nothing is commanded on a trip: as on any halt, the driver stops
+commanding the gripper and it keeps its current grip; it is never commanded open
+**(updated at implementation**: an in-flight gripper goal does not finish**)**. While latched, new gripper goals are refused like arm goals, so nothing
 changes until a clear **(my call)**.
 
 **Latch.** The arm stays in float until cleared. While latched:
 
-- In-flight goals and streams settle with a distinct result (below).
+- In-flight goals and streams settle with a distinct result (below). An open stream
+  closes with `StreamCloseCause::kContact`, not `kHalted` **(updated at
+  implementation)**.
 - New motion goals, stream opens and gripper goals are refused with the same reason.
-- The `Arm link` diagnostics task shows ERROR `stopped on contact: joint N,
-  r = x N·m > θ = y N·m (profile P)` with the trip record.
+- A separate `Contact detection` diagnostics task, next to `Arm link`, shows ERROR
+  `stopped on contact: joint N, |r| = x N·m > θ = y N·m (profile P); call
+  /clear_faults` with the trip record **(updated at implementation)**.
 
 A contact stop is **not** an `ArmLink` `kFaulted` state: faulted hands the arm back
 to its base, and here the driver keeps control to float. It is a halt with a new
@@ -201,8 +205,9 @@ Detection is armed whenever the executor runs, including the idle hold between
 goals: touching a stationary arm trips it like touching a moving one.
 
 **Result code.** New `HaltReason::kContact` and a new result code
-`kContactStop = −11` (−10 is taken), string `halted: unexpected contact on joint N`
-**(my call)**. Today every halt is `−9 HALTED` and clients can only tell them apart
+`kContactStop = −11` (−10 is taken), string `halted: unexpected contact` **(my
+call)**; the joint is in the trip record, not the string **(updated at
+implementation)**. Today every halt is `−9 HALTED` and clients can only tell them apart
 by string. A contact stop needs a different recovery (a clear), so clients must be
 able to branch on it. Clients that treat `−9` as "something stopped me" (capability
 engine `arm.py`, test scripts) must learn `−11`; the comment lists in
@@ -265,8 +270,9 @@ Startup parameter `contact_detection: off | observe | enforce`, default `enforce
 
 - `observe` runs everything and reports would-be trips (status topic, diagnostics
   WARN, log) without acting. This is how the false-positive runs are done safely.
-- `off` and `observe` show WARN in the `Arm link` diagnostics continuously, and
-  print at startup. Not switchable at runtime.
+- `off` and `observe` show WARN in the `Contact detection` diagnostics continuously
+  **(updated at implementation**: its own task, not `Arm link`**)**, and print at
+  startup. Not switchable at runtime.
 - If `Dynamics` or the monitor cannot be built in `enforce`, the driver fails
   to start. Nothing degrades silently.
 
@@ -276,7 +282,8 @@ Startup parameter `contact_detection: off | observe | enforce`, default `enforce
   token. Response: accepted, error string, the thresholds now active.
 - Topic `/contact_monitor` at the state rate (~50 Hz): `r` (7), active `θ` (7),
   profile, mode, `settling | armed | latched`, the last trip record.
-- `Arm link` diagnostics as above. `docs/interface.md` gets the service, topic,
+- `Contact detection` diagnostics as above **(updated at implementation**: its own
+  task, not `Arm link`**)**. `docs/interface.md` gets the service, topic,
   result code, parameters and a "contact stops" section.
 - Messages go in `rammp-interfaces-ros2`.
 

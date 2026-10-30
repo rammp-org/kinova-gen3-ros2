@@ -1,6 +1,7 @@
 // /set_contact_thresholds, /contact_monitor and the "Contact detection"
 // diagnostics, against a fake contact sink behind core's real Arbiter
 // (enforced), so the token gate is the real one. No robot.
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -286,8 +287,15 @@ TEST(ContactDiagnostics, DiagnosticsEachPhase) {
   s.status.last.theta = s.status.theta;
   w = diag(s, "enforce");
   EXPECT_EQ(w.level, DiagnosticStatus::ERROR);
-  EXPECT_EQ(w.message, "stopped on contact: joint 3, r = -6.40 N·m > θ = 6.00 "
+  EXPECT_EQ(w.message, "stopped on contact: joint 3, |r| = 6.40 N·m > θ = 6.00 "
                        "N·m (profile default); call /clear_faults");
+  const auto trip_r =
+      std::find_if(w.values.begin(), w.values.end(), [](const auto &kv) {
+        return kv.key == "last_trip_residual_nm";
+      });
+  ASSERT_NE(trip_r, w.values.end());
+  EXPECT_NE(trip_r->value.find("-6.4"), std::string::npos)
+      << trip_r->value; // signed
 
   kinova::interface::ContactState obs = s;
   obs.status.detection = kinova::ContactDetection::kObserve;

@@ -212,10 +212,11 @@ void contact_diagnostics(const ContactState &s, const std::string &detection,
     const int j = t.joint;
     char b[160];
     if (s.status.has_trip && j >= 0 && j < kinova::kNumJoints)
-      std::snprintf(b, sizeof b,
-                    "stopped on contact: joint %d, r = %.2f N·m > θ = %.2f N·m "
-                    "(profile %s); call /clear_faults",
-                    j + 1, t.r[j], t.theta[j], profile.c_str());
+      std::snprintf(
+          b, sizeof b,
+          "stopped on contact: joint %d, |r| = %.2f N·m > θ = %.2f N·m "
+          "(profile %s); call /clear_faults",
+          j + 1, std::abs(t.r[j]), t.theta[j], profile.c_str());
     else
       std::snprintf(b, sizeof b,
                     "stopped on contact (profile %s); call /clear_faults",

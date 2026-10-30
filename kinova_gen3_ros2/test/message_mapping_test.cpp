@@ -466,3 +466,26 @@ TEST(MessageMapping, APosePlanMustBeInArmMount) {
   EXPECT_TRUE(pose_plan_frame_rejection("base_link").has_value());
   EXPECT_TRUE(pose_plan_frame_rejection("/arm_mount").has_value());
 }
+
+// #11: the reason names what arrived and what was expected, and points at the
+// list that is wrong.
+TEST(MessageMapping, JointNamesRejectionNamesBothLists) {
+  const std::vector<std::string> arm = {"a1", "a2", "a3"};
+  EXPECT_EQ(joint_names_rejection(arm, arm), std::nullopt);
+  EXPECT_EQ(joint_names_rejection({"a2", "a1", "a3"}, arm),
+            std::optional<std::string>(
+                "got [a2, a1, a3], expected [a1, a2, a3] in that order"));
+  EXPECT_EQ(joint_names_rejection({}, arm),
+            std::optional<std::string>(
+                "got [], expected [a1, a2, a3] in that order"));
+
+  ExecuteJointTrajectory::Goal g;
+  g.trajectory.joint_names = arm;
+  EXPECT_EQ(goal_joint_names_rejection(g, arm), std::nullopt);
+  g.goal_tolerance.resize(3);
+  for (size_t i = 0; i < 3; ++i)
+    g.goal_tolerance[i].name = arm[2 - i];
+  const auto why = goal_joint_names_rejection(g, arm);
+  ASSERT_TRUE(why.has_value());
+  EXPECT_EQ(why->rfind("goal_tolerance names: ", 0), 0u) << *why;
+}

@@ -24,9 +24,10 @@ public:
 
   GoToPresetServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,
-                   rclcpp::CallbackGroup::SharedPtr cb_group, Registry registry)
+                   rclcpp::CallbackGroup::SharedPtr cb_group, Registry registry,
+                   std::vector<std::string> arm_joint_names)
       : PlannedMoveServer<Action>(node, "go_to_preset", router, planner,
-                                  cb_group),
+                                  cb_group, std::move(arm_joint_names)),
         registry_(std::move(registry)) {}
 
 protected:

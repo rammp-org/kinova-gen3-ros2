@@ -24,6 +24,7 @@ class C(Node):
         self.status = None
         self.rejected = False
         self.current_q = None
+        self.joint_names = None
         self.create_subscription(
             JointState, "joint_states", self._on_js, qos_profile_sensor_data
         )
@@ -34,6 +35,8 @@ class C(Node):
     def _on_js(self, m):
         if len(m.position) >= 7 and self.current_q is None:
             self.current_q = list(m.position[:7])
+            # The node maps positions by index and refuses any other names.
+            self.joint_names = list(m.name[:7])
 
     def run(self):
         self.cli.wait_for_server()
@@ -68,11 +71,13 @@ class C(Node):
         p1.positions = goal
         s = int(self.args.dur)
         p1.time_from_start = Duration(sec=s, nanosec=int((self.args.dur - s) * 1e9))
+        g.trajectory.joint_names = self.joint_names
         g.trajectory.points = [p0, p1]
         if self.args.path_tol > 0:
-            jt = JointTolerance()
-            jt.position = self.args.path_tol
-            g.path_tolerance = [jt] * 7
+            g.path_tolerance = [
+                JointTolerance(name=n, position=self.args.path_tol)
+                for n in self.joint_names
+            ]
         fut = self.cli.send_goal_async(g, feedback_callback=self.on_fb)
         rclpy.spin_until_future_complete(self, fut)
         gh = fut.result()

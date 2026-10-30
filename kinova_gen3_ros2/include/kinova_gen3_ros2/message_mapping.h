@@ -38,6 +38,22 @@ to_impedance_gains(const rammp_arm_interfaces::msg::ImpedanceGains &m);
 std::optional<std::string>
 mode_gains_rejection(uint8_t control_mode,
                      const rammp_arm_interfaces::msg::ImpedanceGains &g);
+
+// Why joint names `got` cannot be mapped onto the arm, or nullopt.
+// to_trajectory_goal maps positions and tolerances by INDEX, so `got` must be
+// exactly `arm`: the model's arm joints in chain order. Any other list, an
+// empty one included, is refused rather than remapped, because a sender in
+// another order has a configuration error (#11).
+std::optional<std::string>
+joint_names_rejection(const std::vector<std::string> &got,
+                      const std::vector<std::string> &arm);
+
+// joint_names_rejection over a whole goal: the trajectory's joint_names, and
+// the names on path_tolerance / goal_tolerance when given (empty still means
+// "guard disabled").
+std::optional<std::string>
+goal_joint_names_rejection(const ExecuteJointTrajectory::Goal &g,
+                           const std::vector<std::string> &arm);
 ExecuteJointTrajectory::Feedback
 to_feedback_msg(const kinova::interface::GoalId &id,
                 const kinova::interface::TrajectoryFeedback &fb);

@@ -22,9 +22,10 @@ public:
 
   GoToJointConfigsServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                          CuroboPlanClient &planner,
-                         rclcpp::CallbackGroup::SharedPtr cb_group)
+                         rclcpp::CallbackGroup::SharedPtr cb_group,
+                         std::vector<std::string> arm_joint_names)
       : PlannedMoveServer<Action>(node, "go_to_joint_configs", router, planner,
-                                  cb_group) {}
+                                  cb_group, std::move(arm_joint_names)) {}
 
   // The blend carries every target's speed and is executed at 1.0. A
   // top-level speed_scale here would scale it a second time.

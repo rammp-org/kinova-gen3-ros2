@@ -16,6 +16,13 @@
 #include "rammp_curobo_interfaces/action/plan_to_pose.hpp"
 namespace kinova_gen3_ros2::test {
 
+// The model's arm joints in chain order, as bringup hands them to the GoTo*
+// servers. The real planner emits these names, and so does this fake unless
+// told otherwise.
+inline const std::vector<std::string> kArmJointNames = {
+    "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6", "arm_joint_7"};
+
 // Minimal fake cuRobo planner. Hosts BOTH /rammp_curobo/plan_to_pose and
 // /rammp_curobo/plan_to_joints off the same configuration, so a test picks a
 // planning tier purely by which one it calls. succeed=true returns a canned
@@ -337,10 +344,7 @@ private:
   // header.frame_id on every plan. arm_mount by default: a planner that keeps
   // the contract. Unset mimics cuRobo, which leaves it empty.
   std::string frame_id_ = "arm_mount";
-  // The real planner's names: the model's, in chain order.
-  std::vector<std::string> joint_names_ = {
-      "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
-      "arm_joint_5", "arm_joint_6", "arm_joint_7"};
+  std::vector<std::string> joint_names_ = kArmJointNames;
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;
   rclcpp_action::Server<Blend>::SharedPtr blend_server_;

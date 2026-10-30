@@ -102,7 +102,9 @@ template <class ServerT> struct Rig {
         fake(node, /*succeed=*/true, /*n_points=*/3, /*reject=*/false,
              std::move(gate), std::move(started), /*reject_cancel=*/true),
         grp(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
-        planner(node, grp), router(dummy), server(node, router, planner, grp),
+        planner(node, grp), router(dummy),
+        server(node, router, planner, grp,
+               kinova_gen3_ros2::test::kArmJointNames),
         sup(router) {
     server.set_command_sink(&sup);
     ex.add_node(node);

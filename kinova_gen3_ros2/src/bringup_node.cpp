@@ -349,18 +349,20 @@ int main(int argc, char **argv) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, cb_group);
   // All the high-level servers share the router, planner and group, and must
   // be declared before `sup` so they outlive it (the router hands it their
-  // ports).
+  // ports). Each refuses a plan whose joint_names are not the model's arm
+  // joints in chain order, the names /joint_states carries.
+  const std::vector<std::string> arm_joints = dyn->joint_names();
   kinova_gen3_ros2::GoToEEPoseServer goto_server(node, router, planner,
-                                                 cb_group);
+                                                 cb_group, arm_joints);
   kinova_gen3_ros2::GoToJointConfigServer jc_server(node, router, planner,
-                                                    cb_group);
+                                                    cb_group, arm_joints);
   kinova_gen3_ros2::GoToPresetServer preset_server(
       node, router, planner, cb_group,
-      kinova_gen3_ros2::load_preset_registry(*node));
+      kinova_gen3_ros2::load_preset_registry(*node), arm_joints);
   kinova_gen3_ros2::GoToEEPosesServer poses_server(node, router, planner,
-                                                   cb_group);
+                                                   cb_group, arm_joints);
   kinova_gen3_ros2::GoToJointConfigsServer jcs_server(node, router, planner,
-                                                      cb_group);
+                                                      cb_group, arm_joints);
 
   // Core takes a SupervisorDeps aggregate rather than positional arguments, so
   // the mode/port wiring reads by name.

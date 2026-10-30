@@ -179,6 +179,41 @@ contact_rejection(const kinova::interface::ContactState &s) {
   return "stopped on unexpected contact" + joint + "; call /clear_faults";
 }
 
+static std::string bracketed(const std::vector<std::string> &names) {
+  std::string s;
+  for (const auto &n : names)
+    s += (s.empty() ? "" : ", ") + n;
+  return "[" + s + "]";
+}
+
+std::optional<std::string>
+joint_names_rejection(const std::vector<std::string> &got,
+                      const std::vector<std::string> &arm) {
+  if (got == arm)
+    return std::nullopt;
+  return "got " + bracketed(got) + ", expected " + bracketed(arm) +
+         " in that order";
+}
+
+std::optional<std::string>
+goal_joint_names_rejection(const ExecuteJointTrajectory::Goal &g,
+                           const std::vector<std::string> &arm) {
+  if (auto why = joint_names_rejection(g.trajectory.joint_names, arm))
+    return "trajectory joint_names: " + *why;
+  for (const auto &[field, tol] :
+       {std::pair{"path_tolerance", &g.path_tolerance},
+        std::pair{"goal_tolerance", &g.goal_tolerance}}) {
+    if (tol->empty())
+      continue;
+    std::vector<std::string> names;
+    for (const auto &t : *tol)
+      names.push_back(t.name);
+    if (auto why = joint_names_rejection(names, arm))
+      return std::string(field) + " names: " + *why;
+  }
+  return std::nullopt;
+}
+
 std::optional<std::string> speed_scale_rejection(double s) {
   if (!std::isfinite(s))
     return std::string("speed_scale must be finite");

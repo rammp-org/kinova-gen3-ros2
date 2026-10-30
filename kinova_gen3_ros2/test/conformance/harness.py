@@ -225,6 +225,11 @@ class Ctx:
         js = self.latest("joint_states", timeout=timeout, fresh=True)
         return list(js.position[:7]) if js else None
 
+    def joint_names(self, timeout=5.0):
+        """The arm's seven joint names, in the order a trajectory must use."""
+        js = self.latest("joint_states", timeout=timeout)
+        return list(js.name[:7]) if js else None
+
     def cleanup(self):
         """Leave the arm as we found it: no session, no owner, not stopped."""
         try:

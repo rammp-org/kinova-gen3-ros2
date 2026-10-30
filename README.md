@@ -75,9 +75,9 @@ Node name: **`kinova_gen3_node`**.
 Goal:
 
 ```
-trajectory_msgs/JointTrajectory  trajectory
-control_msgs/JointTolerance[]    path_tolerance      # empty => guard disabled
-control_msgs/JointTolerance[]    goal_tolerance      # empty => guard disabled
+trajectory_msgs/JointTrajectory  trajectory          # joint_names: arm_joint_1..arm_joint_7, in order
+control_msgs/JointTolerance[]    path_tolerance      # empty => guard disabled; else named as joint_names
+control_msgs/JointTolerance[]    goal_tolerance      # empty => guard disabled; else named as joint_names
 builtin_interfaces/Duration      goal_time_tolerance
 uint8   control_mode             # 0 = POSITION, 1 = IMPEDANCE
 uint8   preemption               # 0 = QUEUE,    1 = LATEST_WINS
@@ -101,10 +101,17 @@ Feedback: `desired` / `actual` / `error` (`actual` is the driver's live measured
 q — it is the real confirmation of motion) plus `fraction_complete`.
 
 **Goal validation** happens in `handle_goal` before the Supervisor sees anything.
-A goal is REJECTED if the trajectory has no points, or if any point's `positions`
-length is not exactly 7. (The mapping layer separately zero-fills / truncates as a
+A goal is REJECTED if the trajectory has no points, if any point's `positions`
+length is not exactly 7, or if `trajectory.joint_names` is not exactly the arm's
+joints in chain order: `arm_joint_1`…`arm_joint_7`, the names `/joint_states`
+carries (they come from the model). Positions are mapped by index, so a list in any
+other order, a missing or extra name, or no names at all is refused rather than
+remapped. A non-empty `path_tolerance` or `goal_tolerance` is held to the same rule
+on its `name` fields. (The mapping layer separately zero-fills / truncates as a
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
+A planned move whose cuRobo trajectory names other joints, or the same joints in
+another order, settles `PLANNING_FAILED` and is never executed.
 
 `go_to_ee_pose`, `go_to_joint_config` and `go_to_preset` describe a *goal* rather
 than a trajectory: each plans a collision-free path via the external cuRobo node

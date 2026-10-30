@@ -98,11 +98,11 @@ driver replays the goal's stored token.
 | `/acquire_control`        | `AcquireControl`       | Mints a token, or adopts the caller's non-zero `token`. **Seizes**: succeeds even if another owner holds the arm, halting their motion. Re-acquiring with the same key halts too.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `/release_control`        | `ReleaseControl`       | Refused unless the token matches the current owner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `/revoke_control`         | `RevokeControl`        | Operator recovery; needs no token                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `/open_stream`            | `OpenStream`           | Names a controller, returns the channels to publish on. `timeout_s` must be > 0. Refused with `error_code` −11 CONTACT_STOP while a contact stop is latched. A stream open at a contact stop is closed (core records the close cause as contact, not halted); `/stream_status` carries no cause, so it shows as `open=false` with `phase=LATCHED` on `/contact_monitor`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `/open_stream`            | `OpenStream`           | Names a controller, returns the channels to publish on. `timeout_s` must be > 0. Refused with `error_code` −11 CONTACT_STOP while a contact stop is latched (an arm that is not ready answers −10 first). A stream open at a contact stop is closed (core records the close cause as contact, not halted); `/stream_status` carries no cause, so it shows as `open=false` with `phase=LATCHED` on `/contact_monitor`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `/close_stream`           | `CloseStream`          | Ends the session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `/list_controllers`       | `ListControllers`      | The registry with live availability — 7 of 8 available                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `/clear_faults`           | `std_srvs/Trigger`     | Clears whatever is latched: a contact stop first, then a latched arm fault, taking the arm back into low-level servoing. One call clears both. With only a contact stop (link `running`): `success`, `contact stop cleared`, and the arm holds where it is. With a contact stop and the link `connecting`, the same reply comes back before the latch drops: it drops when the RT loop next runs (once the arm is reached), and `/contact_monitor` shows `LATCHED` until then. With a fault: answers within ~10 s, `success` only if the driver is commanding again; `message` is the resulting state and why (prefixed `contact stop cleared; ` if one was cleared too). With no outcome in 10 s it says so; the clear may still finish later (watch `Arm link`). `stopping` (at once) while the node shuts down. Refused (`not faulted (<state>)`) when nothing is latched. Needs no token. |
-| `/set_contact_thresholds` | `SetContactThresholds` | Switches the contact thresholds: `PROFILE_SENSITIVE`, `PROFILE_DEFAULT`, `PROFILE_LOOSE` (from the parameters below, `custom` empty), or `PROFILE_CUSTOM` with exactly 7 values in `custom` (N·m, joints 1..7). Holds until the next call. **Token-gated** like a goal. Refused, with `message` naming the problem and the joint and limit, for: an unknown profile, `custom` of the wrong length, a value that is not finite, ≤ 0 or above `contact_thresholds_ceiling`, or no valid token. Nothing is clamped. `profile` and `thresholds` in the response are what is active after the call, accepted or not. Refused with `contact detection not available` when `contact_detection:=off`.                                                                                                                                                                                                 |
+| `/set_contact_thresholds` | `SetContactThresholds` | Switches the contact thresholds: `PROFILE_SENSITIVE`, `PROFILE_DEFAULT`, `PROFILE_LOOSE` (from the parameters below, `custom` empty), or `PROFILE_CUSTOM` with exactly 7 values in `custom` (N·m, joints 1..7). Holds until the next call. **Token-gated** like a goal. Refused, with `message` naming the problem and the joint and limit, for: an unknown profile, `custom` of the wrong length, a value that is not finite, ≤ 0 or above `contact_thresholds_ceiling`, or no valid token. Nothing is clamped. `message` is empty when accepted. `profile` and `thresholds` in the response are what is active after the call, accepted or not. Refused with `contact detection not available` when `contact_detection:=off`; nothing is active then, so the response carries `profile` 0 (`PROFILE_DEFAULT`) and all-zero `thresholds`.                                                    |
 
 ### The arm link
 
@@ -121,11 +121,15 @@ interrupted goal. The `Arm` task goes STALE when feedback is more than 1 s old.
 ### Contact stops
 
 The driver watches a momentum observer's estimate `r` of the external torque on each
-joint (N·m). Any joint with `|r_i|` above its threshold `θ_i` for 5 consecutive RT
-cycles (5 ms) is a contact. Detection runs whenever the RT loop runs, including the
+joint (N·m). Any joint with `|r_i|` above its threshold `θ_i` for
+`contact_debounce_cycles` consecutive RT cycles (default 5, 5 ms at 1 kHz) is a
+contact. Detection runs whenever the RT loop runs, including the
 idle hold between goals: touching a still arm trips it like touching a moving one.
 After each start, and after each clear, `r` settles for `5/contact_gain` s (0.2 s)
-before anything counts (`phase=SETTLING`).
+before anything counts (`phase=SETTLING`). Nothing is monitored while the RT loop is
+not running (the link is not `running`, see [The arm link](#the-arm-link)):
+`Contact detection` and `/contact_monitor` then show the state from the end of the last
+run, `armed` included, and before the first run they read `settling`.
 
 What happens on a trip, with `contact_detection:=enforce`:
 
@@ -141,19 +145,20 @@ What happens on a trip, with `contact_detection:=enforce`:
    loss and reconnect, e-stop and ownership changes. If the arm comes back from a link
    outage still latched, it comes back in float, not the position hold.
 1. **Report.** `Contact detection` on `/diagnostics` goes ERROR:
-   `stopped on contact: joint N, |r| = x N·m > θ = y N·m (profile P); call /clear_faults`,
-   and `/contact_monitor` shows `phase=LATCHED` with the trip record.
+   `stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now P); call /clear_faults`.
+   `θ` is the threshold at the trip; `P` is the profile now, which may have changed since.
+   `/contact_monitor` shows `phase=LATCHED` with the trip record.
 1. **Clear.** `/clear_faults` clears it; the arm holds where it is now in position mode
    and never resumes the stopped goal. If someone is still pressing on the arm, it
    trips again once `r` has settled (0.2 s), which is safe.
 
-| `Contact detection` level | Message                                                         |
-| ------------------------- | --------------------------------------------------------------- |
-| OK                        | `armed (profile P)`                                             |
-| WARN                      | `settling` (for 0.2 s after a start or a clear)                 |
-| WARN                      | `observe mode: not stopping the arm`                            |
-| WARN                      | `DISABLED (contact_detection=off)`                              |
-| ERROR                     | `stopped on contact: joint N, \|r\| = … > θ = … (profile P); …` |
+| `Contact detection` level | Message                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| OK                        | `armed (profile P)`                                                             |
+| WARN                      | `settling` (for 0.2 s after a start or a clear, and until the first run)        |
+| WARN                      | `observe mode: not stopping the arm; N would-be trips, last on joint J`         |
+| WARN                      | `DISABLED (contact_detection=off)`                                              |
+| ERROR                     | `stopped on contact: joint N, \|r\| = … > θ = … at the trip (profile now P); …` |
 
 **Profiles.** The driver starts in `default`. A client expecting contact switches to a
 looser profile for that motion and back afterwards: the bite transfer, carrying a
@@ -173,6 +178,45 @@ startup and keep the `Contact detection` task at WARN for as long as the node ru
 **Blind spot.** A force along a line through the joint axes (a near-extended arm pushed
 along its length) makes almost no joint torque and is not detected.
 
+### False positives
+
+Peak `|r|` per joint with nobody touching the arm, measured on the arm in `observe` mode
+with the monitor at 1 kHz:
+
+| peak `\|r\|`, N·m               | j1   | j2   | j3   | j4   | j5   | j6   | j7   |
+| ------------------------------- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| position, speed 0.6, 2026-10-29 | 4.57 | 2.69 | 3.44 | 1.55 | 1.27 | 1.00 | 0.19 |
+| position, speed 0.6, 2026-10-30 | 2.9  | 2.6  | 1.6  | 1.4  | 0.6  | 1.2  | 0.3  |
+| position, speed 1.0             | 5.89 | 3.49 | 4.40 | 2.17 | 1.08 | 1.12 | 0.19 |
+| impedance, speed 0.6            | 1.97 | 3.48 | 0.63 | 1.65 | 0.70 | 0.94 | 0.27 |
+| impedance, speed 1.0            | 2.31 | 1.82 | 0.93 | 1.48 | 0.67 | 0.89 | 0.26 |
+| default `θ`                     | 16   | 16   | 12   | 12   | 4    | 4    | 4    |
+
+- **Still, the floor is the sensors:** σ ≤ 0.01 N·m on every joint. The force at the
+  gripper that trips at home is about 23–48 N at the default profile, depending on
+  direction, and 11–25 N at `PROFILE_SENSITIVE`.
+- **Moving, the floor is model error.** In position mode `r` grows with acceleration
+  (most likely the model's rotational inertia): about 3 N·m on j1 at speed 0.6 and
+  about 6 N·m at 1.0. The 1.0 tour gave one would-be trip at the earlier default of
+  `[8, 8, 6, 6, 2, 2, 2]` (j1 8.01 > 8), which is why that is now `sensitive` and the
+  default is doubled. Impedance mode stays under 3.5 N·m on every joint.
+- **Payloads read as external torque.** A held object's weight shows in `r` as a
+  steady offset. Switch to `PROFILE_LOOSE` around grasps and while carrying anything
+  heavier than a utensil.
+- **The position-to-float switch.** A trip from position mode (a move, or the idle
+  hold) switches the actuators to torque mode, and today that switch gives them zero
+  torque for about 160 ms, so the arm can droop before float takes over
+  ([driver#92](https://github.com/rammp-org/kinova-gen3-driver/issues/92), fixed by
+  driver PR #94, not merged yet). A trip from an impedance move is already in torque
+  mode.
+
+The full bench report, with the tap tests, is the driver's
+[contact detection bench report](https://github.com/rammp-org/kinova-gen3-driver/blob/SwapnilPande/contact-detection/docs/integration/contact_detection_bench.md).
+Open work: a fast channel to tell taps from slow model error and payloads
+([driver#111](https://github.com/rammp-org/kinova-gen3-driver/issues/111)), and the
+observer's wrench on `/ee_state`
+([driver#112](https://github.com/rammp-org/kinova-gen3-driver/issues/112)).
+
 ## Parameters
 
 | Name                           | Default                                   | Meaning                                                                                                                                                                        |
@@ -183,15 +227,16 @@ along its length) makes almost no joint torque and is not detected.
 | `contact_detection`            | `enforce`                                 | `enforce`, `observe` or `off`. See [Contact stops](#contact-stops). **Read-only at launch**, like every `contact_*` and `float_*` parameter.                                   |
 | `contact_gain`                 | `25.0`                                    | Observer gain `K`, rad/s. Settling after a start or clear is `5/K` s.                                                                                                          |
 | `contact_debounce_cycles`      | `5`                                       | Consecutive RT cycles over `θ` that make a trip.                                                                                                                               |
-| `contact_thresholds_sensitive` | `[4.0, 4.0, 3.0, 3.0, 1.2, 1.2, 1.2]`     | `PROFILE_SENSITIVE`, N·m, joints 1..7.                                                                                                                                         |
-| `contact_thresholds_default`   | `[8.0, 8.0, 6.0, 6.0, 2.0, 2.0, 2.0]`     | `PROFILE_DEFAULT`, active at start.                                                                                                                                            |
-| `contact_thresholds_loose`     | `[20.0, 20.0, 15.0, 15.0, 5.0, 5.0, 5.0]` | `PROFILE_LOOSE`.                                                                                                                                                               |
+| `contact_thresholds_sensitive` | `[8.0, 8.0, 6.0, 6.0, 2.0, 2.0, 2.0]`     | `PROFILE_SENSITIVE`, N·m, joints 1..7.                                                                                                                                         |
+| `contact_thresholds_default`   | `[16.0, 16.0, 12.0, 12.0, 4.0, 4.0, 4.0]` | `PROFILE_DEFAULT`, active at start.                                                                                                                                            |
+| `contact_thresholds_loose`     | `[24.0, 24.0, 18.0, 18.0, 6.0, 6.0, 6.0]` | `PROFILE_LOOSE`.                                                                                                                                                               |
 | `contact_thresholds_ceiling`   | `[30.0, 30.0, 22.0, 22.0, 7.0, 7.0, 7.0]` | Per-joint upper bound on every profile and every custom value.                                                                                                                 |
 | `float_damping`                | `[5.0, 5.0, 5.0, 5.0, 1.5, 1.5, 1.5]`     | Float-mode joint damping `D`, N·m·s/rad.                                                                                                                                       |
 | `float_spring`                 | `[28.6, 28.6, 28.6, 28.6, 8.6, 8.6, 8.6]` | Float-mode anchor spring `K_s`, N·m/rad.                                                                                                                                       |
 | `float_drag_band_deg`          | `2.0`                                     | How far the float anchor trails the arm, deg.                                                                                                                                  |
 
-The thresholds are starting values, to be tuned on the arm. Every array must have
+The thresholds come from the 2026-10-30 push tests (see
+[False positives](#false-positives)) and are still being tuned on the arm. Every array must have
 exactly 7 entries, and every threshold must be finite, > 0 and ≤ the ceiling; anything
 else is fatal at startup (the node logs which parameter and joint and exits 1). Write
 array entries as floats (`8.0`, not `8`): a YAML integer array is a type error.

@@ -88,10 +88,11 @@ Cross-check the final `measured_j6` ≈ start+0.10.
 The node starts with `contact_detection: enforce, default θ = [...] N·m, ceiling [...]`
 in its log. Any other mode also logs a WARN. Check that line before moving the arm.
 
-A contact stop looks like this: the arm goes limp and stays where it is pushed, with no
-drift. The goal settles `error_code=-11` (`halted: unexpected contact`), and
+A contact stop looks like this: the arm goes limp and stays where it is pushed. From
+position mode it can first droop for about 160 ms while the actuators switch to torque
+mode (driver#92); after that there is no drift. The goal settles `error_code=-11` (`halted: unexpected contact`), and
 `Contact detection` on `/diagnostics` reads ERROR
-`stopped on contact: joint N, |r| = x N·m > θ = y N·m (profile P); call /clear_faults`.
+`stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now P); call /clear_faults`.
 Goals, stream opens and gripper setpoints are refused until it is cleared.
 
 1. **Make it safe first.** The arm is floating, not holding. Do not lean on it, and

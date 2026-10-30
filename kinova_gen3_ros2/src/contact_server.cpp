@@ -12,8 +12,11 @@ using Msg = ContactServer::ContactMonitorStateMsg;
 using Req = ContactServer::SetContactThresholds::Request;
 
 // The wire profile bytes are core's enum values.
+static_assert(static_cast<int>(ContactProfile::kDefault) ==
+              Req::PROFILE_DEFAULT);
 static_assert(static_cast<int>(ContactProfile::kSensitive) ==
               Req::PROFILE_SENSITIVE);
+static_assert(static_cast<int>(ContactProfile::kLoose) == Req::PROFILE_LOOSE);
 static_assert(static_cast<int>(ContactProfile::kCustom) == Req::PROFILE_CUSTOM);
 
 namespace {
@@ -87,11 +90,11 @@ std::optional<std::string>
 to_contact_request(const Req &req,
                    kinova::interface::ContactThresholdsRequest &out) {
   switch (req.profile) {
-  case Req::PROFILE_SENSITIVE:
-    out.profile = ContactProfile::kSensitive;
-    break;
   case Req::PROFILE_DEFAULT:
     out.profile = ContactProfile::kDefault;
+    break;
+  case Req::PROFILE_SENSITIVE:
+    out.profile = ContactProfile::kSensitive;
     break;
   case Req::PROFILE_LOOSE:
     out.profile = ContactProfile::kLoose;
@@ -101,7 +104,7 @@ to_contact_request(const Req &req,
     break;
   default:
     return "unknown profile " + std::to_string(req.profile) +
-           ": expected PROFILE_SENSITIVE (0), PROFILE_DEFAULT (1), "
+           ": expected PROFILE_DEFAULT (0), PROFILE_SENSITIVE (1), "
            "PROFILE_LOOSE (2) or PROFILE_CUSTOM (3)";
   }
   const size_t n = req.custom.size();

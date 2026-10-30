@@ -198,6 +198,16 @@ TEST_F(ContactServerTest, AppliesNamedProfile) {
   EXPECT_TRUE(res->accepted) << res->message;
   EXPECT_EQ(res->profile, Srv::Request::PROFILE_CUSTOM);
   EXPECT_EQ(to_std(res->thresholds), custom);
+
+  // A request that never sets `profile` sends 0: the default profile, not the
+  // most sensitive one.
+  res = r.call(Srv::Request().profile, {});
+  ASSERT_TRUE(res);
+  EXPECT_TRUE(res->accepted) << res->message;
+  EXPECT_EQ(res->profile, Srv::Request::PROFILE_DEFAULT);
+  EXPECT_EQ(to_std(res->thresholds), to_std(r.sink.profiles.normal));
+  EXPECT_EQ(r.sink.sets.back().profile,
+            kinova::interface::ContactProfile::kDefault);
 }
 
 TEST_F(ContactServerTest, PublishesState) {

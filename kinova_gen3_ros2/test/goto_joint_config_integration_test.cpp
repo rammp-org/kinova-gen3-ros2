@@ -147,6 +147,66 @@ TEST_F(GotoJointConfigTest, AGoalWhileContactLatchedIsRefusedBeforePlanning) {
   EXPECT_FALSE(sup.got_goal);
 }
 
+// A contact trips while the goal is still planning: the Supervisor refuses the
+// planned trajectory, and the goal ends -11 CONTACT_STOP with the contact
+// reason, not -1 INVALID_GOAL.
+TEST_F(GotoJointConfigTest, AContactWhilePlanningEndsContactStop) {
+  auto node = std::make_shared<rclcpp::Node>("goto_jc_contact_planning");
+  auto started = std::make_shared<std::promise<void>>();
+  auto started_future = started->get_future();
+  std::promise<void> release;
+  kinova_gen3_ros2::test::FakeCuroboServer fake(
+      node, /*succeed=*/true, /*n_points=*/3, /*reject=*/false,
+      release.get_future().share(), started);
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  sup.contact.enabled = true;
+  sup.contact.status.phase = kinova::ContactPhase::kArmed;
+  server.set_command_sink(&sup);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
+
+  // The fake planner blocks the default group: the client gets its own.
+  auto client_grp =
+      node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  auto client = rclcpp_action::create_client<GoToJointConfig>(
+      node, "go_to_joint_config", client_grp);
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  GoToJointConfig::Goal goal;
+  goal.target_joints = kTarget;
+  std::promise<std::pair<int, std::string>> result;
+  auto result_future = result.get_future();
+  rclcpp_action::Client<GoToJointConfig>::SendGoalOptions opts;
+  opts.result_callback =
+      [&](const rclcpp_action::ClientGoalHandle<GoToJointConfig>::WrappedResult
+              &wr) {
+        result.set_value(wr.result ? std::make_pair(wr.result->error_code,
+                                                    wr.result->error_string)
+                                   : std::make_pair(kNoResult, std::string()));
+      };
+  auto gh_future = client->async_send_goal(goal, opts);
+  ASSERT_EQ(gh_future.wait_for(5s), std::future_status::ready);
+  ASSERT_NE(gh_future.get(), nullptr) << "accepted: nothing latched yet";
+  ASSERT_EQ(started_future.wait_for(5s), std::future_status::ready);
+
+  // The trip, while planning: latched, and the Supervisor refuses new work.
+  sup.contact.status.phase = kinova::ContactPhase::kLatched;
+  sup.contact.status.has_trip = true;
+  sup.contact.status.last.joint = 1;
+  sup.accept = false;
+  release.set_value();
+
+  ASSERT_EQ(result_future.wait_for(8s), std::future_status::ready);
+  const auto [code, why] = result_future.get();
+  EXPECT_EQ(code, result_code::kContactStop);
+  EXPECT_NE(why.find("unexpected contact (joint 2)"), std::string::npos) << why;
+}
+
 TEST_F(GotoJointConfigTest, SpeedScaleReachesTheTrajectoryGoal) {
   auto node = std::make_shared<rclcpp::Node>("goto_jc_speed");
   kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true,

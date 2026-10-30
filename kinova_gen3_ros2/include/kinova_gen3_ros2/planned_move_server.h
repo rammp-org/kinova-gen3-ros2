@@ -226,6 +226,7 @@ private:
   }
 
   void on_plan_done(GoalId id, CuroboPlanClient::Outcome outcome) {
+    using kinova::interface::result_code::kContactStop;
     using kinova::interface::result_code::kInvalidGoal;
     using kinova::interface::result_code::kPlanningFailed;
     using kinova::interface::result_code::kPreempted;
@@ -294,7 +295,13 @@ private:
 
     if (sink_->on_trajectory_goal(tg) !=
         kinova::interface::GoalResponse::kAccept) {
-      settle_local(gh, kInvalidGoal, "supervisor rejected planned trajectory");
+      // A contact stop that latched while the goal was planning: say so, with
+      // its own code, rather than a bare invalid goal.
+      if (auto why = contact_rejection(sink_->on_query_contact()))
+        settle_local(gh, kContactStop, *why);
+      else
+        settle_local(gh, kInvalidGoal,
+                     "supervisor rejected planned trajectory");
       erase(id);
       return;
     }

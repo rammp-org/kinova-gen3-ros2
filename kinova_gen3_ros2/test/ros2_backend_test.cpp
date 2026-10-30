@@ -17,8 +17,17 @@ using namespace std::chrono_literals;
 using Action = rammp_arm_interfaces::action::ExecuteJointTrajectory;
 
 namespace {
+const std::vector<std::string> kJointNames = {
+    "arm_joint_1", "arm_joint_2",
+    "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6",
+    "arm_joint_7", "arm_robotiq_85_left_knuckle_joint"};
+const std::vector<std::string> kArmJoints(kJointNames.begin(),
+                                          kJointNames.end() - 1);
+
 Action::Goal one_point_goal(double speed_scale) {
   Action::Goal g;
+  g.trajectory.joint_names = kArmJoints;
   trajectory_msgs::msg::JointTrajectoryPoint p;
   p.positions.assign(kinova::kNumJoints, 0.0);
   p.time_from_start.sec = 1;
@@ -26,12 +35,6 @@ Action::Goal one_point_goal(double speed_scale) {
   g.speed_scale = speed_scale;
   return g;
 }
-
-const std::vector<std::string> kJointNames = {
-    "arm_joint_1", "arm_joint_2",
-    "arm_joint_3", "arm_joint_4",
-    "arm_joint_5", "arm_joint_6",
-    "arm_joint_7", "arm_robotiq_85_left_knuckle_joint"};
 } // namespace
 
 class Ros2BackendTest : public ::testing::Test {
@@ -45,7 +48,7 @@ protected:
 // Returns true if the server accepted the goal. A missing server or a goal
 // response that never came FAILS the test rather than returning false, so
 // "refused" cannot be satisfied by a dead server.
-static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
+static bool send(const rclcpp::Node::SharedPtr &node, const Action::Goal &g) {
   auto client =
       rclcpp_action::create_client<Action>(node, "execute_joint_trajectory");
   rclcpp::executors::SingleThreadedExecutor ex;
@@ -54,13 +57,72 @@ static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
     ADD_FAILURE() << "execute_joint_trajectory server never appeared";
     return false;
   }
-  auto fut = client->async_send_goal(one_point_goal(speed_scale));
+  auto fut = client->async_send_goal(g);
   if (ex.spin_until_future_complete(fut, 5s) !=
       rclcpp::FutureReturnCode::SUCCESS) {
     ADD_FAILURE() << "no goal response within 5 s";
     return false;
   }
   return fut.get() != nullptr;
+}
+
+static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
+  return send(node, one_point_goal(speed_scale));
+}
+
+// Issue #11: positions are mapped by index, so joint_names must be the arm's
+// joints in chain order. Any other list, none included, is refused before the
+// sink rather than mapped onto the wrong joints.
+TEST_F(Ros2BackendTest, JointNamesOtherThanTheArmsInOrderAreRefused) {
+  auto node = std::make_shared<rclcpp::Node>("backend_names_bad");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  std::vector<std::string> reversed(kArmJoints.rbegin(), kArmJoints.rend());
+  std::vector<std::string> swapped = kArmJoints;
+  std::swap(swapped[0], swapped[1]);
+  std::vector<std::string> six(kArmJoints.begin(), kArmJoints.end() - 1);
+  std::vector<std::string> eight = kJointNames; // the gripper joint too
+  std::vector<std::string> bare = {"joint_1", "joint_2", "joint_3", "joint_4",
+                                   "joint_5", "joint_6", "joint_7"};
+  for (const auto &names :
+       {reversed, swapped, six, eight, bare, std::vector<std::string>{}}) {
+    auto g = one_point_goal(1.0);
+    g.trajectory.joint_names = names;
+    EXPECT_FALSE(send(node, g)) << names.size() << " names";
+    EXPECT_FALSE(sup.got_goal) << names.size() << " names";
+  }
+}
+
+// Tolerances are mapped by index too, so a named tolerance list must name the
+// arm's joints in order. An empty list still means "guard disabled".
+TEST_F(Ros2BackendTest, ToleranceNamesOtherThanTheArmsInOrderAreRefused) {
+  auto node = std::make_shared<rclcpp::Node>("backend_tol_names");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  std::vector<control_msgs::msg::JointTolerance> tol(kArmJoints.size());
+  for (size_t i = 0; i < tol.size(); ++i) {
+    tol[i].name = kArmJoints[kArmJoints.size() - 1 - i]; // reversed
+    tol[i].position = 0.1 * static_cast<double>(i + 1);
+  }
+  auto path = one_point_goal(1.0);
+  path.path_tolerance = tol;
+  EXPECT_FALSE(send(node, path));
+  auto goal = one_point_goal(1.0);
+  goal.goal_tolerance = tol;
+  EXPECT_FALSE(send(node, goal));
+  EXPECT_FALSE(sup.got_goal);
+
+  for (size_t i = 0; i < tol.size(); ++i)
+    tol[i].name = kArmJoints[i];
+  auto ok = one_point_goal(1.0);
+  ok.path_tolerance = tol;
+  ok.goal_tolerance = tol;
+  EXPECT_TRUE(send(node, ok));
+  ASSERT_TRUE(sup.got_goal);
+  EXPECT_DOUBLE_EQ(sup.last_goal.path_tolerance[0], 0.1);
+  EXPECT_DOUBLE_EQ(sup.last_goal.goal_tolerance[6], 0.7);
 }
 
 TEST_F(Ros2BackendTest, ABadSpeedScaleIsRefusedBeforeTheSink) {

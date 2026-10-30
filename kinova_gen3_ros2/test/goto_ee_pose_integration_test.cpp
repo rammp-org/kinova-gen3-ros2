@@ -379,6 +379,35 @@ TEST_F(GotoServerTest, PlanSuccessWithMalformedWidthSettlesPlanningFailed) {
   spin.join();
 }
 
+// Issue #11: positions are mapped by index, so a plan whose joint_names come in
+// another order (a reordered planner config) would drive the wrong joints. It
+// is refused, never executed.
+TEST_F(GotoServerTest, PlanInAnotherJointOrderSettlesPlanningFailed) {
+  auto node = std::make_shared<rclcpp::Node>("goto_names");
+  kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/true);
+  fake.set_joint_names({"arm_joint_2", "arm_joint_1", "arm_joint_3",
+                        "arm_joint_4", "arm_joint_5", "arm_joint_6",
+                        "arm_joint_7"});
+  auto grp = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
+  DummyPort dummy;
+  kinova_gen3_ros2::GoalRouter router(dummy);
+  kinova_gen3_ros2::GoToEEPoseServer server(node, router, planner, grp);
+  FakeSupervisor sup(router);
+  server.set_command_sink(&sup);
+
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  std::thread spin([&] { ex.spin(); });
+
+  const int code = send_and_get_code(node, "arm_mount");
+  EXPECT_EQ(code, result_code::kPlanningFailed);
+  EXPECT_FALSE(sup.got_goal);
+
+  ex.cancel();
+  spin.join();
+}
+
 TEST_F(GotoServerTest, PlanFailureSettlesPlanningFailed) {
   auto node = std::make_shared<rclcpp::Node>("goto_it2");
   kinova_gen3_ros2::test::FakeCuroboServer fake(node, /*succeed=*/false);

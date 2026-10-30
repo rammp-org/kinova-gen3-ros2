@@ -19,7 +19,7 @@ namespace kinova_gen3_ros2::test {
 // Minimal fake cuRobo planner. Hosts BOTH /rammp_curobo/plan_to_pose and
 // /rammp_curobo/plan_to_joints off the same configuration, so a test picks a
 // planning tier purely by which one it calls. succeed=true returns a canned
-// n-point joint_1..7 trajectory; succeed=false aborts with a message.
+// n-point arm_joint_1..7 trajectory; succeed=false aborts with a message.
 // reject=true rejects the goal outright (goal_response_callback sees a null
 // handle).
 //
@@ -65,6 +65,10 @@ public:
 
   // The frame the fake says it planned in. Set before any goal is sent.
   void set_frame_id(std::string f) { frame_id_ = std::move(f); }
+  // The joint_names every plan carries. Set before any goal is sent.
+  void set_joint_names(std::vector<std::string> n) {
+    joint_names_ = std::move(n);
+  }
   // The n-th plan goal executed (1-based, either tier) aborts. Set before any
   // goal is sent.
   void set_fail_plan_number(int n) { fail_plan_number_ = n; }
@@ -237,9 +241,7 @@ private:
     result->success = true;
     result->message = "fake plan ok";
     result->trajectory.header.frame_id = frame_id_;
-    result->trajectory.joint_names = {"joint_1", "joint_2", "joint_3",
-                                      "joint_4", "joint_5", "joint_6",
-                                      "joint_7"};
+    result->trajectory.joint_names = joint_names_;
     for (int k = 0; k < (nth == empty_plan_number_ ? 0 : n_points_); ++k) {
       trajectory_msgs::msg::JointTrajectoryPoint p;
       p.positions.assign((bad_width_ && k == 0) ? 4 : 7, 0.01 * k);
@@ -335,6 +337,10 @@ private:
   // header.frame_id on every plan. arm_mount by default: a planner that keeps
   // the contract. Unset mimics cuRobo, which leaves it empty.
   std::string frame_id_ = "arm_mount";
+  // The real planner's names: the model's, in chain order.
+  std::vector<std::string> joint_names_ = {
+      "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
+      "arm_joint_5", "arm_joint_6", "arm_joint_7"};
   rclcpp_action::Server<PlanToPose>::SharedPtr server_;
   rclcpp_action::Server<PlanToJoints>::SharedPtr joints_server_;
   rclcpp_action::Server<Blend>::SharedPtr blend_server_;

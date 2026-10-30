@@ -90,8 +90,8 @@ Result: `error_code` (`SUCCESSFUL=0`, `INVALID_GOAL=-1`, `PATH_TOLERANCE_VIOLATE
 
 `preemption`: on an idle arm, `QUEUE` and `LATEST_WINS` both start the goal.
 While another goal is running, `LATEST_WINS` replaces it (it settles `PREEMPTED`),
-but **queueing is disabled**: a `QUEUE` goal settles `INVALID_GOAL` ("queueing is
-disabled: …") and the running goal carries on. To chain motions, wait for the goal to
+but **queueing is disabled**: a `QUEUE` goal is accepted, then aborted at once with
+`INVALID_GOAL` ("queueing is disabled: …"), and the running goal carries on. To chain motions, wait for the goal to
 finish, preempt it, or plan one goal through all the waypoints (driver
 [#84](https://github.com/rammp-org/kinova-gen3-driver/issues/84)).
 

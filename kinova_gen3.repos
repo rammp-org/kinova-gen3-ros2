@@ -41,10 +41,12 @@ repositories:
   RAMMP-CuRobo:
     type: git
     url: https://github.com/rammp-org/RAMMP-CuRobo.git
-    # v1.1.0: PlanToPose carries hold/approach_via, which this branch compiles
-    # against. Goes together with rammp-interfaces-ros2 v1.1.0, which arrives
-    # via the rammp-base 1.1.0-jp6 image -- see the Dockerfile FROM.
-    version: v1.1.0
+    # 0c64379: dev with #48 merged, the Blend action GoToEEPoses /
+    # GoToJointConfigs compile against. Moves to the release containing #48
+    # when it is cut. (v1.1.0: PlanToPose carries hold/approach_via. Goes
+    # together with rammp-interfaces-ros2 v1.1.0, which arrives via the
+    # rammp-base 1.1.0-jp6 image -- see the Dockerfile FROM.)
+    version: 0c64379fe5395a51276a9600d6caec29ceaaa03c
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # Builds must scope colcon with --packages-up-to kinova_gen3_ros2 so the GPU
     # packages are skipped.

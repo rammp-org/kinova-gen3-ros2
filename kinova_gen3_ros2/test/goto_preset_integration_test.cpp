@@ -64,8 +64,9 @@ TEST_F(GotoPresetTest, KnownPresetPlansAndSucceeds) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToPresetServer server(node, router, planner, grp,
-                                            test_registry());
+  kinova_gen3_ros2::GoToPresetServer server(
+      node, router, planner, grp, test_registry(),
+      kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -89,8 +90,9 @@ TEST_F(GotoPresetTest, UnknownPresetIsRejected) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToPresetServer server(node, router, planner, grp,
-                                            test_registry());
+  kinova_gen3_ros2::GoToPresetServer server(
+      node, router, planner, grp, test_registry(),
+      kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -110,8 +112,9 @@ TEST_F(GotoPresetTest, SpeedScaleReachesTheTrajectoryGoal) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToPresetServer server(node, router, planner, grp,
-                                            test_registry());
+  kinova_gen3_ros2::GoToPresetServer server(
+      node, router, planner, grp, test_registry(),
+      kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
   rclcpp::executors::MultiThreadedExecutor ex;
@@ -130,8 +133,9 @@ TEST_F(GotoPresetTest, AnUnusableSpeedScaleIsRefused) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToPresetServer server(node, router, planner, grp,
-                                            test_registry());
+  kinova_gen3_ros2::GoToPresetServer server(
+      node, router, planner, grp, test_registry(),
+      kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
   rclcpp::executors::MultiThreadedExecutor ex;

@@ -71,6 +71,12 @@ Ros2Backend::handle_goal(const rclcpp_action::GoalUUID &,
       return rclcpp_action::GoalResponse::REJECT;
     }
   }
+  // Positions and tolerances are mapped by index, so a goal naming its joints
+  // in any other order would drive the wrong ones (#11).
+  if (auto why = goal_joint_names_rejection(*goal, arm_joint_names_)) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
   // The driver's Supervisor refuses a bad speed_scale silently; refuse it here
   // instead so the reason reaches the node log, as for the GoTo* actions.
   if (auto why = speed_scale_rejection(goal->speed_scale)) {

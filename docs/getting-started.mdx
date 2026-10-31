@@ -97,7 +97,8 @@ tracks them. Seed waypoint 0 from where the arm *is*, then move one joint a litt
 ```sh
 ros2 action send_goal /execute_joint_trajectory \
   rammp_arm_interfaces/action/ExecuteJointTrajectory \
-  "{trajectory: {points: [
+  "{trajectory: {joint_names: [arm_joint_1, arm_joint_2, arm_joint_3, arm_joint_4,
+      arm_joint_5, arm_joint_6, arm_joint_7], points: [
       {positions: [0,0.26,3.14,-2.27,0,0.96,1.57], time_from_start: {sec: 0}},
       {positions: [0,0.26,3.14,-2.27,0,1.21,1.57], time_from_start: {sec: 3}}
     ]}, control_mode: 0, preemption: 1}" --feedback

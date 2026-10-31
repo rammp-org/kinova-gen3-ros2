@@ -6,6 +6,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "kinova_gen3_ros2/curobo_plan_client.h"
@@ -48,8 +49,10 @@ public:
   PlannedMoveServer(rclcpp::Node::SharedPtr node,
                     const std::string &action_name, GoalRouter &router,
                     CuroboPlanClient &planner,
-                    rclcpp::CallbackGroup::SharedPtr cb_group)
-      : planner_(planner), node_(node), router_(router) {
+                    rclcpp::CallbackGroup::SharedPtr cb_group,
+                    std::vector<std::string> arm_joint_names)
+      : planner_(planner), node_(node), router_(router),
+        arm_joint_names_(std::move(arm_joint_names)) {
     using std::placeholders::_1;
     using std::placeholders::_2;
     server_ = rclcpp_action::create_server<ActionT>(
@@ -324,6 +327,17 @@ private:
         return;
       }
     }
+    // Mapped by index, like the width: a planner whose joint order changed
+    // (cuRobo's is config-driven) would otherwise drive the wrong joints (#11).
+    if (auto why = joint_names_rejection(outcome.trajectory.joint_names,
+                                         arm_joint_names_)) {
+      const std::string msg =
+          "planner returned malformed trajectory: joint_names: " + *why;
+      RCLCPP_ERROR(node_->get_logger(), "%s", msg.c_str());
+      settle_local(gh, kPlanningFailed, msg);
+      erase(id);
+      return;
+    }
 
     // Impedance GoTo = plan with cuRobo exactly as a position GoTo, execute
     // the plan compliantly. Only the execution mode and its gains change.
@@ -416,6 +430,8 @@ private:
   }
 
   GoalRouter &router_;
+  // The model's arm joints in chain order: what a plan's joint_names must be.
+  std::vector<std::string> arm_joint_names_;
   kinova::interface::CommandSink *sink_ = nullptr;
   typename rclcpp_action::Server<ActionT>::SharedPtr server_;
   // cancel_requested latches a cancel that arrived before the supervisor owned

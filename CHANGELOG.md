@@ -29,6 +29,17 @@
 
 ### Changed (breaking)
 
+- **Trajectory `joint_names` are checked, not ignored** (#11). Positions and
+  tolerances are mapped by index, so an `execute_joint_trajectory` goal whose
+  `joint_names` are not exactly `arm_joint_1`…`arm_joint_7` in order is rejected,
+  and so is one with no names. A non-empty `path_tolerance` or `goal_tolerance` must
+  name the same joints in the same order, so unnamed tolerances are refused too. A
+  planned move whose cuRobo trajectory names other joints, or the same joints in another
+  order, settles `PLANNING_FAILED` and is never executed. **Every GoTo action now needs
+  RAMMP-CuRobo with #38**, whose plans carry `arm_joint_1`…`arm_joint_7`; with
+  RAMMP-CuRobo v1.1.0 or earlier, which carry `joint_1`…`joint_7`, every GoTo goal
+  settles `PLANNING_FAILED`. Clients sending `joint_1`…`joint_7` (arm-examples,
+  RAMMP-generalized's `make_ros_goal`, microwave-playground) are now refused.
 - **The arm's model is rendered at launch from the robot's `mount.yaml` and published
   on `/arm/robot_description`** (latched). `description.launch.py` and
   `bringup.launch.py` require `mount_file` and have no default. The build no longer
@@ -60,7 +71,8 @@
   settles `PLANNING_FAILED` naming it, instead of moving the arm by the tilt. Today's
   cuRobo plans in its own arm base and leaves the frame unset, so on flatbot pose goals
   are refused until RAMMP-CuRobo plans in `arm_mount` and stamps it. Level mounts (dojo)
-  and joint-space goals are unaffected.
+  and joint-space goals are unaffected by this check, but #11 (above) makes every GoTo
+  goal need that RAMMP-CuRobo.
 - The node logs the model it uses at startup (`model from /arm/robot_description: mount tilt N deg ...`, read from the model), and an ERROR whenever a different model is
   published on the topic later; it keeps the startup one until restarted.
 - `/arm/robot_description` is a required subscription in the driver's fragment and in

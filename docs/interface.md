@@ -87,6 +87,11 @@ A goal stopped by an unexpected contact settles `-11` CONTACT_STOP (`halted: une
 moves again. While a contact stop is latched, new goals are rejected outright and the
 node log says why (`rejecting goal: stopped on unexpected contact (joint N); call /clear_faults`). See [Contact stops](#contact-stops).
 
+An `execute_joint_trajectory` goal must name its joints `arm_joint_1`…`arm_joint_7`
+in `trajectory.joint_names`, in that order (the names `/joint_states` carries), and
+a non-empty `path_tolerance` or `goal_tolerance` must name them the same way.
+Positions are mapped by index, so any other list, an empty one included, is refused.
+
 Under `arbitration_mode:=enforced`, every goal carries a token from
 `/acquire_control`; an untokened goal is refused. A cancel carries no payload, so the
 driver replays the goal's stored token.

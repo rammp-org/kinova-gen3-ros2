@@ -45,6 +45,7 @@ def _goal(ctx, session_token, speed_scale, duration=BASE_DURATION):
     target[JOINT] += DELTA
     g = ExecuteJointTrajectory.Goal()
     g.trajectory = JointTrajectory()
+    g.trajectory.joint_names = ctx.joint_names()
     for frac in (0.0, 1.0):
         p = JointTrajectoryPoint()
         p.positions = q if frac == 0.0 else target

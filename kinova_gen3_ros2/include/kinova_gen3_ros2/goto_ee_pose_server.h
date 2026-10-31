@@ -16,9 +16,10 @@ public:
 
   GoToEEPoseServer(rclcpp::Node::SharedPtr node, GoalRouter &router,
                    CuroboPlanClient &planner,
-                   rclcpp::CallbackGroup::SharedPtr cb_group)
+                   rclcpp::CallbackGroup::SharedPtr cb_group,
+                   std::vector<std::string> arm_joint_names)
       : PlannedMoveServer<Action>(node, "go_to_ee_pose", router, planner,
-                                  cb_group) {}
+                                  cb_group, std::move(arm_joint_names)) {}
 
 protected:
   std::optional<std::string>

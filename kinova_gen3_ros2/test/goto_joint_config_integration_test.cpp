@@ -67,7 +67,8 @@ TEST_F(GotoJointConfigTest, PlanSuccessDrivesTrajectoryAndSucceeds) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -88,7 +89,8 @@ TEST_F(GotoJointConfigTest, PlanFailureSettlesPlanningFailed) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -110,7 +112,8 @@ TEST_F(GotoJointConfigTest, NonFiniteTargetIsRejected) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
 
@@ -134,7 +137,8 @@ TEST_F(GotoJointConfigTest, AGoalWhileContactLatchedIsRefusedBeforePlanning) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   sup.contact.enabled = true;
   sup.contact.status.phase = kinova::ContactPhase::kLatched;
@@ -162,7 +166,8 @@ TEST_F(GotoJointConfigTest, AContactWhilePlanningEndsContactStop) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   sup.contact.enabled = true;
   sup.contact.status.phase = kinova::ContactPhase::kArmed;
@@ -216,7 +221,8 @@ TEST_F(GotoJointConfigTest, SpeedScaleReachesTheTrajectoryGoal) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
   rclcpp::executors::MultiThreadedExecutor ex;
@@ -237,7 +243,8 @@ TEST_F(GotoJointConfigTest, ImpedanceModeAndGainsReachTheTrajectoryGoal) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
   rclcpp::executors::MultiThreadedExecutor ex;
@@ -266,7 +273,8 @@ TEST_F(GotoJointConfigTest, GainsOnAPositionGoalAreRefused) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
   rclcpp::executors::MultiThreadedExecutor ex;
@@ -288,7 +296,8 @@ TEST_F(GotoJointConfigTest, AnUnusableSpeedScaleIsRefused) {
   kinova_gen3_ros2::CuroboPlanClient planner(node, grp);
   DummyPort dummy;
   kinova_gen3_ros2::GoalRouter router(dummy);
-  kinova_gen3_ros2::GoToJointConfigServer server(node, router, planner, grp);
+  kinova_gen3_ros2::GoToJointConfigServer server(
+      node, router, planner, grp, kinova_gen3_ros2::test::kArmJointNames);
   FakeSupervisor sup(router);
   server.set_command_sink(&sup);
   rclcpp::executors::MultiThreadedExecutor ex;

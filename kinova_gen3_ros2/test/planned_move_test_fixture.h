@@ -2,6 +2,7 @@
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_lowlevel/interface/ports.h"
+#include "spin_thread.h"
 
 // Shared harness for the PlannedMoveServer-based integration tests
 // (GoToJointConfig, GoToPreset). goto_ee_pose_integration_test deliberately
@@ -88,24 +89,4 @@ struct DummyPort : public kinova::interface::ActionServerPort {
                    const kinova::interface::TrajectoryFeedback &) override {}
   void settle(const kinova::interface::GoalId &,
               const kinova::interface::TrajectoryResult &) override {}
-};
-
-// Spins an executor on a background thread and always cancels + joins it, so an
-// early return from a failed ASSERT_* cannot destroy a joinable thread (which
-// calls std::terminate and replaces the gtest diagnostic with a bare SIGABRT).
-class SpinThread {
-public:
-  explicit SpinThread(rclcpp::Executor &ex)
-      : ex_(ex), t_([&ex] { ex.spin(); }) {}
-  ~SpinThread() {
-    ex_.cancel();
-    if (t_.joinable())
-      t_.join();
-  }
-  SpinThread(const SpinThread &) = delete;
-  SpinThread &operator=(const SpinThread &) = delete;
-
-private:
-  rclcpp::Executor &ex_;
-  std::thread t_;
 };

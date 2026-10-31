@@ -20,6 +20,7 @@
 #include "fake_contact_sink.h"
 #include "fake_gripper_sink.h"
 #include "fake_stream_sink.h"
+#include "spin_thread.h"
 
 using namespace std::chrono_literals;
 using diagnostic_msgs::msg::DiagnosticStatus;
@@ -44,7 +45,7 @@ struct Rig {
   rclcpp::Node::SharedPtr node, client_node;
   std::unique_ptr<ContactServer> server;
   rclcpp::executors::MultiThreadedExecutor ex;
-  std::thread spin;
+  std::unique_ptr<SpinThread> spin; // last: stops before anything it spins
 
   explicit Rig(const std::string &name, std::string detection = "enforce",
                bool debug_topic = false) {
@@ -54,12 +55,7 @@ struct Rig {
     server = std::make_unique<ContactServer>(node, arb, std::move(detection),
                                              debug_topic, kArmJoints);
     ex.add_node(node);
-    spin = std::thread([this] { ex.spin(); });
-  }
-  ~Rig() {
-    ex.cancel();
-    if (spin.joinable())
-      spin.join();
+    spin = std::make_unique<SpinThread>(ex);
   }
   std::shared_ptr<Srv::Response>
   call(uint8_t profile, std::vector<double> custom, bool with_token = true) {

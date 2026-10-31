@@ -167,15 +167,16 @@ TEST_F(GotoJointConfigTest, AContactWhilePlanningEndsContactStop) {
   sup.contact.enabled = true;
   sup.contact.status.phase = kinova::ContactPhase::kArmed;
   server.set_command_sink(&sup);
-  rclcpp::executors::MultiThreadedExecutor ex;
-  ex.add_node(node);
-  SpinThread spin(ex);
-
   // The fake planner blocks the default group: the client gets its own.
+  // Both are created before `spin`, so they outlive the executor: destroyed
+  // while it spins, an executor thread waited on freed memory (#69).
   auto client_grp =
       node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   auto client = rclcpp_action::create_client<GoToJointConfig>(
       node, "go_to_joint_config", client_grp);
+  rclcpp::executors::MultiThreadedExecutor ex;
+  ex.add_node(node);
+  SpinThread spin(ex);
   ASSERT_TRUE(client->wait_for_action_server(5s));
   GoToJointConfig::Goal goal;
   goal.target_joints = kTarget;

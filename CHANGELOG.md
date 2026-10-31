@@ -9,7 +9,8 @@
   `observe`) and its observer has settled, the wrench is the momentum observer's
   estimate, which stays accurate while the arm moves and lags by about 25 ms.
   Otherwise (`contact_detection:=off`, the ~200 ms settle after each start and each
-  contact clear) it is the quasi-static estimate as before. New
+  contact clear, a link waiting for `/clear_faults`) it is the quasi-static estimate
+  as before. New
   `EeState.wrench_source` (`WRENCH_SOURCE_QUASI_STATIC` / `WRENCH_SOURCE_OBSERVER`)
   says which. Needs the matching driver and `rammp_arm_interfaces` (built with them
   via `CORE_REF` / `INTERFACES_REF` until their releases).

@@ -267,7 +267,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
 
   state_pub_->publish(msg);
 
-  rammp_arm_interfaces::msg::EeState ee;
+  EeState ee;
   ee.header.stamp = msg.header.stamp; // same tick as the joint state above
   ee.header.frame_id = "arm_mount";   // the model's root, which FK is in
   ee.pose.position.x = s.ee_pose.p.x();

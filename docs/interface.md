@@ -28,7 +28,7 @@ planner and three of the four action servers accept goals that can never succeed
 | Topic                       | Type                                    | Rate      | Meaning                                                                                                                                                                                                                                                                                                                              |
 | --------------------------- | --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/joint_states`             | `sensor_msgs/JointState`                | ~50 Hz    | Seven arm joints (`arm_joint_1`…`arm_joint_7`, named by the model) plus `arm_robotiq_85_left_knuckle_joint`. Best-effort QoS. Pump ticks decimated by `state_publish_divisor` (default 2).                                                                                                                                           |
-| `/ee_state`                 | `rammp_arm_interfaces/EeState`          | ~50 Hz    | Pose of `--ee-frame` (default `arm_end_effector_link`, the flange; `arm_tool_frame` is 0.120 m beyond it) in `arm_mount`, twist and measured external wrench `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`.                                                                                                      |
+| `/ee_state`                 | `rammp_arm_interfaces/EeState`          | ~50 Hz    | Pose of `--ee-frame` (default `arm_end_effector_link`, the flange; `arm_tool_frame` is 0.120 m beyond it) in `arm_mount`, twist and measured external wrench `LOCAL_WORLD_ALIGNED`, from the same pump tick as `/joint_states`. Which estimate the wrench is: see [The `/ee_state` wrench](#the-ee_state-wrench).                    |
 | `/control_status`           | `rammp_common_interfaces/ControlStatus` | on change | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Latched.                                                                                                                                                                                                                                                 |
 | `/stream_status`            | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                                                                                                                                                                                                                                                                      |
 | `/gripper_state`            | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                                                                                                                                                                                                                          |
@@ -231,9 +231,28 @@ that in mind.
 The full bench report, with the tap tests, is the driver's
 [contact detection bench report](https://github.com/rammp-org/kinova-gen3-driver/blob/dev/docs/integration/contact_detection_bench.md).
 Open work: a fast channel to tell taps from slow model error and payloads
-([driver#111](https://github.com/rammp-org/kinova-gen3-driver/issues/111)), and the
-observer's wrench on `/ee_state`
-([driver#112](https://github.com/rammp-org/kinova-gen3-driver/issues/112)).
+([driver#111](https://github.com/rammp-org/kinova-gen3-driver/issues/111)).
+
+### The `/ee_state` wrench
+
+The wrench on `/ee_state` is what the environment applies to the tool, mapped from
+an external joint torque estimate through the Jacobian. Which estimate it is depends
+on the contact monitor; the message does not say
+([driver#112](https://github.com/rammp-org/kinova-gen3-driver/issues/112)):
+
+| Estimate     | When                                                                                                                                                                          | Character                                                                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Observer     | `contact_detection:=enforce` or `observe`, once the observer has settled, latched or not                                                                                      | The contact observer's `r`. Models the arm's own inertia, so it stays accurate in motion. Measured about 25 ms behind on hand taps (first-order, time constant 1/K = 40 ms). |
+| Quasi-static | `contact_detection:=off`; the ~200 ms the observer settles after each start, fault recovery or reconnect, and contact clear; and while the arm link waits for `/clear_faults` | `g(q) − τ`. Exact at rest with no lag, but the arm's own acceleration reads as force while it moves.                                                                         |
+
+On a position-mode tour at speed 0.6 with nobody touching, the force error at the
+flange was median 3.3 / p95 8.0 / max 13.7 N quasi-static, and 1.9 / 5.4 / 6.2 N from
+the observer. The lag is fine for monitoring and choosing thresholds at 50 Hz; a client
+doing fast force control that wants the zero-lag quasi-static estimate computes
+`g(q) − effort` from `/joint_states` itself. Both
+read a held payload as external force
+([driver#111](https://github.com/rammp-org/kinova-gen3-driver/issues/111)). NaN while
+the arm reports a fault.
 
 ## Parameters
 

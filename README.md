@@ -156,7 +156,7 @@ a time, so another GoTo goal sent mid-chain can collide with it
 | ---------------- | --------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `arm_joint_1`..`arm_joint_7` (names from the model), then `arm_robotiq_85_left_knuckle_joint`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, decimated by `state_publish_divisor` (default 2: ~50 Hz).                                                                                                                                                                         |
 | `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                                                                                                                    |
-| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: pose and twist of `--ee-frame` in `arm_mount`, same pump tick, same rate.                                                                                                                                                                                                                                                                                             |
+| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: pose, twist and external wrench of `--ee-frame` in `arm_mount`, same pump tick, same rate.                                                                                                                                                                                                                                                                            |
 | `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**.                                                                                      |
 | `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode), `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives or when it is over 1 s old), `kinova_gen3_node: Arm link` (OK running, ERROR faulted, STALE connecting; see [Fault recovery](#fault-recovery)) and `kinova_gen3_node: Gripper`. |
 
@@ -171,9 +171,10 @@ URDF does not know about; mixing the two would give a pose and a twist that disa
 an unknown transform. The frame is **`LOCAL_WORLD_ALIGNED`** — world-aligned at the tool,
 not the body frame.
 
-There is deliberately **no wrench**. The driver has no force estimate of its own, and the
-arm's `tool_external_wrench` is in that same tool frame; publishing a zero in sim or a
-frame-mismatched value on hardware would be worse than publishing nothing.
+**The wrench is the driver's own estimate**, not the arm's `tool_external_wrench`, which
+is in that same tool frame. It comes from the contact observer while contact detection
+runs, and from the quasi-static `g(q) − τ` otherwise. See
+[The `/ee_state` wrench](docs/interface.md#the-ee_state-wrench).
 
 The same judgement applies to the gripper, once it is published: its effort is a
 normalized 0..1 fraction derived from motor current, and `sensor_msgs/JointState.effort`

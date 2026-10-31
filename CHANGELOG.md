@@ -27,6 +27,16 @@
   Needs the driver's `feat/96-never-crash` (built with it via `CORE_REF` until a
   driver release).
 
+### Changed
+
+- **`/ee_state` wrench from the contact observer** (rammp-org/kinova-gen3-driver#112).
+  While contact detection runs (`enforce` or `observe`) and its observer has
+  settled, the wrench is the momentum observer's estimate, which stays accurate
+  while the arm moves and trails by about 25 ms. Otherwise (`contact_detection:=off`,
+  the ~200 ms settle after each start and each contact clear, a link waiting for
+  `/clear_faults`) it is the quasi-static estimate as before. No message change. Needs
+  the matching driver (built with it via `CORE_REF` until its release).
+
 ### Changed (breaking)
 
 - **Trajectory `joint_names` are checked, not ignored** (#11). Positions and

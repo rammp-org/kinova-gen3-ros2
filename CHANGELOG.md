@@ -4,16 +4,6 @@
 
 ### Added
 
-- **`/ee_state` wrench from the contact observer, and `wrench_source`**
-  (rammp-org/kinova-gen3-driver#112). While contact detection runs (`enforce` or
-  `observe`) and its observer has settled, the wrench is the momentum observer's
-  estimate, which stays accurate while the arm moves and lags by about 25 ms.
-  Otherwise (`contact_detection:=off`, the ~200 ms settle after each start and each
-  contact clear, a link waiting for `/clear_faults`) it is the quasi-static estimate
-  as before. New
-  `EeState.wrench_source` (`WRENCH_SOURCE_QUASI_STATIC` / `WRENCH_SOURCE_OBSERVER`)
-  says which. Needs the matching driver and `rammp_arm_interfaces` (built with them
-  via `CORE_REF` / `INTERFACES_REF` until their releases).
 - **`go_to_ee_poses` and `go_to_joint_configs`**: `GoToEEPose` / `GoToJointConfig`
   through a list of targets in ONE motion (rammp-interfaces-ros2#21). Each target
   (`EEPoseTarget` / `JointConfigTarget`) carries its own leg's `speed_scale`,
@@ -36,6 +26,16 @@
   exits (FATAL, exit 1). The `Arm` task now goes STALE when feedback is over 1 s old.
   Needs the driver's `feat/96-never-crash` (built with it via `CORE_REF` until a
   driver release).
+
+### Changed
+
+- **`/ee_state` wrench from the contact observer** (rammp-org/kinova-gen3-driver#112).
+  While contact detection runs (`enforce` or `observe`) and its observer has
+  settled, the wrench is the momentum observer's estimate, which stays accurate
+  while the arm moves and trails by about 25 ms. Otherwise (`contact_detection:=off`,
+  the ~200 ms settle after each start and each contact clear, a link waiting for
+  `/clear_faults`) it is the quasi-static estimate as before. No message change. Needs
+  the matching driver (built with it via `CORE_REF` until its release).
 
 ### Changed (breaking)
 

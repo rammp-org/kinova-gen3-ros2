@@ -173,7 +173,7 @@ not the body frame.
 
 **The wrench is the driver's own estimate**, not the arm's `tool_external_wrench`, which
 is in that same tool frame. It comes from the contact observer while contact detection
-runs, and from the quasi-static `g(q) − τ` otherwise; `wrench_source` says which. See
+runs, and from the quasi-static `g(q) − τ` otherwise. See
 [The `/ee_state` wrench](docs/interface.md#the-ee_state-wrench).
 
 The same judgement applies to the gripper, once it is published: its effort is a

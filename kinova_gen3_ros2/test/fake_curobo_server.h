@@ -17,8 +17,8 @@
 namespace kinova_gen3_ros2::test {
 
 // The model's arm joints in chain order, as bringup hands them to the GoTo*
-// servers. The real planner emits these names, and so does this fake unless
-// told otherwise.
+// servers. The real planner emits these names (since RAMMP-CuRobo#38), and so
+// does this fake unless told otherwise.
 inline const std::vector<std::string> kArmJointNames = {
     "arm_joint_1", "arm_joint_2", "arm_joint_3", "arm_joint_4",
     "arm_joint_5", "arm_joint_6", "arm_joint_7"};

@@ -111,7 +111,8 @@ on its `name` fields. (The mapping layer separately zero-fills / truncates as a
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
 A planned move whose cuRobo trajectory names other joints, or the same joints in
-another order, settles `PLANNING_FAILED` and is never executed.
+another order, settles `PLANNING_FAILED` and is never executed, so the planned moves
+need a RAMMP-CuRobo that emits `arm_joint_1`…`arm_joint_7` (#38 onward).
 
 `go_to_ee_pose`, `go_to_joint_config` and `go_to_preset` describe a *goal* rather
 than a trajectory: each plans a collision-free path via the external cuRobo node

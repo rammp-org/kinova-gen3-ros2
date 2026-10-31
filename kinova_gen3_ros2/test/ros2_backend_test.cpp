@@ -116,6 +116,10 @@ TEST_F(Ros2BackendTest, ToleranceNamesOtherThanTheArmsInOrderAreRefused) {
 
   for (size_t i = 0; i < tol.size(); ++i)
     tol[i].name = kArmJoints[i];
+  auto short_tol = one_point_goal(1.0);
+  short_tol.path_tolerance.assign(tol.begin(), tol.end() - 1); // in order, six
+  EXPECT_FALSE(send(node, short_tol));
+  EXPECT_FALSE(sup.got_goal);
   auto ok = one_point_goal(1.0);
   ok.path_tolerance = tol;
   ok.goal_tolerance = tol;

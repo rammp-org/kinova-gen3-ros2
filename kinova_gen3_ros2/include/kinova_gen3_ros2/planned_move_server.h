@@ -332,7 +332,7 @@ private:
     if (auto why = joint_names_rejection(outcome.trajectory.joint_names,
                                          arm_joint_names_)) {
       const std::string msg =
-          "planner returned malformed trajectory: joint_names " + *why;
+          "planner returned malformed trajectory: joint_names: " + *why;
       RCLCPP_ERROR(node_->get_logger(), "%s", msg.c_str());
       settle_local(gh, kPlanningFailed, msg);
       erase(id);

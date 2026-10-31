@@ -5,8 +5,10 @@ namespace kinova_gen3_ros2 {
 
 GripperServer::GripperServer(rclcpp::Node::SharedPtr node,
                              kinova::interface::GripperSink &sink,
-                             bool expect_gripper)
-    : node_(std::move(node)), sink_(sink), expect_gripper_(expect_gripper) {
+                             bool expect_gripper,
+                             kinova::interface::CommandSink *contact)
+    : node_(std::move(node)), sink_(sink), expect_gripper_(expect_gripper),
+      contact_(contact) {
   // Best-effort, KeepLast(1): identical to the six arm setpoint topics, because
   // core's semantics are identical -- setpoints are absolute and latest-wins,
   // so dropping an intermediate one is correct rather than a loss.
@@ -51,6 +53,15 @@ void GripperServer::diagnostics(
 }
 
 void GripperServer::on_setpoint(const GripperSetpointMsg::SharedPtr m) {
+  // While a contact stop is latched nothing moves until a clear. The driver
+  // drops the setpoint too, silently; this says why.
+  if (contact_) {
+    if (auto why = contact_rejection(contact_->on_query_contact())) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                           "gripper setpoint refused: %s", why->c_str());
+      return;
+    }
+  }
   // Straight through to the sink, which is the ARBITER: that is what makes the
   // token load-bearing. A bad token is counted by the Arbiter, not refused
   // here.

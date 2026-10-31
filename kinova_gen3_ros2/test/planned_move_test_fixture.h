@@ -73,6 +73,12 @@ struct FakeSupervisor : public kinova::interface::CommandSink {
     s.stamp_s = 1.0;
     return s;
   }
+  // What the contact monitor reports; a test sets phase kLatched to stand in
+  // for a contact stop.
+  kinova::interface::ContactState contact{};
+  kinova::interface::ContactState on_query_contact() override {
+    return contact;
+  }
 };
 
 // Default router port; unused by these tests.

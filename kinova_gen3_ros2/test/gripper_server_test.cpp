@@ -12,6 +12,7 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "fake_contact_sink.h"
 #include "fake_gripper_sink.h"
 
 using namespace std::chrono_literals;
@@ -63,6 +64,37 @@ TEST_F(GripperServerTest, ASetpointReachesTheSinkWithAllThreeFields) {
   EXPECT_FLOAT_EQ(sink.setpoints.back().command.speed, 0.4f);
   EXPECT_FLOAT_EQ(sink.setpoints.back().command.force, 0.2f);
   EXPECT_EQ(sink.setpoints.back().token[0], 3);
+}
+
+// While a contact stop is latched, nothing moves until a clear: new gripper
+// setpoints are refused here (and logged), not forwarded.
+TEST_F(GripperServerTest, ASetpointWhileContactLatchedIsRefused) {
+  FakeGripperSink sink;
+  FakeContactSink contact;
+  contact.state.status.phase = kinova::ContactPhase::kLatched;
+  kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true,
+                                         &contact);
+  auto pub =
+      node_->create_publisher<rammp_arm_interfaces::msg::GripperSetpoint>(
+          "/setpoint/gripper", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort());
+  spin_for(200ms);
+  rammp_arm_interfaces::msg::GripperSetpoint m;
+  m.position = 0.6f;
+  for (int i = 0; i < 10; ++i) {
+    pub->publish(m);
+    spin_for(20ms);
+  }
+  EXPECT_EQ(sink.count(), 0u);
+
+  {
+    std::lock_guard<std::mutex> l(contact.m);
+    contact.state.status.phase = kinova::ContactPhase::kArmed;
+  }
+  for (int i = 0; i < 20 && sink.count() == 0; ++i) {
+    pub->publish(m);
+    spin_for(20ms);
+  }
+  EXPECT_GE(sink.count(), 1u);
 }
 
 TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {

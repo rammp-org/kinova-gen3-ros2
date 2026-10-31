@@ -411,6 +411,21 @@ TEST(MessageMapping, SpeedScaleRejectionNamesTheProblem) {
   }
 }
 
+TEST(MessageMapping, ContactRejectionOnlyWhileLatched) {
+  kinova::interface::ContactState s;
+  EXPECT_FALSE(contact_rejection(s).has_value()); // detection off
+  s.enabled = true;
+  for (auto p : {kinova::ContactPhase::kSettling, kinova::ContactPhase::kArmed})
+    EXPECT_FALSE(contact_rejection((s.status.phase = p, s)).has_value());
+  s.status.phase = kinova::ContactPhase::kLatched;
+  s.status.has_trip = true;
+  s.status.last.joint = 3;
+  const auto why = contact_rejection(s);
+  ASSERT_TRUE(why.has_value());
+  EXPECT_EQ(*why,
+            "stopped on unexpected contact (joint 4); call /clear_faults");
+}
+
 TEST(MessageMapping, PlannerOverloadDefaultsToFullSpeed) {
   trajectory_msgs::msg::JointTrajectory traj;
   traj.points.resize(1);

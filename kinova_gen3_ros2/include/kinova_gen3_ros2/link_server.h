@@ -2,6 +2,7 @@
 #pragma once
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <string>
 #include "rclcpp/rclcpp.hpp"
@@ -21,8 +22,12 @@ public:
   // arm: shown in the "waiting for the arm" message (the IP, or "sim").
   // stop: the flag the link runs on; a /clear_faults waiting on the link
   // answers at once when it is set, rather than holding up shutdown.
+  // clear_contact: Supervisor::clear_contact, true if a contact latch was set;
+  // empty when contact detection is off. /clear_faults calls it first, so one
+  // call clears whatever is latched.
   LinkServer(rclcpp::Node::SharedPtr node, kinova::ArmLink &link,
-             std::string arm, const std::atomic<bool> &stop);
+             std::string arm, const std::atomic<bool> &stop,
+             std::function<bool()> clear_contact = {});
 
 private:
   void on_clear(const std::shared_ptr<Trigger::Request>,
@@ -33,6 +38,7 @@ private:
   kinova::ArmLink &link_;
   std::string arm_;
   const std::atomic<bool> &stop_;
+  std::function<bool()> clear_contact_;
   rclcpp::CallbackGroup::SharedPtr clear_group_;
   rclcpp::Service<Trigger>::SharedPtr clear_srv_;
   std::unique_ptr<diagnostic_updater::Updater> updater_;

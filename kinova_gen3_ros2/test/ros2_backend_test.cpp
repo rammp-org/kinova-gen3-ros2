@@ -84,6 +84,21 @@ TEST_F(Ros2BackendTest, AValidSpeedScaleReachesTheSink) {
   EXPECT_DOUBLE_EQ(sup.last_goal.speed_scale, 0.5);
 }
 
+// While a contact stop is latched the driver refuses goals with no message;
+// the node refuses first so the reason reaches its log.
+TEST_F(Ros2BackendTest, AGoalWhileContactLatchedIsRefusedBeforeTheSink) {
+  auto node = std::make_shared<rclcpp::Node>("backend_contact_latched");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  sup.contact.enabled = true;
+  sup.contact.status.phase = kinova::ContactPhase::kLatched;
+  EXPECT_FALSE(send(node, 1.0));
+  EXPECT_FALSE(sup.got_goal);
+  sup.contact.status.phase = kinova::ContactPhase::kArmed;
+  EXPECT_TRUE(send(node, 1.0));
+}
+
 // Gains on a POSITION goal cannot act; refused before the sink, with the
 // reason in the node log (the driver would refuse it silently).
 TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {

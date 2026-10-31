@@ -515,7 +515,7 @@ rosdep update --rosdistro humble
 mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
 git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
 vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
-git clone --branch v1.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
+git clone --branch v2.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
 
 # pinocchio comes from pinned pip wheels, NOT ros-humble-pinocchio (see Container below)
 pip install -r src/kinova_gen3_ros2/docker/requirements.txt

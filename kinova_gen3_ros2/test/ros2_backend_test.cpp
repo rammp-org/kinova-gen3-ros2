@@ -247,6 +247,37 @@ TEST_F(Ros2BackendTest, AWrongNumberOfJointNamesIsRefused) {
                std::invalid_argument);
 }
 
+// /ee_state carries the wrench and which estimate it is (driver #112). The
+// observer source is the non-default value, so a dropped mapping reads 0 and
+// fails here.
+TEST_F(Ros2BackendTest, EeStateCarriesTheWrenchAndItsSource) {
+  using EeState = rammp_arm_interfaces::msg::EeState;
+  auto node = std::make_shared<rclcpp::Node>("backend_ee_state");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  std::optional<EeState> got;
+  auto sub = node->create_subscription<EeState>(
+      "ee_state", rclcpp::SensorDataQoS(),
+      [&](EeState::SharedPtr m) { got = *m; });
+
+  kinova::interface::ArmState s;
+  s.ee_wrench << 1.0, 2.0, 3.0, 0.4, 0.5, 0.6;
+  s.ee_wrench_source = kinova::interface::WrenchSource::kObserver;
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(node);
+  for (int i = 0; i < 100 && !got; ++i) {
+    backend.publish_state(s);
+    ex.spin_some();
+    std::this_thread::sleep_for(20ms);
+  }
+
+  ASSERT_TRUE(got) << "no /ee_state received";
+  EXPECT_EQ(got->wrench_source, EeState::WRENCH_SOURCE_OBSERVER);
+  EXPECT_DOUBLE_EQ(got->wrench.force.x, 1.0);
+  EXPECT_DOUBLE_EQ(got->wrench.force.z, 3.0);
+  EXPECT_DOUBLE_EQ(got->wrench.torque.x, 0.4);
+  EXPECT_DOUBLE_EQ(got->wrench.torque.z, 0.6);
+}
+
 // settle() runs on the Supervisor's sampler thread, which has no handler: a
 // terminal transition rclcpp_action refuses must be logged, never thrown (#7).
 // In the field the trigger is a cancel racing the completion; here the context

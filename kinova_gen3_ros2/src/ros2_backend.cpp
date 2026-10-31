@@ -10,6 +10,11 @@ namespace kinova_gen3_ros2 {
 using namespace kinova::interface;
 using std::placeholders::_1;
 using std::placeholders::_2;
+using EeState = rammp_arm_interfaces::msg::EeState;
+static_assert(static_cast<int>(WrenchSource::kQuasiStatic) ==
+              EeState::WRENCH_SOURCE_QUASI_STATIC);
+static_assert(static_cast<int>(WrenchSource::kObserver) ==
+              EeState::WRENCH_SOURCE_OBSERVER);
 
 Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node,
                          std::vector<std::string> joint_names)
@@ -284,6 +289,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
   ee.wrench.torque.x = s.ee_wrench[3];
   ee.wrench.torque.y = s.ee_wrench[4];
   ee.wrench.torque.z = s.ee_wrench[5];
+  ee.wrench_source = static_cast<uint8_t>(s.ee_wrench_source);
   ee_pub_->publish(ee);
 }
 

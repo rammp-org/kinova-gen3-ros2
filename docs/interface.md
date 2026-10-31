@@ -248,7 +248,8 @@ on the contact monitor; the message does not say
 On a position-mode tour at speed 0.6 with nobody touching, the force error at the
 flange was median 3.3 / p95 8.0 / max 13.7 N quasi-static, and 1.9 / 5.4 / 6.2 N from
 the observer. The lag is fine for monitoring and choosing thresholds at 50 Hz; a client
-doing fast force control would want the quasi-static estimate or a faster source. Both
+doing fast force control that wants the zero-lag quasi-static estimate computes
+`g(q) − effort` from `/joint_states` itself. Both
 read a held payload as external force
 ([driver#111](https://github.com/rammp-org/kinova-gen3-driver/issues/111)). NaN while
 the arm reports a fault.

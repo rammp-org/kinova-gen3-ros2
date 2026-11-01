@@ -237,7 +237,9 @@ action rejections with no payload; the reason is logged server-side only
 
 Unless `speed_scale` is set, the planned trajectory runs at **full planner
 speed**, and cuRobo plans to the arm's real velocity limits. Set `speed_scale`
-below 1 for a first real-arm run. Read
+below 1 for a first real-arm run, or lower the node-wide `global_speed_scale`
+parameter; the trajectory runs at the slower of the two (see
+[interface.md](interface.md#speed-scale)). Read
 [`on-robot-runbook.md`](https://github.com/rammp-org/kinova-gen3-ros2/blob/main/docs/on-robot-runbook.md) and keep the e-stop in hand before
 the first real-arm run of any of these actions. Real-arm runs must pin the RT
 loop to the host's isolated core (`--cpu <n>`); `make sim` / `make real` do this

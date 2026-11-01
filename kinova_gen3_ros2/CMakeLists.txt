@@ -105,12 +105,20 @@ ament_target_dependencies(contact_server
   rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(contact_server kinova_lowlevel::kinova_lowlevel)
 
+# The global_speed_scale parameter (driver #114) and its "Speed scale"
+# /diagnostics entry. Holds only a CommandSink&.
+add_library(speed_scale_param src/speed_scale_param.cpp)
+target_include_directories(speed_scale_param PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(speed_scale_param rclcpp diagnostic_msgs diagnostic_updater)
+target_link_libraries(speed_scale_param kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_gen3_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
   ros2_backend robot_description planned_move_servers goal_router curobo_plan_client
   message_mapping arbitration_server stream_server gripper_server link_server
-  contact_server kinova_lowlevel::kinova_lowlevel)
+  contact_server speed_scale_param kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)
@@ -154,6 +162,10 @@ if(BUILD_TESTING)
   target_link_libraries(contact_server_test contact_server)
   ament_target_dependencies(contact_server_test
     rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(speed_scale_param_test test/speed_scale_param_test.cpp)
+  target_link_libraries(speed_scale_param_test speed_scale_param)
+  ament_target_dependencies(speed_scale_param_test rclcpp diagnostic_msgs diagnostic_updater)
 
   ament_add_gtest(contact_params_test test/contact_params_test.cpp)
   target_link_libraries(contact_params_test contact_server)

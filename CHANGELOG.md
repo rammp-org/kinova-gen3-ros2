@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`global_speed_scale` parameter** (driver #114): one live setting, `[0.01, 1.0]`,
+  that slows every arm motion: trajectories and planned moves, joint velocity and
+  twist streams (stiff and compliant) and joint position streams. Pose streams:
+  the joint-rate cap follows the scale; end-effector speed is not defined. Joint
+  torque streams and the gripper are unaffected. Anyone may set it (no token). The
+  params-file value is the deployment default, applied at startup (an out-of-range
+  one is fatal) and again on every restart. A refused set fails with the driver's
+  reason. New `Speed scale` task on `/diagnostics`. Needs the driver's #114 change
+  (built with it via `CORE_REF` until a driver release).
 - **`go_to_ee_poses` and `go_to_joint_configs`**: `GoToEEPose` / `GoToJointConfig`
   through a list of targets in ONE motion (rammp-interfaces-ros2#21). Each target
   (`EEPoseTarget` / `JointConfigTarget`) carries its own leg's `speed_scale`,

@@ -85,6 +85,7 @@ class Ctx:
         self._latest = {}
         self._subs = {}
         self._spec = {}
+        self._pub_seq = {}  # /estop source -> last pub_seq sent
         self.sub(ControlStatus, "control_status", LATCHED_QOS, latched=True)
         self.sub(StreamStatus, "stream_status", LATCHED_QOS, latched=True)
         self.sub(JointState, "joint_states", SENSOR_QOS)
@@ -189,8 +190,18 @@ class Ctx:
 
     # ---- e-stop -------------------------------------------------------------
     def estop(
-        self, engaged: bool, source="conformance", reason="", stamp=None, settle=1.0
+        self,
+        engaged: bool,
+        source="conformance",
+        reason="",
+        stamp=None,
+        settle=1.0,
+        clear_target="",
     ):
+        """Publish /estop as `source`. engaged=False is a plain NOT_ENGAGED (a
+        heartbeat), or a clear attempt when clear_target is set. Without a MIB, a
+        stop is released by the source that engaged it sending NOT_ENGAGED.
+        """
         pub = self.n.create_publisher(
             EStop,
             "/estop",
@@ -204,12 +215,17 @@ class Ctx:
         m.header.stamp = (
             stamp if stamp is not None else self.n.get_clock().now().to_msg()
         )
-        m.engaged = engaged
+        m.state = EStop.STATE_ENGAGED if engaged else EStop.STATE_NOT_ENGAGED
         m.source = source
         m.reason = reason
+        m.clear_target = clear_target
         # Publish a few times: a subscription that has only just matched can miss the
         # first message, and an e-stop that depends on one packet is not an e-stop.
         for _ in range(10):
+            # +1 per message per source, wrapping, as the protocol asks of a sender.
+            seq = (self._pub_seq.get(source, 0) + 1) & 0xFFFFFFFF
+            self._pub_seq[source] = seq
+            m.pub_seq = seq
             pub.publish(m)
             rclpy.spin_once(self.n, timeout_sec=0.02)
         self.spin(settle)

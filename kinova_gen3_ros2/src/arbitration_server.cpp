@@ -22,9 +22,8 @@ bool same(const rammp_common_interfaces::msg::ControlStatus &a,
 
 ArbitrationServer::ArbitrationServer(rclcpp::Node::SharedPtr node,
                                      ArbitrationSink &arb,
-                                     const std::string &hardware_id,
-                                     double estop_clear_max_age_s)
-    : node_(node), arb_(arb), estop_clear_max_age_s_(estop_clear_max_age_s) {
+                                     const std::string &hardware_id)
+    : node_(node), arb_(arb) {
   acquire_srv_ = node_->create_service<AcquireControl>(
       "acquire_control",
       std::bind(&ArbitrationServer::on_acquire, this, _1, _2));
@@ -149,53 +148,54 @@ void ArbitrationServer::on_revoke(
 }
 
 void ArbitrationServer::on_estop(const EStop::SharedPtr msg) {
-  if (msg->engaged) {
-    // NEVER age-checked. Refusing an old stop because its clock looked wrong is
-    // precisely the failure we must not build: a stale stop is still honoured.
-    RCLCPP_WARN(
-        node_->get_logger(), "E-STOP engaged by '%s': %s", msg->source.c_str(),
-        msg->reason.empty() ? "(no reason given)" : msg->reason.c_str());
+  // The node LISTENS and obeys; the MIB owns the latch, the clear handshake and
+  // the deadman. So no pub_seq bookkeeping, no deadman, and the stamp is never
+  // read: the protocol judges time by receive time, and only the MIB does that.
+  const char *reason =
+      msg->reason.empty() ? "(no reason given)" : msg->reason.c_str();
+
+  // Any state other than NOT_ENGAGED is an engage: the fail-safe reading of an
+  // unknown byte.
+  if (msg->state != EStop::STATE_NOT_ENGAGED) {
+    // Logged once per source per stop, not per message: an engaged source keeps
+    // sending ENGAGED every period until it accepts a clear.
+    if (engaged_sources_.insert(msg->source).second)
+      RCLCPP_WARN(node_->get_logger(), "E-STOP engaged by '%s': %s",
+                  msg->source.c_str(), reason);
+    // Acted on EVERY time, never age- or pub_seq-checked. Repeating estop() is
+    // safe (core re-latches and re-halts) and keeps the arm stopped even if
+    // something else ever cleared the arbiter.
     arb_.estop();
     forget_token(); // estop() clears ownership inside the Arbiter too
     publish_status_if_changed();
     return;
   }
 
-  // Clearing IS age-checked: it re-enables a stopped arm, so a `ros2 bag`
-  // replay or a message delayed behind a network hiccup must not do it
-  // silently.
-  const bool unstamped =
-      msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0;
-  if (unstamped) {
-    // Accepted anyway: `ros2 topic pub` leaves the stamp at zero, and an e-stop
-    // control that cannot be driven from the CLI is worse than one that can be
-    // replayed.
-    RCLCPP_WARN(
-        node_->get_logger(),
-        "unstamped /estop clear from '%s' accepted; stamp it to enable the "
-        "staleness guard",
-        msg->source.c_str());
-  } else if (estop_clear_max_age_s_ > 0.0) {
-    // Construct with the node's clock type: subtracting rclcpp::Time values of
-    // different clock types throws, and the default for a raw stamp is not
-    // guaranteed to match node_->now() under use_sim_time.
-    const rclcpp::Time stamp(msg->header.stamp,
-                             node_->get_clock()->get_clock_type());
-    const double age = (node_->now() - stamp).seconds();
-    if (age > estop_clear_max_age_s_) {
-      RCLCPP_WARN(
-          node_->get_logger(),
-          "IGNORING stale /estop clear from '%s' (age %.2fs > %.2fs); the arm "
-          "stays stopped",
-          msg->source.c_str(), age, estop_clear_max_age_s_);
-      return;
-    }
+  // A clear attempt never changes its SENDER's state. The MIB sends them while
+  // it is still latched; counting one as the MIB going NOT_ENGAGED would
+  // release the arm before the MIB confirms. Its target's own NOT_ENGAGED, and
+  // then the MIB's plain NOT_ENGAGED, are what release.
+  if (!msg->clear_target.empty())
+    return;
+
+  // A plain NOT_ENGAGED: this source no longer asks for the stop. From a source
+  // that was not engaged it is just a heartbeat, and never ends anyone's stop.
+  if (engaged_sources_.erase(msg->source) == 0)
+    return;
+  if (!engaged_sources_.empty()) {
+    std::string others;
+    for (const auto &s : engaged_sources_)
+      others += (others.empty() ? "'" : ", '") + s + "'";
+    RCLCPP_WARN(node_->get_logger(),
+                "'%s' no longer engages the e-stop (%s); the arm stays stopped "
+                "for %s",
+                msg->source.c_str(), reason, others.c_str());
+    return;
   }
-  RCLCPP_WARN(
-      node_->get_logger(),
-      "e-stop CLEARED by '%s'; the arm has no owner until someone re-acquires "
-      "control",
-      msg->source.c_str());
+  RCLCPP_WARN(node_->get_logger(),
+              "e-stop RELEASED by '%s' (%s), the last engaged source; the arm "
+              "has no owner until someone re-acquires control",
+              msg->source.c_str(), reason);
   arb_.estop_clear();
   publish_status_if_changed();
 }

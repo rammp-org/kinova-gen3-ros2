@@ -48,6 +48,21 @@
 
 ### Changed (breaking)
 
+- **`/estop` speaks the new `EStop` message** (rammp-interfaces-ros2#30, mirroring
+  `rammp::EStop` in rammp-rtps): `bool engaged` is now `uint8 state`, and
+  `pub_seq`, `clear_target` and `clear_pub_seq` are appended. **A plain
+  `NOT_ENGAGED` is no longer a clear.** The node tracks each `source`'s newest state
+  and stops while any is engaged; a heartbeat from another source never releases,
+  and a clear attempt (`clear_target` set) never changes its sender's state, so on
+  the chair the arm releases exactly when the MIB does. Without a MIB, release a stop
+  by sending `NOT_ENGAGED` under the `source` that engaged it. Any `state` other than
+  0 engages. No deadman in the node: a source silent after `ENGAGED` keeps the arm
+  stopped. Every other `/estop` publisher must move to the new fields (the web app's
+  button, the capability engine's `fake_driver.py`, the release-check harness,
+  rammp-rtps's `EStopBroadcast`). Needs interfaces with #30.
+- **`estop_clear_max_age_s` is removed**, with the launch argument of the same name.
+  Staleness no longer decides a release and the stamp is never read. An old params
+  file that still sets it loads; the key is ignored.
 - **Trajectory `joint_names` are checked, not ignored** (#11). Positions and
   tolerances are mapped by index, so an `execute_joint_trajectory` goal whose
   `joint_names` are not exactly `arm_joint_1`…`arm_joint_7` in order is rejected,

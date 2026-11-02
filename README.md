@@ -189,7 +189,7 @@ report: the gripper's `force` is a current ceiling on the command side, and
 | Topic                      | Type                                 | QoS                       | Notes                                                                                                                                                                    |
 | -------------------------- | ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/arm/robot_description`   | `std_msgs/String`                    | reliable, transient-local | **Required.** The arm's model, from `arm_state_publisher`. Read once at startup (30 s, then exit 1); see [One model, rendered at launch](#one-model-rendered-at-launch). |
-| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile**    | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**.                                      |
+| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile**    | Broadcast emergency stop. Stopped while any `source`'s newest `state` is engaged; see below. Global (leading `/`), and **any node may publish**.                         |
 | `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint angles, **rad**.                                                                                                                                                   |
 | `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint rates, **rad/s**.                                                                                                                                                  |
 | `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint torques, **N·m**.                                                                                                                                                  |
@@ -208,14 +208,34 @@ connect. This works:
 
 ```bash
 ros2 topic pub --once /estop rammp_common_interfaces/msg/EStop \
-  "{engaged: true, source: 'cli', reason: 'testing'}"
+  "{state: 1, source: 'cli', reason: 'testing'}"
+# release it: the same source, NOT_ENGAGED
+ros2 topic pub --once /estop rammp_common_interfaces/msg/EStop \
+  "{state: 0, source: 'cli', reason: 'done testing'}"
 ```
 
-**Staleness is asymmetric, and both branches fail toward "the arm stays stopped":**
-`engaged: true` is never age-checked (a stale stop is still honoured), while
-`engaged: false` is refused if older than `estop_clear_max_age_s` — which stops a
-`ros2 bag` replay from re-enabling a stopped arm. An unstamped clear (all-zero
-stamp, what `ros2 topic pub` sends) is accepted with a warning.
+The node **listens and obeys**; it never decides when the robot is stopped. On the
+chair the MIB owns the latch, the clear handshake and the deadman. The node keeps
+the newest `state` of each `source`:
+
+- **`ENGAGED` from anyone stops the arm at once.** Any `state` other than
+  `STATE_NOT_ENGAGED` (0) counts as engaged, the fail-safe reading of an unknown
+  byte. An engage is never age- or `pub_seq`-checked: a stale stop is still honoured.
+- **A plain `NOT_ENGAGED` (empty `clear_target`) sets that source's state to not
+  engaged.** From a source that wasn't engaged it is a heartbeat and changes nothing,
+  so no node can end another node's stop.
+- **A clear attempt (`NOT_ENGAGED` with `clear_target` set) never changes its
+  sender's state.** The MIB sends clear attempts while it is still latched, so the
+  arm stays stopped through the attempt and releases when the MIB does.
+- **The arm is released once no source's state is engaged**, and then has no owner
+  until someone re-acquires control. Several sources can be engaged at once;
+  release needs all of them.
+
+There is no deadman here and the stamp is never read: a source whose last message
+was `ENGAGED` keeps the arm stopped however long it stays silent. Releasing a stop is
+the engaging source's job: on the chair, through the MIB's clear handshake; without a
+MIB (dojo, CI), by sending `NOT_ENGAGED` under the **same `source`** it engaged with.
+Every engage and release is logged with `source` and `reason`.
 
 ### Control-ownership services
 
@@ -479,11 +499,10 @@ for a cautious first on-robot run.
 
 ### ROS parameters
 
-| Parameter               | Default    | Meaning                                                                                                                                                                                                                                    |
-| ----------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `arbitration_mode`      | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch.                                                                                                                                                                                    |
-| `estop_clear_max_age_s` | `1.0`      | Age beyond which an `/estop` *clear* is ignored. `<= 0` disables the check. Engaging is never age-checked.                                                                                                                                 |
-| `global_speed_scale`    | `1.0`      | Slows every arm motion (trajectories, planned moves, velocity/twist and position streams) by this factor, `[0.01, 1.0]`. Live; no token needed. Not torque streams or the gripper. See [docs/interface.md](docs/interface.md#speed-scale). |
+| Parameter            | Default    | Meaning                                                                                                                                                                                                                                    |
+| -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `arbitration_mode`   | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch.                                                                                                                                                                                    |
+| `global_speed_scale` | `1.0`      | Slows every arm motion (trajectories, planned moves, velocity/twist and position streams) by this factor, `[0.01, 1.0]`. Live; no token needed. Not torque streams or the gripper. See [docs/interface.md](docs/interface.md#speed-scale). |
 
 ```bash
 ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \

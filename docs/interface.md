@@ -33,7 +33,7 @@ planner and three of the four action servers accept goals that can never succeed
 | `/stream_status`            | `rammp_arm_interfaces/StreamStatus`     | on change | The streaming session as core sees it. Latched.                                                                                                                                                                                                                                                                                      |
 | `/gripper_state`            | `rammp_arm_interfaces/GripperState`     | 20 Hz     | `position`, `effort`, `current`, `present`.                                                                                                                                                                                                                                                                                          |
 | `/contact_monitor/residual` | `sensor_msgs/JointState`                | 50 Hz     | Only with `contact_debug_topic:=true` (off by default), for tuning: the contact observer's `r` (estimated external joint torque, N·m) in `effort`, `name` the seven arm joints as on `/joint_states`, `position` and `velocity` empty. Reliable QoS. Not created with `contact_detection:=off`. See [Contact stops](#contact-stops). |
-| `/diagnostics`              | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Five REP 107 tasks: `Arbitration`, `Arm`, `Arm link`, `Gripper`, `Contact detection`.                                                                                                                                                                                                                                                |
+| `/diagnostics`              | `diagnostic_msgs/DiagnosticArray`       | 1 Hz      | Six REP 107 tasks: `Arbitration`, `Arm`, `Arm link`, `Gripper`, `Contact detection`, `Speed scale` (always OK; the value in force).                                                                                                                                                                                                  |
 
 `/joint_states` and `/ee_state` are best-effort, so CLI subscribers
 must match: `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -261,6 +261,7 @@ the arm reports a fault.
 | `arbitration_mode`             | `disabled`                                | `enforced` or `disabled`. **Read-only at launch** — core's mode is a constructor argument with no setter, so a dynamic parameter would appear to work and silently do nothing. |
 | `estop_clear_max_age_s`        | `1.0`                                     | Age beyond which an e-stop *clear* is ignored. Engaging is never age-checked.                                                                                                  |
 | `expect_gripper`               | `true`                                    | Whether to WARN on `/diagnostics` when no gripper is reported.                                                                                                                 |
+| `global_speed_scale`           | `1.0`                                     | Slows every arm motion by this factor, `[0.01, 1.0]`. See [Speed scale](#speed-scale). **Live**: settable at runtime by anyone (no token).                                     |
 | `contact_detection`            | `enforce`                                 | `enforce`, `observe` or `off`. See [Contact stops](#contact-stops). **Read-only at launch**, like every `contact_*` and `float_*` parameter.                                   |
 | `contact_gain`                 | `25.0`                                    | Observer gain `K`, rad/s. Settling after a start or clear is `5/K` s.                                                                                                          |
 | `contact_debounce_cycles`      | `5`                                       | Consecutive RT cycles over `θ` that make a trip.                                                                                                                               |
@@ -278,6 +279,28 @@ The thresholds come from the 2026-10-30 push tests (see
 exactly 7 entries, and every threshold must be finite, > 0 and ≤ the ceiling; anything
 else is fatal at startup (the node logs which parameter and joint and exits 1). Write
 array entries as floats (`8.0`, not `8`): a YAML integer array is a type error.
+
+### Speed scale
+
+`global_speed_scale` is one number that scales every arm velocity the driver
+commands (driver #114):
+
+- **Scaled:** trajectories (`execute_joint_trajectory`) and planned moves (every
+  `go_to_*` action), joint velocity and twist streams (stiff and compliant), and
+  joint position streams. A trajectory runs at the slower of its own
+  `speed_scale` and this.
+- **Pose streams:** the joint-rate cap follows the scale; end-effector speed is not
+  defined.
+- **Unaffected:** joint torque streams and the gripper.
+
+Set it live with `ros2 param set /kinova_gen3_node global_speed_scale 0.5`. A change
+ramps in at 2.0/s (1.0 to 0.5 takes 0.25 s), on a moving arm too. The parameter
+is the value in force: read it with `ros2 param get`, watch `/parameter_events`
+for changes, or read the `Speed scale` task on `/diagnostics`. A value outside
+`[0.01, 1.0]`, or one the driver refuses, fails the set with a reason and leaves
+the scale as it was. On restart the value from the params file (the deployment's
+default) applies again; nothing set at runtime is persisted. No token is needed:
+anyone may raise or lower it.
 
 ## Requirements
 

@@ -195,7 +195,9 @@ speed.** The returned `time_from_start` values feed straight through to the
 Supervisor, so a goal that leaves `speed_scale` at its default of `1.0` moves
 at whatever speed cuRobo's plan calls for, not a conservative one. For a first
 real-arm goal, set `speed_scale` well below 1 (see
-[Speed and orientation hold](#speed-and-orientation-hold)).
+[Speed and orientation hold](#speed-and-orientation-hold)). The node-wide
+`global_speed_scale` parameter also slows it; the trajectory runs at the slower
+of the two (see [interface.md](interface.md#speed-scale)).
 
 Before running against the real arm:
 

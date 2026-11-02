@@ -26,6 +26,7 @@
 #include "kinova_gen3_ros2/contact_server.h"
 #include "kinova_gen3_ros2/gripper_server.h"
 #include "kinova_gen3_ros2/link_server.h"
+#include "kinova_gen3_ros2/speed_scale_param.h"
 #include "kinova_gen3_ros2/stream_server.h"
 #include "kinova_lowlevel/arm_link.h"
 #include "kinova_lowlevel/contact_monitor.h"
@@ -387,6 +388,19 @@ int main(int argc, char **argv) {
   // passed three times -- the idiom core's own tests use (Arbiter arb{sink,
   // sink, sink, mode, seed}).
   interface::Arbiter arb(sup, sup, sup, arb_mode);
+  // global_speed_scale (driver #114): declared after sup so it is destroyed
+  // first. Wired to the Supervisor directly: the scale is never token-gated.
+  // Its startup value (the deployment default) is applied here, before
+  // sup.start(), so the sampler starts at it. A refused or out-of-range value
+  // is fatal.
+  std::unique_ptr<kinova_gen3_ros2::SpeedScaleParam> speed_scale;
+  try {
+    speed_scale =
+        std::make_unique<kinova_gen3_ros2::SpeedScaleParam>(node, sup);
+  } catch (const std::exception &e) {
+    RCLCPP_FATAL(node->get_logger(), "global_speed_scale: %s", e.what());
+    return 1;
+  }
   // Declared AFTER arb so it is destroyed FIRST: it must stop accepting ROS
   // calls before arb stops delegating, and arb before sup goes away. (The
   // servers are declared before sup and so outlive all of it, as the comment

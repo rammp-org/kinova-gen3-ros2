@@ -157,17 +157,22 @@ void ArbitrationServer::on_estop(const EStop::SharedPtr msg) {
   // Any state other than NOT_ENGAGED is an engage: the fail-safe reading of an
   // unknown byte.
   if (msg->state != EStop::STATE_NOT_ENGAGED) {
-    // Logged once per source per stop, not per message: an engaged source keeps
-    // sending ENGAGED every period until it accepts a clear.
-    if (engaged_sources_.insert(msg->source).second)
+    // Never age- or pub_seq-checked. An engaged source keeps sending ENGAGED
+    // every period until it accepts a clear, so act on a source's FIRST engage,
+    // and again only if the arbiter is no longer stopped (something else
+    // cleared it). Not on every repeat: each estop() makes core halt again,
+    // and a halt holds at the MEASURED pose, so re-halting every period
+    // re-anchors the hold 10 times a second and lets a compliant hold drift
+    // with whatever pushes on it.
+    const bool first = engaged_sources_.insert(msg->source).second;
+    if (first)
       RCLCPP_WARN(node_->get_logger(), "E-STOP engaged by '%s': %s",
                   msg->source.c_str(), reason);
-    // Acted on EVERY time, never age- or pub_seq-checked. Repeating estop() is
-    // safe (core re-latches and re-halts) and keeps the arm stopped even if
-    // something else ever cleared the arbiter.
-    arb_.estop();
-    forget_token(); // estop() clears ownership inside the Arbiter too
-    publish_status_if_changed();
+    if (first || !arb_.status().estopped) {
+      arb_.estop();
+      forget_token(); // estop() clears ownership inside the Arbiter too
+      publish_status_if_changed();
+    }
     return;
   }
 

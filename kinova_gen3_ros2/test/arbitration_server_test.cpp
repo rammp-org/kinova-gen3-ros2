@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -299,6 +300,25 @@ TEST_F(ArbitrationServerTest,
   EXPECT_TRUE(sink_.status().estopped);
   publish_estop(kNotEngaged, "mib");
   EXPECT_FALSE(sink_.status().estopped);
+}
+
+// An engaged source repeats ENGAGED every period. Each estop() makes core halt
+// and re-hold at the measured pose, so the repeats must not reach the arbiter:
+// one estop() per engage, plus one more only if something else cleared it.
+TEST_F(ArbitrationServerTest, RepeatedEngagesFromOneSourceHaltOnce) {
+  auto estops = [this] {
+    const auto log = sink_.log();
+    return std::count(log.begin(), log.end(), "estop");
+  };
+  for (int i = 0; i < 5; ++i)
+    publish_estop(kEngaged, "web");
+  EXPECT_EQ(estops(), 1);
+  publish_estop(kEngaged, "mib"); // a second source engaging halts once more
+  EXPECT_EQ(estops(), 2);
+  sink_.estop_clear(); // something other than /estop clears the arbiter
+  publish_estop(kEngaged, "web");
+  EXPECT_EQ(estops(), 3);
+  EXPECT_TRUE(sink_.status().estopped);
 }
 
 TEST_F(ArbitrationServerTest, TwoEngagedSourcesBothMustRelease) {

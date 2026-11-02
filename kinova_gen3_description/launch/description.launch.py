@@ -33,7 +33,16 @@ def _rsp(context):
             output="screen",
             # value_type=str: without it launch_ros guesses the type of the string
             # and robot_state_publisher can receive a mangled description.
-            parameters=[{"robot_description": ParameterValue(xml, value_type=str)}],
+            parameters=[
+                {
+                    "robot_description": ParameterValue(xml, value_type=str),
+                    # robot_state_publisher throttles /tf to publish_frequency (default 20 Hz):
+                    # with the driver's ~50 Hz /joint_states it published every 3rd message,
+                    # 16.4 Hz / 61 ms gaps, so half of the wrist camera's frames had to wait for
+                    # a future TF. Above the joint_states rate it publishes every message.
+                    "publish_frequency": 1000.0,
+                }
+            ],
             # The model belongs to the arm; /tf and /joint_states stay global.
             remappings=[("robot_description", "/arm/robot_description")],
         ),

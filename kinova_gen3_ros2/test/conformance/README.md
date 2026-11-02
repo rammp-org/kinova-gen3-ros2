@@ -37,7 +37,10 @@ exercises the setpoint path, the admission check and the deadline refresh while
 commanding the arm exactly where it already is.
 
 The runner restores state on exit whatever happens: closes any session, releases
-ownership, clears the e-stop.
+ownership, and releases the e-stop it raised under the default `conformance`
+source. A check interrupted between its own engage and release under another source
+(`conformance-web`, `conformance-mib`) leaves the arm stopped; send `NOT_ENGAGED`
+under that source to release it.
 
 ## What it covers
 

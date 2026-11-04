@@ -53,7 +53,7 @@ holding something" is backwards.
 | Topic                      | Type                            | Required | Meaning                                                                                                                                                                                       |
 | -------------------------- | ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/arm/robot_description`   | `std_msgs/String`               | **yes**  | The arm's model (URDF), latched, from `arm_state_publisher`. Read once at startup (30 s timeout, then exit 1); a different model published later logs an ERROR until the driver is restarted. |
-| `/estop`                   | `rammp_common_interfaces/EStop` | no       | Broadcast stop. Any node may publish. Volatile, deliberately.                                                                                                                                 |
+| `/estop`                   | `rammp_common_interfaces/EStop` | no       | Broadcast stop. Any node may publish. Volatile, deliberately. See [The e-stop](#the-e-stop).                                                                                                  |
 | `/setpoint/joint_position` | `JointSetpoint`                 | no       | Joint angles, rad                                                                                                                                                                             |
 | `/setpoint/joint_velocity` | `JointSetpoint`                 | no       | Joint rates, rad/s                                                                                                                                                                            |
 | `/setpoint/joint_torque`   | `JointSetpoint`                 | no       | Joint torques, N·m                                                                                                                                                                            |
@@ -70,6 +70,31 @@ message carrying only `position` commands the other two to their defaults.
 **`force` is a current ceiling, not a force setpoint.** The gripper closes at `speed`
 toward `position` and stalls when it reaches the limit. There is no force servo on
 this hardware by any path.
+
+### The e-stop
+
+The node **listens and obeys**; it never decides when the robot is stopped. On the
+chair the MIB owns the latch, the clear handshake and the deadman. The node keeps
+the newest `state` of each `source`:
+
+- **`ENGAGED` from anyone stops the arm at once.** Any `state` other than
+  `STATE_NOT_ENGAGED` (0) counts as engaged, the fail-safe reading of an unknown
+  byte. An engage is never age- or `pub_seq`-checked: a stale stop is still honoured.
+- **A plain `NOT_ENGAGED` (empty `clear_target`) sets that source's state to not
+  engaged.** From a source that wasn't engaged it is a heartbeat and changes nothing,
+  so no node can end another node's stop.
+- **A clear attempt (`NOT_ENGAGED` with `clear_target` set) never changes its
+  sender's state.** The MIB sends clear attempts while it is still latched, so the
+  arm stays stopped through the attempt and releases when the MIB does.
+- **The arm is released once no source's state is engaged**, and then has no owner
+  until someone re-acquires control. Several sources can be engaged at once;
+  release needs all of them.
+
+There is no deadman here and the stamp is never read: a source whose last message
+was `ENGAGED` keeps the arm stopped however long it stays silent. Releasing a stop is
+the engaging source's job: on the chair, through the MIB's clear handshake; without a
+MIB (dojo, CI), by sending `NOT_ENGAGED` under the **same `source`** it engaged with.
+Every engage and release is logged with `source` and `reason`.
 
 ## Actions
 
@@ -259,7 +284,6 @@ the arm reports a fault.
 | Name                           | Default                                   | Meaning                                                                                                                                                                        |
 | ------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `arbitration_mode`             | `disabled`                                | `enforced` or `disabled`. **Read-only at launch** — core's mode is a constructor argument with no setter, so a dynamic parameter would appear to work and silently do nothing. |
-| `estop_clear_max_age_s`        | `1.0`                                     | Age beyond which an e-stop *clear* is ignored. Engaging is never age-checked.                                                                                                  |
 | `expect_gripper`               | `true`                                    | Whether to WARN on `/diagnostics` when no gripper is reported.                                                                                                                 |
 | `global_speed_scale`           | `1.0`                                     | Slows every arm motion by this factor, `[0.01, 1.0]`. See [Speed scale](#speed-scale). **Live**: settable at runtime by anyone (no token).                                     |
 | `contact_detection`            | `enforce`                                 | `enforce`, `observe` or `off`. See [Contact stops](#contact-stops). **Read-only at launch**, like every `contact_*` and `float_*` parameter.                                   |

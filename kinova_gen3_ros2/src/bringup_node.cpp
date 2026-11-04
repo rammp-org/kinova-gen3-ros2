@@ -328,8 +328,6 @@ int main(int argc, char **argv) {
   const auto arb_mode = (mode_str == "enforced")
                             ? interface::ArbitrationMode::kEnforced
                             : interface::ArbitrationMode::kDisabled;
-  const double estop_clear_max_age_s =
-      node->declare_parameter("estop_clear_max_age_s", 1.0);
   // "Expected" cannot be inferred from the node's own model: core reduces it to
   // the seven arm joints, so it never has a gripper DOF regardless of the
   // hardware. A robot genuinely built without one sets this false -- but its
@@ -406,7 +404,7 @@ int main(int argc, char **argv) {
   // servers are declared before sup and so outlive all of it, as the comment
   // above requires.)
   kinova_gen3_ros2::ArbitrationServer arbitration_server(
-      node, arb, use_sim ? std::string("sim") : ip, estop_clear_max_age_s);
+      node, arb, use_sim ? std::string("sim") : ip);
   // Wired to the Arbiter, not the Supervisor: that is how setpoint tokens get
   // checked at all. Declared here so it is destroyed before arb stops
   // delegating.

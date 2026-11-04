@@ -34,7 +34,11 @@ from harness import FAIL, PASS, REGISTRY, SKIP, Ctx, Result
 SECTION_ORDER = ["state", "arbitration", "streaming", "motion", "speed", "gripper"]
 # The e-stop must be proven before anything commands the arm. These run first within
 # their section, and a failure aborts the run.
-ESTOP_CRITICAL = ("engaging /estop latches", "a fresh clear releases")
+ESTOP_CRITICAL = (
+    "engaging /estop latches",
+    "NOT_ENGAGED releases",
+    "heartbeat does not release",
+)
 
 GREEN, RED, YELLOW, DIM, RESET = (
     "\033[32m",

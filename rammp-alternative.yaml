@@ -16,7 +16,6 @@ compose:
   service: kinova_gen3_driver
 params:
   arbitration_mode: disabled
-  estop_clear_max_age_s: 1.0
   expect_gripper: true
   # The deployment's default global speed scale (driver #114); the UI changes
   # it live, and a restart returns to this value.

@@ -5,8 +5,6 @@ commands motion should be exercised on an arm whose stop path has not been prove
 this session.
 """
 
-from builtin_interfaces.msg import Time as TimeMsg
-
 from harness import FAIL, PASS, REGISTRY, ZERO_TOKEN, Result
 
 SEC = "arbitration"
@@ -20,45 +18,43 @@ def check_estop_engage(ctx):
     if cs is None:
         return Result("", FAIL, "no /control_status after e-stop")
     if not cs.estopped:
-        return Result("", FAIL, "estopped is still false after /estop engaged=true")
+        return Result("", FAIL, "estopped is still false after /estop ENGAGED")
     if cs.owned:
         return Result("", FAIL, "ownership survived the e-stop; estop() must clear it")
     return Result("", PASS, "estopped=true, ownership destroyed")
 
 
-@REGISTRY.add(SEC, "a fresh clear releases the latch, leaving NO owner")
+@REGISTRY.add(SEC, "the engaging source's NOT_ENGAGED releases, leaving NO owner")
 def check_estop_clear(ctx):
     ctx.estop(True, reason="conformance")
     ctx.estop(False, reason="conformance")
     cs = ctx.control_status()
     if cs.estopped:
-        return Result("", FAIL, "still latched after a fresh clear")
+        return Result("", FAIL, "still latched after the engaging source's NOT_ENGAGED")
     if cs.owned:
         return Result(
-            "", FAIL, "clear returned to an OWNED state; core exits to no-owner"
+            "", FAIL, "release returned to an OWNED state; core exits to no-owner"
         )
     return Result("", PASS, "estopped=false, unowned as designed")
 
 
-@REGISTRY.add(SEC, "a STALE clear is ignored; the arm stays stopped")
-def check_estop_stale_clear(ctx):
+@REGISTRY.add(SEC, "another source's heartbeat does not release the stop")
+def check_estop_heartbeat_does_not_release(ctx):
     ctx.estop(True, reason="conformance")
-    old = ctx.n.get_clock().now().to_msg()
-    old.sec -= 30  # far outside estop_clear_max_age_s
-    ctx.estop(False, reason="conformance: replayed", stamp=old)
+    ctx.estop(False, source="conformance-other", reason="conformance: heartbeat")
     cs = ctx.control_status()
+    ctx.estop(False, reason="conformance cleanup")
     if not cs.estopped:
         return Result(
             "",
             FAIL,
-            "a 30 s old clear was honoured; a bag replay could "
-            "re-enable a stopped arm",
+            "a heartbeat from a different source released the stop; any node "
+            "could end another node's e-stop",
         )
-    ctx.estop(False, reason="conformance cleanup")  # leave it cleared
-    return Result("", PASS, "stale clear refused, latch held")
+    return Result("", PASS, "heartbeat ignored, latch held")
 
 
-@REGISTRY.add(SEC, "a STALE engage is still honoured (the asymmetry)")
+@REGISTRY.add(SEC, "a STALE engage is still honoured")
 def check_estop_stale_engage(ctx):
     ctx.estop(False, reason="conformance")
     old = ctx.n.get_clock().now().to_msg()
@@ -70,24 +66,34 @@ def check_estop_stale_engage(ctx):
         return Result(
             "",
             FAIL,
-            "a stale STOP was refused. Both branches must fail "
-            "toward the arm staying stopped.",
+            "a stale STOP was refused; an engage must never be age-checked",
         )
     return Result("", PASS, "stale engage honoured")
 
 
-@REGISTRY.add(SEC, "an UNSTAMPED clear is accepted, so the CLI still works")
-def check_estop_unstamped(ctx):
-    ctx.estop(True, reason="conformance")
-    ctx.estop(False, reason="conformance", stamp=TimeMsg(sec=0, nanosec=0))
-    cs = ctx.control_status()
-    if cs.estopped:
+@REGISTRY.add(SEC, "a latched MIB's clear attempts hold the stop until it releases")
+def check_estop_mib_clear_attempt(ctx):
+    mib, web = "conformance-mib", "conformance-web"
+    ctx.estop(True, source=web, reason="conformance: button")
+    ctx.estop(True, source=mib, reason="conformance: latched")
+    ctx.estop(False, source=mib, clear_target=web, reason="conformance: clearing")
+    during_attempt = ctx.control_status().estopped
+    ctx.estop(False, source=web, reason="conformance: accepts the clear")
+    after_target = ctx.control_status().estopped
+    ctx.estop(False, source=mib, reason="conformance: released")
+    after_mib = ctx.control_status().estopped
+    if not during_attempt:
+        return Result("", FAIL, "a clear attempt released the stop by itself")
+    if not after_target:
         return Result(
             "",
             FAIL,
-            "unstamped clear refused; `ros2 topic pub` cannot clear " "the e-stop",
+            "released before the MIB did: a clear attempt counted as the MIB "
+            "going NOT_ENGAGED",
         )
-    return Result("", PASS, "unstamped clear accepted")
+    if after_mib:
+        return Result("", FAIL, "still latched after every source is NOT_ENGAGED")
+    return Result("", PASS, "held through the attempt, released with the MIB")
 
 
 @REGISTRY.add(SEC, "acquire mints a token and takes ownership")

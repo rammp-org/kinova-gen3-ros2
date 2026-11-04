@@ -134,9 +134,11 @@ left it.
 
 ## Safety, briefly
 
-- **`/estop` is a plain topic and any node may publish it.** Engaging is never
-  age-checked; a stale *clear* is refused. Both directions fail toward "the arm stays
-  stopped".
+- **`/estop` is a plain topic and any node may publish it.** Any source's `ENGAGED`
+  stops the arm, never age-checked. Only the source that engaged it releases it, by
+  returning to `NOT_ENGAGED` (on the chair, through the MIB); another node's
+  heartbeat never does. If the arm won't release, look back in the node log: it names
+  each source when it engages, and the sources still engaged on a partial release.
 - **An e-stop settles an in-flight goal with `-9` HALTED** and destroys ownership. It
   does not merely pause.
 - **There is no "let go" on the gripper.** `release()` stops this driver stamping, but

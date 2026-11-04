@@ -28,7 +28,6 @@ def generate_launch_description():
     params = [
         {
             "arbitration_mode": LaunchConfiguration("arbitration_mode"),
-            "estop_clear_max_age_s": LaunchConfiguration("estop_clear_max_age_s"),
         }
     ]
 
@@ -55,7 +54,6 @@ def generate_launch_description():
                 default_value="disabled",
                 description="enforced | disabled; read-only at runtime",
             ),
-            DeclareLaunchArgument("estop_clear_max_age_s", default_value="1.0"),
             description,
             # Two Nodes rather than one with a conditional argument list: the driver takes
             # --sim OR --ip, never both, and launch substitutions cannot build a variable

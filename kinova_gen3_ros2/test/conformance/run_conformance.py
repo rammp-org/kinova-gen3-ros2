@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise every ROS control surface against a RUNNING kinova_gen3_node.
 
-    ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf ...     # or the real arm
+    ros2 launch kinova_gen3_description bringup.launch.py sim:=true mount_file:=<mount.yaml>   # or sim:=false ip:=<arm>
     python3 run_conformance.py
 
 Attaches to whatever node is up; never launches one. The arbitration mode is fixed at
@@ -34,7 +34,11 @@ from harness import FAIL, PASS, REGISTRY, SKIP, Ctx, Result
 SECTION_ORDER = ["state", "arbitration", "streaming", "motion", "speed", "gripper"]
 # The e-stop must be proven before anything commands the arm. These run first within
 # their section, and a failure aborts the run.
-ESTOP_CRITICAL = ("engaging /estop latches", "a fresh clear releases")
+ESTOP_CRITICAL = (
+    "engaging /estop latches",
+    "NOT_ENGAGED releases",
+    "heartbeat does not release",
+)
 
 GREEN, RED, YELLOW, DIM, RESET = (
     "\033[32m",

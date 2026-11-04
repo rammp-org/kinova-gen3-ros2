@@ -194,6 +194,11 @@ srv/RevokeControl.srv     string reason
                           string message
 ```
 
+**Amendment (kinova-gen3-driver#89).** The `AcquireControl` request appends
+`uint8[16] token`, all-zero by default. Non-zero is passed to core's
+`grant(owner_id, token)` as a pre-generated key, which lets an orchestrator share one
+key across resources; all-zero lets core mint, as before.
+
 **Why three services for two core methods.** `Arbiter::revoke()` takes no arguments and
 unconditionally dispossesses whoever holds the arm — so "I am done, releasing" and
 "operator seizes the arm from a hung client" are the same call in core. Those deserve

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Send a GoToEEPose goal (base_link target) and print feedback + result.
+"""Send a GoToEEPose goal (arm_mount target) and print feedback + result.
 
-The operator supplies a base_link tool pose. Pick a pose near the current tool
+The operator supplies an arm_mount tool pose. Pick a pose near the current tool
 pose for a safe local move; cuRobo plans collision-free from the live /joint_states.
 
 Optional constraints, one at a time — this is the single-shot companion to
@@ -24,6 +24,13 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rammp_arm_interfaces.action import GoToEEPose
 
+from gains_cli import add_gains_args, build_gains
+
+_MODES = {
+    "position": GoToEEPose.Goal.CONTROL_MODE_POSITION,
+    "impedance": GoToEEPose.Goal.CONTROL_MODE_IMPEDANCE,
+}
+
 _HOLDS = {
     "none": GoToEEPose.Goal.HOLD_NONE,
     "level": GoToEEPose.Goal.HOLD_LEVEL,
@@ -39,7 +46,7 @@ def main():
         nargs=3,
         required=True,
         metavar=("X", "Y", "Z"),
-        help="target tool position in base_link (metres)",
+        help="target tool position in arm_mount (metres)",
     )
     ap.add_argument(
         "--quat",
@@ -63,6 +70,13 @@ def main():
         help="keep the tool's orientation while it travels: none, level "
         "(tilt held, yaw free) or fixed (all three held)",
     )
+    ap.add_argument(
+        "--mode",
+        choices=sorted(_MODES),
+        default="position",
+        help="execute stiff (position) or compliant (impedance)",
+    )
+    add_gains_args(ap)
     args = ap.parse_args()
 
     # Same bounds the node enforces, refused rather than clamped — catching it
@@ -78,7 +92,7 @@ def main():
         return 1
 
     goal = GoToEEPose.Goal()
-    goal.target.header.frame_id = "base_link"
+    goal.target.header.frame_id = "arm_mount"
     (
         goal.target.pose.position.x,
         goal.target.pose.position.y,
@@ -94,6 +108,8 @@ def main():
     goal.speed_scale = args.speed_scale
 
     goal.orientation_hold = _HOLDS[args.hold]
+    goal.control_mode = _MODES[args.mode]
+    goal.gains = build_gains(args)
 
     def on_fb(fb):
         f = fb.feedback
@@ -105,7 +121,7 @@ def main():
     rclpy.spin_until_future_complete(node, send)
     gh = send.result()
     if not gh.accepted:
-        node.get_logger().error("goal REJECTED (check frame_id == base_link)")
+        node.get_logger().error("goal REJECTED (check frame_id == arm_mount)")
         return 2
     res_future = gh.get_result_async()
     rclpy.spin_until_future_complete(node, res_future)

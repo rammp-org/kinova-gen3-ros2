@@ -28,8 +28,13 @@ public:
   // so its model never has a gripper regardless of the hardware. A robot
   // genuinely built without one sets this false and the diagnostics task
   // reports OK instead of WARN.
+  //
+  // contact: where to ask whether a contact stop is latched (the Arbiter in
+  // bringup; reads are ungated). While latched, setpoints are refused here
+  // with a WARN; the driver drops them too, silently. Null: never refused here.
   GripperServer(rclcpp::Node::SharedPtr node,
-                kinova::interface::GripperSink &sink, bool expect_gripper);
+                kinova::interface::GripperSink &sink, bool expect_gripper,
+                kinova::interface::CommandSink *contact = nullptr);
 
   // Pulls on_query_gripper() and publishes it. The caller supplies the stamp;
   // GripperState::stamp_s is QUERY time, not sample time, and is deliberately
@@ -43,6 +48,7 @@ private:
   rclcpp::Node::SharedPtr node_;
   kinova::interface::GripperSink &sink_;
   bool expect_gripper_;
+  kinova::interface::CommandSink *contact_;
   rclcpp::CallbackGroup::SharedPtr setpoint_group_;
   rclcpp::Subscription<GripperSetpointMsg>::SharedPtr sp_sub_;
   rclcpp::Publisher<GripperStateMsg>::SharedPtr state_pub_;

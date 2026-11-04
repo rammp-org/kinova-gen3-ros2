@@ -50,6 +50,8 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
+# Poses below were read off a LEVEL mount (dojo); in arm_mount on a tilted one
+# (flatbot) they are different arm-relative poses -- re-read them there.
 # Gripper level, approach axis horizontal facing forward. READ OFF THE ARM, not
 # derived -- see scenario_carry_level.py for why that distinction mattered.
 GRIPPER_LEVEL = [0.5, 0.5, 0.5, 0.5]
@@ -240,7 +242,7 @@ def main():
 
     def goal_for(pose, hold="none", speed=1.0):
         g = GoToEEPose.Goal()
-        g.target.header.frame_id = "base_link"
+        g.target.header.frame_id = "arm_mount"
         (
             g.target.pose.position.x,
             g.target.pose.position.y,

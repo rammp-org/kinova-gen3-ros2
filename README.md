@@ -14,15 +14,15 @@ Design docs: `docs/superpowers/specs/2026-08-12-ros2-backend-realization-design.
 
 ## Packages
 
-| Package                | Type                     | Contents                                                                                |
-| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------- |
-| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGains.msg`. Interface definitions only. |
-| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.     |
+| Package                | Type                     | Contents                                                                                     |
+| ---------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| `rammp_arm_interfaces` | `ament_cmake` + `rosidl` | `ExecuteJointTrajectory.action`, `JointImpedanceGainValues.msg`. Interface definitions only. |
+| `kinova_gen3_ros2`     | `ament_cmake`            | `message_mapping` + `ros2_backend` libraries and the `kinova_gen3_node` executable.          |
 
 ```
 rammp_arm_interfaces/
   action/ExecuteJointTrajectory.action
-  msg/JointImpedanceGains.msg
+  msg/JointImpedanceGainValues.msg
 kinova_gen3_ros2/
   include/kinova_gen3_ros2/{ros2_backend,message_mapping}.h
   src/message_mapping.cpp     ROS2 msg <-> kinova::interface value types (no rclcpp)
@@ -44,7 +44,8 @@ The core defines three ports (`kinova_lowlevel/interface/ports.h`);
   *sampler* thread calls `publish_feedback()` / `settle()` to push feedback and
   terminal results out to the ROS2 goal handle.
 - **`StreamPort`** (implemented by `Ros2Backend`) — the Supervisor's *pump*
-  thread calls `publish_state()` (~100 Hz) to publish `/joint_states`.
+  thread calls `publish_state()` (~100 Hz); the backend publishes
+  `/joint_states` and `/ee_state` every `state_publish_divisor`-th tick (default 2, so ~50 Hz).
 - **`CommandSink`** (implemented by the Supervisor) — the backend's rclcpp
   callbacks call `on_trajectory_goal()` / `on_trajectory_accepted()` /
   `on_trajectory_cancel()` on inbound goals.
@@ -68,31 +69,50 @@ Node name: **`kinova_gen3_node`**.
 | `go_to_ee_pose`            | `rammp_arm_interfaces/action/GoToEEPose`             |
 | `go_to_joint_config`       | `rammp_arm_interfaces/action/GoToJointConfig`        |
 | `go_to_preset`             | `rammp_arm_interfaces/action/GoToPreset`             |
+| `go_to_ee_poses`           | `rammp_arm_interfaces/action/GoToEEPoses`            |
+| `go_to_joint_configs`      | `rammp_arm_interfaces/action/GoToJointConfigs`       |
 
 Goal:
 
 ```
-trajectory_msgs/JointTrajectory  trajectory
-control_msgs/JointTolerance[]    path_tolerance      # empty => guard disabled
-control_msgs/JointTolerance[]    goal_tolerance      # empty => guard disabled
+trajectory_msgs/JointTrajectory  trajectory          # joint_names: arm_joint_1..arm_joint_7, in order
+control_msgs/JointTolerance[]    path_tolerance      # empty => guard disabled; else named as joint_names
+control_msgs/JointTolerance[]    goal_tolerance      # empty => guard disabled; else named as joint_names
 builtin_interfaces/Duration      goal_time_tolerance
 uint8   control_mode             # 0 = POSITION, 1 = IMPEDANCE
 uint8   preemption               # 0 = QUEUE,    1 = LATEST_WINS
-JointImpedanceGains gains        # kq[7], zeta, torque_limit[7]; used iff IMPEDANCE
+ImpedanceGains gains                  # a compliance PROFILE (SESSION_DEFAULT/SOFT/MEDIUM/STIFF/CUSTOM);
+                                 # custom kq[7]/zeta/torque_limit[7] read iff CUSTOM. Compliance
+                                 # iff IMPEDANCE; a non-default spec on a POSITION goal is refused.
 string  sender_id
 ```
 
 Result: `error_code` (`SUCCESSFUL=0`, `INVALID_GOAL=-1`, `PATH_TOLERANCE_VIOLATED=-4`,
 `GOAL_TOLERANCE_VIOLATED=-5`, `PREEMPTED=-6`), `error_string`, `final_error`.
 
+`preemption`: on an idle arm, `QUEUE` and `LATEST_WINS` both start the goal.
+While another goal is running, `LATEST_WINS` replaces it (it settles `PREEMPTED`),
+but **queueing is disabled**: a `QUEUE` goal is accepted, then aborted at once with
+`INVALID_GOAL` ("queueing is disabled: …"), and the running goal carries on. To chain motions, wait for the goal to
+finish, preempt it, or plan one goal through all the waypoints (driver
+[#84](https://github.com/rammp-org/kinova-gen3-driver/issues/84)).
+
 Feedback: `desired` / `actual` / `error` (`actual` is the driver's live measured
 q — it is the real confirmation of motion) plus `fraction_complete`.
 
 **Goal validation** happens in `handle_goal` before the Supervisor sees anything.
-A goal is REJECTED if the trajectory has no points, or if any point's `positions`
-length is not exactly 7. (The mapping layer separately zero-fills / truncates as a
+A goal is REJECTED if the trajectory has no points, if any point's `positions`
+length is not exactly 7, or if `trajectory.joint_names` is not exactly the arm's
+joints in chain order: `arm_joint_1`…`arm_joint_7`, the names `/joint_states`
+carries (they come from the model). Positions are mapped by index, so a list in any
+other order, a missing or extra name, or no names at all is refused rather than
+remapped. A non-empty `path_tolerance` or `goal_tolerance` is held to the same rule
+on its `name` fields. (The mapping layer separately zero-fills / truncates as a
 memory-safety net, but a malformed goal never gets that far.) Only the `.position`
 field of each `JointTolerance` is used; a value `< 0` disables that joint's guard.
+A planned move whose cuRobo trajectory names other joints, or the same joints in
+another order, settles `PLANNING_FAILED` and is never executed, so the planned moves
+need a RAMMP-CuRobo that emits `arm_joint_1`…`arm_joint_7` (#38 onward).
 
 `go_to_ee_pose`, `go_to_joint_config` and `go_to_preset` describe a *goal* rather
 than a trajectory: each plans a collision-free path via the external cuRobo node
@@ -104,17 +124,41 @@ Result/Feedback and their cancel behaviour are identical — see
 
 Both joint-space actions plan through cuRobo's `plan_to_joints`; `go_to_preset`
 just resolves a name to 7 joint angles first, from the `preset_names` /
-`presets.<name>` parameters.
+`presets.<name>` parameters. Every node has `home` and `rest`; their
+angles are per-installation config.
+
+All three GoTo goals also carry `control_mode`
+(`CONTROL_MODE_POSITION`/`CONTROL_MODE_IMPEDANCE`, default position) and a
+`ImpedanceGains gains`: an impedance GoTo plans with cuRobo exactly as before and
+executes the plan compliantly under the named gains. Gains on a position goal
+are refused at submission, not ignored.
+
+`go_to_ee_poses` and `go_to_joint_configs` are `go_to_ee_pose` and
+`go_to_joint_config` through a list of targets in ONE motion. Each leg is
+planned as the single-target action plans it, from the last point of the leg
+before it; cuRobo's `blend` then joins the legs into one trajectory that passes
+each target still moving where its `blend_radius` allows, and that trajectory is
+executed once. Each target is an `EEPoseTarget` / `JointConfigTarget` carrying
+its own leg's `speed_scale`, `orientation_hold` (poses only) and `blend_radius`
+(the corner into the next leg; unused on the last target, which stops). The
+blended trajectory carries the speeds, so it is executed at speed scale 1. A leg
+or a blend that cannot be planned ends the goal `PLANNING_FAILED` before
+anything moves, `error_string` reading `leg k/N: <reason>` (k from 1) or
+`blend: <reason>`. Result and Feedback are the single-target actions'; while
+planning, `planner_state` carries the same prefix. The planner takes one goal at
+a time, so another GoTo goal sent mid-chain can collide with it
+(`planner busy`); see
+[`docs/guide-goto-actions.md`](docs/guide-goto-actions.md).
 
 ### Published topics
 
-| Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                     |
-| ---------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `joint_1`..`joint_7`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, ~100 Hz.                                                                                                                                                                                                              |
-| `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                               |
-| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: tool pose and twist, same pump tick, same rate.                                                                                                                                                                                                                                  |
-| `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**. |
-| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Two tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode) and `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives).                                                                                   |
+| Topic            | Type                                    | QoS                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------- | --------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `joint_states`   | `sensor_msgs/JointState`                | `SensorDataQoS` (**best-effort**)       | `arm_joint_1`..`arm_joint_7` (names from the model), then `arm_robotiq_85_left_knuckle_joint`; `position`/`velocity`/`effort` all filled. Free-running from the pump thread, decimated by `state_publish_divisor` (default 2: ~50 Hz).                                                                                                                                                                                                                                                        |
+| `control_status` | `rammp_common_interfaces/ControlStatus` | reliable, **transient_local** (latched) | Who may command the arm: owner, `generation`, `estopped`, `rejected_count`. Published **on change**, so a late or reconnecting client learns the current state immediately.                                                                                                                                                                                                                                                                                                                   |
+| `ee_state`       | `rammp_arm_interfaces/EeState`          | `SensorDataQoS` (**best-effort**)       | The Cartesian sibling of `joint_states`: pose, twist and external wrench of `--ee-frame` in `arm_mount`, same pump tick, same rate.                                                                                                                                                                                                                                                                                                                                                           |
+| `stream_status`  | `rammp_arm_interfaces/StreamStatus`     | reliable, **transient_local** (latched) | What the streaming tier is doing: `open`, `controller`, `channels`, `timeout_s`, `rejected_count`. `open`, `timeout_s` and `rejected_count` come from core via `StreamSink::on_query_stream()`, so a session torn down on deadline expiry shows up immediately rather than as this node's guess. Published **on change**.                                                                                                                                                                     |
+| `/diagnostics`   | `diagnostic_msgs/DiagnosticArray`       | default                                 | REP 107, 1 Hz, via `diagnostic_updater`. Tasks: `kinova_gen3_node: Arbitration` (ERROR while e-stopped, WARN when unowned in enforced mode), `kinova_gen3_node: Arm` (ERROR on an arm fault, STALE before any feedback arrives or when it is over 1 s old), `kinova_gen3_node: Arm link` (OK running, ERROR faulted, STALE connecting; see [Fault recovery](#fault-recovery)) `kinova_gen3_node: Gripper` and `kinova_gen3_node: Speed scale` (always OK; the `global_speed_scale` in force). |
 
 Because `joint_states` and `ee_state` are best-effort, CLI subscribers must match it:
 `ros2 topic echo --qos-reliability best_effort /joint_states`.
@@ -127,9 +171,10 @@ URDF does not know about; mixing the two would give a pose and a twist that disa
 an unknown transform. The frame is **`LOCAL_WORLD_ALIGNED`** — world-aligned at the tool,
 not the body frame.
 
-There is deliberately **no wrench**. The driver has no force estimate of its own, and the
-arm's `tool_external_wrench` is in that same tool frame; publishing a zero in sim or a
-frame-mismatched value on hardware would be worse than publishing nothing.
+**The wrench is the driver's own estimate**, not the arm's `tool_external_wrench`, which
+is in that same tool frame. It comes from the contact observer while contact detection
+runs, and from the quasi-static `g(q) − τ` otherwise. See
+[The `/ee_state` wrench](docs/interface.md#the-ee_state-wrench).
 
 The same judgement applies to the gripper, once it is published: its effort is a
 normalized 0..1 fraction derived from motor current, and `sensor_msgs/JointState.effort`
@@ -141,14 +186,15 @@ report: the gripper's `force` is a current ceiling on the command side, and
 
 ### Subscribed topics
 
-| Topic                      | Type                                 | QoS                    | Notes                                                                                                                               |
-| -------------------------- | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `/estop`                   | `rammp_common_interfaces/EStop`      | reliable, **volatile** | Broadcast emergency stop. `engaged: true` stops the arm, `false` clears. Global (leading `/`), and **any node may publish either**. |
-| `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint angles, **rad**.                                                                                                              |
-| `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint rates, **rad/s**.                                                                                                             |
-| `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1   | Joint torques, **N·m**.                                                                                                             |
-| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1   | Target tool pose, base frame.                                                                                                       |
-| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1   | Target tool twist, base frame, `[linear; angular]`.                                                                                 |
+| Topic                      | Type                                 | QoS                       | Notes                                                                                                                                                                    |
+| -------------------------- | ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/arm/robot_description`   | `std_msgs/String`                    | reliable, transient-local | **Required.** The arm's model, from `arm_state_publisher`. Read once at startup (30 s, then exit 1); see [One model, rendered at launch](#one-model-rendered-at-launch). |
+| `/estop`                   | `rammp_common_interfaces/EStop`      | best-effort, **volatile** | Broadcast emergency stop. Stopped while any `source`'s newest `state` is engaged; see below. Global (leading `/`), and **any node may publish**.                         |
+| `/setpoint/joint_position` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint angles, **rad**.                                                                                                                                                   |
+| `/setpoint/joint_velocity` | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint rates, **rad/s**.                                                                                                                                                  |
+| `/setpoint/joint_torque`   | `rammp_arm_interfaces/JointSetpoint` | best-effort, depth 1      | Joint torques, **N·m**.                                                                                                                                                  |
+| `/setpoint/pose`           | `rammp_arm_interfaces/PoseSetpoint`  | best-effort, depth 1      | Target tool pose, `arm_mount`.                                                                                                                                           |
+| `/setpoint/twist`          | `rammp_arm_interfaces/TwistSetpoint` | best-effort, depth 1      | Target tool twist, `arm_mount` axes, `[linear; angular]`.                                                                                                                |
 
 The three `JointSetpoint` topics share one message shape and the **topic** carries the units.
 All six are subscribed unconditionally, but a setpoint is only applied while a matching
@@ -162,28 +208,56 @@ connect. This works:
 
 ```bash
 ros2 topic pub --once /estop rammp_common_interfaces/msg/EStop \
-  "{engaged: true, source: 'cli', reason: 'testing'}"
+  "{state: 1, source: 'cli', reason: 'testing'}"
+# release it: the same source, NOT_ENGAGED
+ros2 topic pub --once /estop rammp_common_interfaces/msg/EStop \
+  "{state: 0, source: 'cli', reason: 'done testing'}"
 ```
 
-**Staleness is asymmetric, and both branches fail toward "the arm stays stopped":**
-`engaged: true` is never age-checked (a stale stop is still honoured), while
-`engaged: false` is refused if older than `estop_clear_max_age_s` — which stops a
-`ros2 bag` replay from re-enabling a stopped arm. An unstamped clear (all-zero
-stamp, what `ros2 topic pub` sends) is accepted with a warning.
+The node **listens and obeys**; it never decides when the robot is stopped. On the
+chair the MIB owns the latch, the clear handshake and the deadman. The node keeps
+the newest `state` of each `source`:
+
+- **`ENGAGED` from anyone stops the arm at once.** Any `state` other than
+  `STATE_NOT_ENGAGED` (0) counts as engaged, the fail-safe reading of an unknown
+  byte. An engage is never age- or `pub_seq`-checked: a stale stop is still honoured.
+- **A plain `NOT_ENGAGED` (empty `clear_target`) sets that source's state to not
+  engaged.** From a source that wasn't engaged it is a heartbeat and changes nothing,
+  so no node can end another node's stop.
+- **A clear attempt (`NOT_ENGAGED` with `clear_target` set) never changes its
+  sender's state.** The MIB sends clear attempts while it is still latched, so the
+  arm stays stopped through the attempt and releases when the MIB does.
+- **The arm is released once no source's state is engaged**, and then has no owner
+  until someone re-acquires control. Several sources can be engaged at once;
+  release needs all of them.
+
+There is no deadman here and the stamp is never read: a source whose last message
+was `ENGAGED` keeps the arm stopped however long it stays silent. Releasing a stop is
+the engaging source's job: on the chair, through the MIB's clear handshake; without a
+MIB (dojo, CI), by sending `NOT_ENGAGED` under the **same `source`** it engaged with.
+Every engage and release is logged with `source` and `reason`.
 
 ### Control-ownership services
 
-| Service           | Type             | Notes                                                                                                                       |
-| ----------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `acquire_control` | `AcquireControl` | Mints a token. **SEIZES** — succeeds even when another client holds the arm, halting their in-flight motion (settled `-9`). |
-| `release_control` | `ReleaseControl` | Refused unless the token matches the current owner.                                                                         |
-| `revoke_control`  | `RevokeControl`  | Operator override, no token. The recovery path for a crashed owner, since ownership has no lease.                           |
+| Service           | Type             | Notes                                                                                                                                                                   |
+| ----------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `acquire_control` | `AcquireControl` | Mints a token, or adopts the caller's `token` if non-zero. **SEIZES** — succeeds even when another client holds the arm, halting their in-flight motion (settled `-9`). |
+| `release_control` | `ReleaseControl` | Refused unless the token matches the current owner.                                                                                                                     |
+| `revoke_control`  | `RevokeControl`  | Operator override, no token. The recovery path for a crashed owner, since ownership has no lease.                                                                       |
 
 ```bash
 # acquire, then put the returned token on every goal
 ros2 service call /acquire_control rammp_common_interfaces/srv/AcquireControl \
   "{owner_id: 'orchestrator'}"
 ```
+
+An orchestrator that shares one key across several resources passes it as `token`
+instead of taking a minted one. Doing so gives up what minting guarantees: a module
+handed the key early is refused until the grant lands, every module holding the key
+is the owner at once, and neither re-acquiring with the same key nor a driver restart
+locks out a stale holder of it. Re-acquiring, even with the same key, still halts the
+arm's current motion. Check that the returned `token` equals the one you sent: a
+driver that predates this field ignores it and mints its own.
 
 Every motion-commanding message carries a `uint8[16] token`; nothing that *stops*
 the arm or reads state does. With `arbitration_mode:=disabled` (the default) the
@@ -197,8 +271,30 @@ token is ignored, so existing clients need no changes.
 > domain ever contains unknown actors, the answer is SROS2 / DDS Security, not more
 > tokens. See `docs/superpowers/specs/2026-08-29-ros2-arbitration-tier-design.md`.
 
-`set_gains` and `query_state` exist on the core's `CommandSink` but are still not
-exposed as ROS2 services.
+`/set_gains` (`rammp_arm_interfaces/srv/SetGains`) sets the **session default**
+compliance — what an `ImpedanceGains` left at `PROFILE_SESSION_DEFAULT` resolves to
+from then on. It takes a named profile or custom gains plus the arbitration
+token, and goes through the same Arbiter-gated `CommandSink` as every other
+command. It touches no live mode: a running impedance session keeps the tuning
+it opened with; the next bare impedance command picks the new default up.
+`query_state` still exists on the core's `CommandSink` without a ROS2 service.
+
+### Fault recovery
+
+The node does not exit when the arm faults, is e-stopped, loses power or its link, or is
+off at start. An arm that is off or still booting is connected by itself. A fault, a
+hardware e-stop or protective stop, the arm taken out of low-level (web app, Kinova
+controller, another KORTEX client), or a link lost while running hands the arm back to
+its base and waits for (a ROS `/estop` or an `/acquire_control` seize does neither):
+
+```bash
+ros2 service call /clear_faults std_srvs/srv/Trigger
+```
+
+`success` is true only once the driver is commanding again; otherwise `message` says
+why. It needs no token. The link state, its reason and the fault and reconnect counts
+are on `/diagnostics` (`Arm link`). Details: [docs/interface.md](docs/interface.md),
+[docs/troubleshooting.mdx](docs/troubleshooting.mdx).
 
 ### Streaming
 
@@ -206,31 +302,34 @@ Teleop and reactive control drive the arm through a **session**: you name a
 *controller* (a control law), and the driver replies with the *channels* (topics)
 to publish on.
 
-| Service            | Type              | Notes                                                                        |
-| ------------------ | ----------------- | ---------------------------------------------------------------------------- |
-| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below.                          |
-| `open_stream`      | `OpenStream`      | `controller, timeout_s, token` → `accepted, channels[], error_code, message` |
-| `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                  |
+| Service            | Type              | Notes                                                                                                                                                                                                      |
+| ------------------ | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_controllers` | `ListControllers` | Call this **first** — see the discovery note below.                                                                                                                                                        |
+| `open_stream`      | `OpenStream`      | `controller, timeout_s, token, gains` → `accepted, channels[], error_code, message`. `gains` applies iff the controller is an impedance one, resolved AT OPEN; mid-session changes mean close-then-reopen. |
+| `close_stream`     | `CloseStream`     | `token` → `closed, message`                                                                                                                                                                                |
 
-| Controller            | Channel                               | Available                                                                      |
-| --------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
-| `joint_position`      | `/setpoint/joint_position`            | yes                                                                            |
-| `joint_impedance`     | `/setpoint/joint_position`            | yes                                                                            |
-| `ee_pose_impedance`   | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                           |
-| `ee_pose_position`    | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                           |
-| `joint_torque`        | `/setpoint/joint_torque`              | yes                                                                            |
-| `joint_velocity`      | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact        |
-| `ee_twist`            | `/setpoint/twist`                     | yes — damped least squares with null-space posture                             |
-| `cartesian_impedance` | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind |
+| Controller                 | Channel                               | Available                                                                                 |
+| -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `joint_position`           | `/setpoint/joint_position`            | yes                                                                                       |
+| `joint_impedance`          | `/setpoint/joint_position`            | yes                                                                                       |
+| `ee_pose_impedance`        | `/setpoint/pose`                      | yes — compliant; in-loop IK via `JointImpedanceMode`                                      |
+| `ee_pose_position`         | `/setpoint/pose`                      | yes — **stiff**; no compliance, full servo authority                                      |
+| `joint_torque`             | `/setpoint/joint_torque`              | yes                                                                                       |
+| `joint_velocity`           | `/setpoint/joint_velocity`            | yes — **stiff by contract**: tracks the rate, does not yield to contact                   |
+| `joint_velocity_impedance` | `/setpoint/joint_velocity`            | with a core that supports (`kJointVelocity` × `kImpedance`) — the compliant velocity tier |
+| `ee_twist`                 | `/setpoint/twist`                     | yes — damped least squares with null-space posture                                        |
+| `ee_twist_impedance`       | `/setpoint/twist`                     | with a core that supports (`kEeTwist` × `kImpedance`) — the compliant twist tier          |
+| `cartesian_impedance`      | `/setpoint/pose`, `wrench` (no topic) | no — needs `CartesianImpedanceMode` in the `Supervisor` and a `kEeWrench` kind            |
 
 `available` is computed live from core's `pair_supported()`, so these rows light up
 when core grows the mode. That is not theoretical: `joint_velocity` and `ee_twist`
 flipped to available when core landed `JointVelocityMode`, with no change on this side
 beyond the test expectation.
 
-**Velocity and `ee_pose_position` are stiff.** Neither yields to contact — the servo
-chases the command at full authority, and nothing absorbs a mistake. `joint_impedance`
-and `ee_pose_impedance` are the compliant options.
+**`joint_velocity`, `ee_twist` and `ee_pose_position` are stiff.** None yields to
+contact — the servo chases the command at full authority, and nothing absorbs a
+mistake. `joint_impedance`, `ee_pose_impedance` and (where the core pin supports
+them) `joint_velocity_impedance` / `ee_twist_impedance` are the compliant options.
 
 Note that `SimTransport` is a static echo with no velocity plant, so a velocity or twist
 session commands correctly in sim but produces **no motion**. That the setpoints are
@@ -280,91 +379,110 @@ yet; messages are dropped with a throttled warning.
 
 ### Launch files
 
-There are none. The node takes plain CLI args and is started with `ros2 run`;
-adding a launch file has not been needed yet.
+`description.launch.py` (required `mount_file`) renders the model and runs
+`robot_state_publisher`. `bringup.launch.py` (required `mount_file`) starts the
+description, then the node.
 
 ## Robot model and TF
 
-`kinova_gen3_description` holds the robot model and the launch plumbing. Start everything
-with:
+`kinova_gen3_description` holds the robot model and the launch plumbing. Every robot
+declares its arm mount in `mount.yaml`: `robot: <name>` and `rpy_deg: [r, p, y]`, the
+orientation of `arm_base_link` in `arm_mount`, in degrees, fixed-axis X-Y-Z as URDF's
+`<origin rpy>` (R = Rz(y)·Ry(p)·Rx(r)). Containers see it at `/config/robot/mount.yaml`;
+`deploy/compose.yaml` mounts it from `KINOVA_MOUNT_FILE`.
+`mount_file` has **no default**. A default would silently render a level arm on a
+tilted one, and gravity compensation would then be wrong by the tilt.
 
 ```bash
-ros2 launch kinova_gen3_description bringup.launch.py sim:=true
-# or against the arm:
-ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true mount_file:=<robot>/mount.yaml
+# TF and the model only, without owning the arm:
+ros2 launch kinova_gen3_description description.launch.py mount_file:=<robot>/mount.yaml
 ```
 
-That runs the driver and `robot_state_publisher` on the **same model**, which is the
-point of the package. For TF only, without owning the arm:
+The first line the description logs is the active robot:
+`embodiment: flatbot (mount rpy_deg [0.0, 30.0, 0.0])`.
+
+### One model, rendered at launch
+
+`description.launch.py` renders `urdf/kinova_gen3.urdf.xacro` with the mount file, using
+`kinova_gen3_render.py` and stripping `kortex_description`'s `<ros2_control>` block. It
+then runs `robot_state_publisher` with `robot_description` remapped to
+**`/arm/robot_description`** (latched: RELIABLE + TRANSIENT_LOCAL). `/tf` and
+`/joint_states` stay global. The driver reads that topic once at startup, builds its
+dynamics from it and logs `model from /arm/robot_description: mount tilt N deg ...` (the
+tilt read from the model). Nothing is rendered at build time, and the image holds no URDF
+file.
+
+- **A different model published later is not applied.** The driver keeps the one it
+  started with and logs an ERROR each time another arrives (an `arm_state_publisher`
+  restarted with another mount, or a second publisher). Restart the driver to apply it.
+
+- **cuRobo does not read this topic yet** (RAMMP-CuRobo#20): it plans in its own arm
+  base. The contract is that the planner stamps the frame it planned in on the
+  trajectory's `header.frame_id`. `GoToEEPose` refuses any plan not stamped `arm_mount`
+  (today's cuRobo leaves it unset). Joint-space goals are unaffected.
+
+- Root `arm_mount`: Z against gravity when the chair is level, X forward, origin at the
+  arm's base. All Cartesian I/O is in this frame: `/ee_state`, `GoToEEPose`,
+  `/setpoint/pose`, `/setpoint/twist`. `/ee_state` is the pose of `--ee-frame`
+  (`arm_end_effector_link`, the flange); `GoToEEPose` positions `arm_tool_frame`, 0.120 m
+  beyond it. On dojo the mount is identity, so `arm_mount` coincides with the arm's
+  base. On flatbot and gen_1_5 it is +30° about Y.
+
+- Every name carries the `arm_` prefix (`arm_joint_1`…`arm_joint_7`, `arm_base_link`, …),
+  because the chair owns `base_link` (REP-105).
+
+- `arm_tool_frame` sits 0.120 m along `arm_end_effector_link`'s +Z. That is cuRobo
+  v0.7.8's `tool_frame`, where every `PlanToPose` goal is positioned.
+
+- The model has 13 DOF. The driver reduces it to the seven arm joints itself,
+  locking the gripper at q = 0, which keeps the gripper's mass at the wrist.
+  `robot_state_publisher` derives the five mimic joints from
+  `arm_robotiq_85_left_knuckle_joint`, which the driver publishes.
+
+To render a URDF file for the bench (the driver's standalone apps take `--urdf`):
 
 ```bash
-ros2 launch kinova_gen3_description description.launch.py
+ros2 run kinova_gen3_description kinova_gen3_render.py --mount <robot>/mount.yaml --out /tmp/arm.urdf
 ```
-
-### The model is generated, not vendored
-
-`urdf/kinova_gen3.urdf.xacro` composes `kortex_description`'s arm with
-`robotiq_description`'s 2F-85, and CMake expands it at build time into **two** URDFs:
-
-| file                    | DOF | for                                                      |
-| ----------------------- | --- | -------------------------------------------------------- |
-| `kinova_gen3_7dof.urdf` | 7   | the driver (core's `Dynamics` asserts `nv == 7`)         |
-| `kinova_gen3.urdf`      | 13  | `robot_state_publisher` by default (`articulated:=true`) |
-
-Two, because they cannot be one:
-
-- **Core's `Dynamics` asserts `nv == 7`** and aborts otherwise
-  (`URDF nv=13 != kNumJoints=7`). `JointVec` is a fixed-size 7-vector.
-- **`robot_state_publisher` DOES derive `<mimic>` joint transforms from the joint they
-  mimic** — verified 2026-09-03 with a two-joint URDF: publishing only the driver joint
-  moved the mimic link by exactly -0.6 rad for a +0.6 rad drive. The articulated model
-  has 13 movable joints but only **eight independent** ones — seven arm joints plus
-  `robotiq_85_left_knuckle_joint` — and the driver publishes all eight as of the gripper
-  tier, so `robot_state_publisher` derives the other five and `articulated` now defaults
-  to `true`.
-
-Freezing the gripper drops its degrees of freedom, **not its mass** — Pinocchio lumps a
-fixed joint's body into its parent — so gravity compensation is unaffected. That is
-almost certainly why the hand-edited model this replaces had every Robotiq joint fixed.
-
-It is safe on a gripper-less build: if the model was built with `gripper:=false`, the
-knuckle joint is not in it and `robot_state_publisher` ignores joint states for joints
-it does not know.
 
 ### The invariant
 
-**The driver publishes `joint_1 … joint_7` and the model must agree.** It did not
-before: the old URDF used `gen3_joint_1 … gen3_joint_7`, so `robot_state_publisher`
-matched nothing and held TF at the default configuration while the arm really moved.
-Nothing errored. `test_tf_updates.py` asserts the transform *changes*, not merely that
-it exists.
+**`/joint_states` names come from the model**, via `Dynamics::joint_names()` plus the
+gripper joint, which is checked to exist at startup. If they disagreed with the URDF,
+`robot_state_publisher` would match nothing and hold TF still while the arm moved, and
+nothing would error. `test_tf_updates.py` asserts that the transform *changes*.
 
-`--ee-frame` exists for the same reason. `Dynamics` resolves the EE frame by name and
-throws if it is absent; core defaults to `gen3_end_effector_link` for its own tests,
-while the generated model uses `end_effector_link`, which the launch passes.
+`--ee-frame` (default `arm_end_effector_link`) is resolved by name in `Dynamics`,
+which throws if the frame is absent.
 
 ### Known gaps
 
-- The **wrist camera and its 0.5 kg mount are not in the generated model** — they were in
+- The **wrist camera (0.072 kg) and its 0.5 kg mount are not in the generated model** — they were in
   the hand-edited one and upstream cannot know about them. `test_model_parity.py` pins
-  the resulting 0.436 kg difference so it cannot be forgotten; if the physical arm
+  the resulting 0.572 kg difference so it cannot be forgotten; if the physical arm
   carries them, gravity compensation is under-modelled by that much at the wrist.
-- The **gripper joint is not published**, so the gripper renders at its default opening.
-- Model configuration (`gripper`, `camera`, `prefix`) is a **build-time** xacro arg, not
-  a launch argument.
+- The **joint limits are Kinova's** (j2/j4/j6 ±2.24/±2.57/±2.09 rad). cuRobo still plans
+  with the hand-edited model's ±2.41/±2.66/±2.23: a plan through the difference is clamped
+  by the driver and can abort with
+  `PATH_TOLERANCE_VIOLATED`. They move together when cuRobo reads this model.
+- The model's `camera` xacro arg (Kinova's built-in vision module) defaults to `false`:
+  RAMMP's arms do not have one. The vision bracelet is 0.136 kg heavier.
+- Model configuration is not exposed at launch: `prefix` is a fixed xacro property
+  (`arm_`), and `gripper` and `camera` are xacro args with no launch argument.
 
 ## Node arguments
 
-| Flag                      | Default                      | Meaning                                                                                                                                                                 |
-| ------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--sim`                   | off                          | Use `SimTransport` instead of the real arm.                                                                                                                             |
-| `--ip <addr>`             | —                            | Arm IP; required in real mode. Ignored with `--sim`.                                                                                                                    |
-| `--urdf <path>`           | `models/gen3_7dof_2f85.urdf` | Relative to the **cwd**, so run from the core checkout (which ships `models/`).                                                                                         |
-| `--cpu <n>`               | `-1` (no pin)                | CPU to pin the RT thread to.                                                                                                                                            |
-| `--rt-priority <n>`       | `80`                         | SCHED_FIFO priority for the RT thread.                                                                                                                                  |
-| `--rate <hz>`             | `1000.0`                     | RT loop rate.                                                                                                                                                           |
-| `--max-ref-speed <rad/s>` | URDF velocity limits         | Cap on how fast the position-mode *reference* may move, applied per joint. See below.                                                                                   |
-| `--rt-csv <path>`         | — (summary only)             | Write every RT cycle sample to a CSV. Either way the node logs a cumulative `rt:` timing line every 5 s and an `rt final:` line on exit, with the dropped-sample count. |
+| Flag                      | Default                 | Meaning                                                                                                                                                                 |
+| ------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--sim`                   | off                     | Use `SimTransport` instead of the real arm.                                                                                                                             |
+| `--ip <addr>`             | —                       | Arm IP; required in real mode. Ignored with `--sim`.                                                                                                                    |
+| `--ee-frame <frame>`      | `arm_end_effector_link` | Frame `Dynamics` (and so `/ee_state`) uses as the end effector. The model itself comes from `/arm/robot_description`, which the node waits for (30 s) at startup.       |
+| `--cpu <n>`               | `-1` (no pin)           | CPU to pin the RT thread to, and the KORTEX SDK's UDP receive thread it waits on.                                                                                       |
+| `--rt-priority <n>`       | `80`                    | SCHED_FIFO priority for the RT thread. The UDP receive thread gets one less.                                                                                            |
+| `--rate <hz>`             | `1000.0`                | RT loop rate.                                                                                                                                                           |
+| `--max-ref-speed <rad/s>` | URDF velocity limits    | Cap on how fast the position-mode *reference* may move, applied per joint. See below.                                                                                   |
+| `--rt-csv <path>`         | — (summary only)        | Write every RT cycle sample to a CSV. Either way the node logs a cumulative `rt:` timing line every 5 s and an `rt final:` line on exit, with the dropped-sample count. |
 
 `--max-ref-speed` is worth understanding before you change it. `JointPositionParams`
 defaults to 0.5 rad/s on every joint — a conservative bring-up value that
@@ -381,13 +499,13 @@ for a cautious first on-robot run.
 
 ### ROS parameters
 
-| Parameter               | Default    | Meaning                                                                                                    |
-| ----------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
-| `arbitration_mode`      | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch.                                                    |
-| `estop_clear_max_age_s` | `1.0`      | Age beyond which an `/estop` *clear* is ignored. `<= 0` disables the check. Engaging is never age-checked. |
+| Parameter            | Default    | Meaning                                                                                                                                                                                                                                    |
+| -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `arbitration_mode`   | `disabled` | `enforced` \| `disabled`. **Read-only**, set at launch.                                                                                                                                                                                    |
+| `global_speed_scale` | `1.0`      | Slows every arm motion (trajectories, planned moves, velocity/twist and position streams) by this factor, `[0.01, 1.0]`. Live; no token needed. Not torque streams or the gripper. See [docs/interface.md](docs/interface.md#speed-scale). |
 
 ```bash
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf \
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim \
   --ros-args -p arbitration_mode:=enforced
 ```
 
@@ -417,7 +535,7 @@ rosdep update --rosdistro humble
 mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
 git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
 vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
-git clone --branch v1.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
+git clone --branch v2.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
 
 # pinocchio comes from pinned pip wheels, NOT ros-humble-pinocchio (see Container below)
 pip install -r src/kinova_gen3_ros2/docker/requirements.txt
@@ -537,7 +655,12 @@ Do **not** use Docker's `--cpuset-cpus` for this. That confines the entire
 container — rclcpp executor and telemetry drain included — to the isolated core,
 which is the opposite of what the isolation buys you. `--cpu` pins only the RT
 loop, because `enable_rt()` runs inside `RtExecutor::run()` on the main thread,
-after `bringup_node` has already spawned the non-RT threads.
+after `bringup_node` has already spawned the non-RT threads, plus the KORTEX
+SDK's UDP receive thread, which reads every `Refresh()` reply and so sits on the
+loop's critical path. That one is created at `SCHED_FIFO` `--rt-priority`−1 on
+the same core; Kortex's TCP receive and session keepalive threads are not
+touched. Check with `ps -eLo tid,cls,rtprio,psr,comm`: exactly two `FF` threads,
+both on `RT_CORE`.
 
 ## Run
 
@@ -546,16 +669,17 @@ Sim, from the workspace built above:
 ```sh
 cd ~/ros2_ws
 source install/setup.bash
-ros2 launch kinova_gen3_description bringup.launch.py sim:=true
-# or just the node, without TF:
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true mount_file:=src/kinova_gen3_ros2/kinova_gen3_description/test/mounts/level.yaml
+# or the node alone; it waits for /arm/robot_description, so start the description too:
+ros2 run kinova_gen3_ros2 kinova_gen3_node --sim
 # expect: "kinova_gen3_node up (sim); ..."
 ```
 
 Real arm (attended only — follow `docs/on-robot-runbook.md`; needs the KORTEX build):
 
 ```sh
-ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10
+ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10 \
+  mount_file:=<robot>/mount.yaml
 ```
 
 Send a goal with the test client. It **seeds waypoint 0 from the live measured
@@ -598,7 +722,7 @@ another and check both result codes:
 
 ```sh
 # terminal 1
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true mount_file:=src/kinova_gen3_ros2/kinova_gen3_description/test/mounts/level.yaml
 
 # terminal 2
 source ~/ros2_ws/install/setup.bash

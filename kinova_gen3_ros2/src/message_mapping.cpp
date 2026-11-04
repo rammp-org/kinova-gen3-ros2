@@ -2,10 +2,12 @@
 #include <cmath>
 #include <cstdio>
 #include "kinova_gen3_ros2/message_mapping.h"
-#include "kinova_gen3_ros2/joint_point.h" // shared vec_to_point
+#include "kinova_gen3_ros2/joint_point.h"    // shared vec_to_point
+#include "kinova_lowlevel/interface/gains.h" // validate_custom
 namespace kinova_gen3_ros2 {
 using namespace kinova;
 using namespace kinova::interface;
+using ImpedanceGainsMsg = rammp_arm_interfaces::msg::ImpedanceGains;
 
 static JointVec
 tol_to_vec(const std::vector<control_msgs::msg::JointTolerance> &t) {
@@ -61,18 +63,13 @@ TrajectoryGoal to_trajectory_goal(const ExecuteJointTrajectory::Goal &g) {
   tg.goal_time_tolerance_s =
       static_cast<double>(g.goal_time_tolerance.sec) +
       static_cast<double>(g.goal_time_tolerance.nanosec) * 1e-9;
-  tg.control_mode = (g.control_mode == 1) ? ControlModeKind::kImpedance
-                                          : ControlModeKind::kPosition;
+  tg.control_mode = to_control_mode(g.control_mode);
   tg.preemption =
       (g.preemption == 1) ? Preemption::kLatestWins : Preemption::kQueue;
-  tg.has_gains = (g.control_mode == 1);
-  if (tg.has_gains) {
-    for (int i = 0; i < kNumJoints; ++i) {
-      tg.gains.kq[i] = g.gains.kq[i];
-      tg.gains.torque_limit[i] = g.gains.torque_limit[i];
-    }
-    tg.gains.zeta = g.gains.zeta;
-  }
+  // The default message maps to kSessionDefault -- the predecessor set
+  // has_gains with zero-filled message defaults on every impedance goal, so a
+  // client that said nothing asked for zero stiffness.
+  tg.gains = to_impedance_gains(g.gains);
   tg.sender_id = g.sender_id;
   // uint8[16] generates as std::array<uint8_t,16>, which IS interface::Token.
   tg.token = g.token;
@@ -100,15 +97,121 @@ ExecuteJointTrajectory::Result to_result_msg(const TrajectoryResult &r) {
 
 TrajectoryGoal
 to_trajectory_goal(const trajectory_msgs::msg::JointTrajectory &traj,
-                   double speed_scale) {
+                   double speed_scale, ControlModeKind control_mode,
+                   const ImpedanceGains &gains) {
   TrajectoryGoal tg;
   fill_trajectory(traj.points,
                   tg.trajectory); // cuRobo emits qd/qdd — keep them
-  tg.control_mode = ControlModeKind::kPosition;
+  tg.control_mode = control_mode;
+  tg.gains = gains;
   tg.preemption = Preemption::kLatestWins;
   tg.speed_scale = speed_scale;
   // path_tolerance / sender_id are set by the caller (GoToEEPoseServer).
   return tg;
+}
+
+ControlModeKind to_control_mode(uint8_t m) {
+  return (m == 1) ? ControlModeKind::kImpedance : ControlModeKind::kPosition;
+}
+
+ImpedanceGains
+to_impedance_gains(const rammp_arm_interfaces::msg::ImpedanceGains &m) {
+  ImpedanceGains s; // defaults to kSessionDefault with untouched custom
+  switch (m.profile) {
+  case ImpedanceGainsMsg::PROFILE_SOFT:
+    s.profile = GainsProfile::kSoft;
+    break;
+  case ImpedanceGainsMsg::PROFILE_MEDIUM:
+    s.profile = GainsProfile::kMedium;
+    break;
+  case ImpedanceGainsMsg::PROFILE_STIFF:
+    s.profile = GainsProfile::kStiff;
+    break;
+  case ImpedanceGainsMsg::PROFILE_CUSTOM:
+    s.profile = GainsProfile::kCustom;
+    // The ONLY branch that reads the custom fields: everywhere else the
+    // message's zero-filled defaults stay out of core, where they would mean
+    // "zero stiffness, zero torque headroom".
+    for (int i = 0; i < kNumJoints; ++i) {
+      s.custom.kq[i] = m.custom.kq[i];
+      s.custom.torque_limit[i] = m.custom.torque_limit[i];
+    }
+    s.custom.zeta = m.custom.zeta;
+    break;
+  default: // PROFILE_SESSION_DEFAULT; unknown bytes are refused upstream by
+           // mode_gains_rejection, never silently mapped
+    break;
+  }
+  return s;
+}
+
+std::optional<std::string>
+mode_gains_rejection(uint8_t control_mode,
+                     const rammp_arm_interfaces::msg::ImpedanceGains &g) {
+  if (control_mode > 1)
+    return "control_mode " + std::to_string(control_mode) +
+           " is not CONTROL_MODE_POSITION (0) or CONTROL_MODE_IMPEDANCE (1)";
+  if (g.profile > ImpedanceGainsMsg::PROFILE_CUSTOM)
+    return "unknown gains profile " + std::to_string(g.profile) +
+           " (expected PROFILE_SESSION_DEFAULT=0 .. PROFILE_CUSTOM=4)";
+  // Same posture as the driver: gains that cannot act are a caller bug,
+  // refused loudly rather than ignored.
+  if (control_mode != 1 &&
+      g.profile != ImpedanceGainsMsg::PROFILE_SESSION_DEFAULT)
+    return "gains (profile " + std::to_string(g.profile) +
+           ") supplied for a non-impedance command";
+  if (g.profile == ImpedanceGainsMsg::PROFILE_CUSTOM) {
+    const GainsCheck c = validate_custom(to_impedance_gains(g).custom);
+    if (!c.ok)
+      return c.message; // the driver's own bounds text, verbatim
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string>
+contact_rejection(const kinova::interface::ContactState &s) {
+  if (!s.enabled || s.status.phase != kinova::ContactPhase::kLatched)
+    return std::nullopt;
+  const std::string joint =
+      s.status.has_trip
+          ? " (joint " + std::to_string(s.status.last.joint + 1) + ")"
+          : "";
+  return "stopped on unexpected contact" + joint + "; call /clear_faults";
+}
+
+static std::string bracketed(const std::vector<std::string> &names) {
+  std::string s;
+  for (const auto &n : names)
+    s += (s.empty() ? "" : ", ") + n;
+  return "[" + s + "]";
+}
+
+std::optional<std::string>
+joint_names_rejection(const std::vector<std::string> &got,
+                      const std::vector<std::string> &arm) {
+  if (got == arm)
+    return std::nullopt;
+  return "got " + bracketed(got) + ", expected " + bracketed(arm) +
+         " in that order";
+}
+
+std::optional<std::string>
+goal_joint_names_rejection(const ExecuteJointTrajectory::Goal &g,
+                           const std::vector<std::string> &arm) {
+  if (auto why = joint_names_rejection(g.trajectory.joint_names, arm))
+    return "trajectory joint_names: " + *why;
+  for (const auto &[field, tol] :
+       {std::pair{"path_tolerance", &g.path_tolerance},
+        std::pair{"goal_tolerance", &g.goal_tolerance}}) {
+    if (tol->empty())
+      continue;
+    std::vector<std::string> names;
+    for (const auto &t : *tol)
+      names.push_back(t.name);
+    if (auto why = joint_names_rejection(names, arm))
+      return std::string(field) + " names: " + *why;
+  }
+  return std::nullopt;
 }
 
 std::optional<std::string> speed_scale_rejection(double s) {
@@ -123,6 +226,30 @@ std::optional<std::string> speed_scale_rejection(double s) {
     return std::string(buf);
   }
   return std::nullopt;
+}
+
+std::optional<std::string>
+ee_pose_frame_rejection(const std::string &frame_id) {
+  if (frame_id == "arm_mount")
+    return std::nullopt;
+  if (frame_id == "base_link")
+    return std::string(
+        "frame_id 'base_link' is no longer accepted: Cartesian goals are in "
+        "'arm_mount' (gravity-aligned), which differs from the arm's base on a "
+        "tilted mount");
+  return "frame_id '" + frame_id + "' != arm_mount";
+}
+
+std::optional<std::string>
+pose_plan_frame_rejection(const std::string &plan_frame) {
+  if (plan_frame == "arm_mount")
+    return std::nullopt;
+  return "the planner's trajectory is in frame '" +
+         (plan_frame.empty() ? std::string("(unset)") : plan_frame) +
+         "', not arm_mount. Deploy a cuRobo that plans in arm_mount (it reads "
+         "/arm/robot_description and stamps header.frame_id); joint-space "
+         "goals "
+         "are unaffected";
 }
 
 GoToEEPose::Feedback to_goto_feedback_msg(const TrajectoryFeedback &fb) {

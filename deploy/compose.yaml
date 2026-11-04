@@ -31,10 +31,26 @@ services:
       - /module_ws/install/kinova_gen3_ros2/lib/kinova_gen3_ros2/kinova_gen3_node
       - --ip
       - ${KINOVA_ARM_IP:-192.168.1.10}
-      - --urdf
-      - /module_ws/src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
       - --cpu
       - ${KINOVA_RT_CORE:-11}
+
+  # The arm's model and TF. The driver reads /arm/robot_description at startup and
+  # exits without it, so this is selected together with kinova_gen3_driver.
+  # KINOVA_MOUNT_FILE is the path to the robot's mount.yaml. Unset, the volume spec
+  # is invalid and docker refuses to start the container -- loud, never a silently
+  # level arm.
+  arm_state_publisher:
+    image: kinova-gen3-ros2:kortex
+    network_mode: host
+    ipc: host
+    volumes:
+      - ${KINOVA_MOUNT_FILE}:/config/robot/mount.yaml:ro
+    command:
+      - ros2
+      - launch
+      - kinova_gen3_description
+      - description.launch.py
+      - mount_file:=/config/robot/mount.yaml
 
   # Owned by rammp-org/RAMMP-CuRobo. Declared here only because sheppy cannot
   # express "and also start that one", and the driver alone leaves three action

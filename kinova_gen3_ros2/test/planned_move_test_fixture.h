@@ -2,6 +2,7 @@
 #include <thread>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_lowlevel/interface/ports.h"
+#include "spin_thread.h"
 
 // Shared harness for the PlannedMoveServer-based integration tests
 // (GoToJointConfig, GoToPreset). goto_ee_pose_integration_test deliberately
@@ -53,9 +54,16 @@ struct FakeSupervisor : public kinova::interface::CommandSink {
     halted = true;
     halt_reason = why;
   }
+  // Records the request (spec + token) so the /set_gains service test can
+  // assert the mapping; the canned result lets it assert relay both ways.
+  bool got_gains = false;
+  kinova::interface::GainsRequest last_gains;
+  kinova::interface::GainsResult gains_result{true, ""};
   kinova::interface::GainsResult
-  on_set_gains(const kinova::interface::GainsRequest &) override {
-    return {};
+  on_set_gains(const kinova::interface::GainsRequest &r) override {
+    got_gains = true;
+    last_gains = r;
+    return gains_result;
   }
   // stamp_s > 0 marks the state as actually measured. The server refuses goals
   // when it is zero, because Supervisor::pump_loop only stores a snapshot after
@@ -66,6 +74,12 @@ struct FakeSupervisor : public kinova::interface::CommandSink {
     s.stamp_s = 1.0;
     return s;
   }
+  // What the contact monitor reports; a test sets phase kLatched to stand in
+  // for a contact stop.
+  kinova::interface::ContactState contact{};
+  kinova::interface::ContactState on_query_contact() override {
+    return contact;
+  }
 };
 
 // Default router port; unused by these tests.
@@ -75,24 +89,4 @@ struct DummyPort : public kinova::interface::ActionServerPort {
                    const kinova::interface::TrajectoryFeedback &) override {}
   void settle(const kinova::interface::GoalId &,
               const kinova::interface::TrajectoryResult &) override {}
-};
-
-// Spins an executor on a background thread and always cancels + joins it, so an
-// early return from a failed ASSERT_* cannot destroy a joinable thread (which
-// calls std::terminate and replaces the gtest diagnostic with a bare SIGABRT).
-class SpinThread {
-public:
-  explicit SpinThread(rclcpp::Executor &ex)
-      : ex_(ex), t_([&ex] { ex.spin(); }) {}
-  ~SpinThread() {
-    ex_.cancel();
-    if (t_.joinable())
-      t_.join();
-  }
-  SpinThread(const SpinThread &) = delete;
-  SpinThread &operator=(const SpinThread &) = delete;
-
-private:
-  rclcpp::Executor &ex_;
-  std::thread t_;
 };

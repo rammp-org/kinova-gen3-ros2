@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Walk the EE through a sequence of GoToEEPose targets, one at a time.
 
-Each pose is a base_link `tool_frame` target (position in metres, orientation as
+Each pose is an arm_mount `tool_frame` target (position in metres, orientation as
 an xyzw quaternion). cuRobo plans a collision-free trajectory from the live
 /joint_states for each; we wait for it to finish before sending the next.
 
@@ -38,7 +38,9 @@ try:
 except ImportError:
     _HAVE_ROS = False
 
-# Workspace box in base_link (metres) for random EE sampling — a conservative
+# Validated on a LEVEL mount (dojo) only; on a tilted one (flatbot) the same box
+# is a different arm-relative region -- re-check it there.
+# Workspace box in arm_mount (metres) for random EE sampling — a conservative
 # region in FRONT of the arm. Tune for your cell. Quat is xyzw; [1,0,0,0] points
 # the tool down (tool_frame Z -> -Z base).
 WS_X = (0.35, 0.55)  # forward from the base
@@ -93,7 +95,7 @@ def _send_one(node, client, pose, sender_id):
     """Send one GoToEEPose goal; return its integer error_code (or a synthetic
     negative for reject/no-result). Blocks until the goal settles."""
     goal = GoToEEPose.Goal()
-    goal.target.header.frame_id = "base_link"
+    goal.target.header.frame_id = "arm_mount"
     (
         goal.target.pose.position.x,
         goal.target.pose.position.y,
@@ -117,7 +119,7 @@ def _send_one(node, client, pose, sender_id):
     rclpy.spin_until_future_complete(node, send)
     gh = send.result()
     if not gh.accepted:
-        node.get_logger().error("  goal REJECTED (frame must be base_link)")
+        node.get_logger().error("  goal REJECTED (frame must be arm_mount)")
         return -1
     res_future = gh.get_result_async()
     rclpy.spin_until_future_complete(node, res_future)
@@ -172,7 +174,7 @@ def main():
         poses = sample_poses(args.count, seed)
         src = f"random in front-of-arm box, seed={seed}"
 
-    print(f"Sequence of {len(poses)} pose(s) (base_link, tool_frame; {src}):")
+    print(f"Sequence of {len(poses)} pose(s) (arm_mount, tool_frame; {src}):")
     for i, p in enumerate(poses):
         name = p.get("name", f"pose_{i + 1}")
         print(f"  {i + 1}. {name:>10}  pos={p['pos']}  quat(xyzw)={p['quat']}")

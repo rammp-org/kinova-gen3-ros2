@@ -1,0 +1,20 @@
+# The arm's model and TF: robot_state_publisher on the model rendered from the
+# robot's mount file.
+#
+# The third container of this module, same image as the driver. The driver reads
+# /arm/robot_description at startup and cannot run without it, so select this with
+# kinova_gen3_driver. Defined in deploy/compose.yaml for the same reason as the
+# others: it is the only path sheppy interpolates ${VAR} on, and the mount
+# file has to come from the host (KINOVA_MOUNT_FILE).
+id: kinova_gen3_description
+tier: experimental
+kind: docker
+compose:
+  file: deploy/compose.yaml
+  service: arm_state_publisher
+publishes:
+  - /arm/robot_description
+  - /tf
+  - /tf_static
+subscribes:
+  - /joint_states

@@ -2,7 +2,11 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <thread>
+#include <stdexcept>
+#include <string>
+#include <vector>
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -13,8 +17,17 @@ using namespace std::chrono_literals;
 using Action = rammp_arm_interfaces::action::ExecuteJointTrajectory;
 
 namespace {
+const std::vector<std::string> kJointNames = {
+    "arm_joint_1", "arm_joint_2",
+    "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6",
+    "arm_joint_7", "arm_robotiq_85_left_knuckle_joint"};
+const std::vector<std::string> kArmJoints(kJointNames.begin(),
+                                          kJointNames.end() - 1);
+
 Action::Goal one_point_goal(double speed_scale) {
   Action::Goal g;
+  g.trajectory.joint_names = kArmJoints;
   trajectory_msgs::msg::JointTrajectoryPoint p;
   p.positions.assign(kinova::kNumJoints, 0.0);
   p.time_from_start.sec = 1;
@@ -35,7 +48,7 @@ protected:
 // Returns true if the server accepted the goal. A missing server or a goal
 // response that never came FAILS the test rather than returning false, so
 // "refused" cannot be satisfied by a dead server.
-static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
+static bool send(const rclcpp::Node::SharedPtr &node, const Action::Goal &g) {
   auto client =
       rclcpp_action::create_client<Action>(node, "execute_joint_trajectory");
   rclcpp::executors::SingleThreadedExecutor ex;
@@ -44,7 +57,7 @@ static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
     ADD_FAILURE() << "execute_joint_trajectory server never appeared";
     return false;
   }
-  auto fut = client->async_send_goal(one_point_goal(speed_scale));
+  auto fut = client->async_send_goal(g);
   if (ex.spin_until_future_complete(fut, 5s) !=
       rclcpp::FutureReturnCode::SUCCESS) {
     ADD_FAILURE() << "no goal response within 5 s";
@@ -53,9 +66,72 @@ static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
   return fut.get() != nullptr;
 }
 
+static bool send(const rclcpp::Node::SharedPtr &node, double speed_scale) {
+  return send(node, one_point_goal(speed_scale));
+}
+
+// Issue #11: positions are mapped by index, so joint_names must be the arm's
+// joints in chain order. Any other list, none included, is refused before the
+// sink rather than mapped onto the wrong joints.
+TEST_F(Ros2BackendTest, JointNamesOtherThanTheArmsInOrderAreRefused) {
+  auto node = std::make_shared<rclcpp::Node>("backend_names_bad");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  std::vector<std::string> reversed(kArmJoints.rbegin(), kArmJoints.rend());
+  std::vector<std::string> swapped = kArmJoints;
+  std::swap(swapped[0], swapped[1]);
+  std::vector<std::string> six(kArmJoints.begin(), kArmJoints.end() - 1);
+  std::vector<std::string> eight = kJointNames; // the gripper joint too
+  std::vector<std::string> bare = {"joint_1", "joint_2", "joint_3", "joint_4",
+                                   "joint_5", "joint_6", "joint_7"};
+  for (const auto &names :
+       {reversed, swapped, six, eight, bare, std::vector<std::string>{}}) {
+    auto g = one_point_goal(1.0);
+    g.trajectory.joint_names = names;
+    EXPECT_FALSE(send(node, g)) << names.size() << " names";
+    EXPECT_FALSE(sup.got_goal) << names.size() << " names";
+  }
+}
+
+// Tolerances are mapped by index too, so a named tolerance list must name the
+// arm's joints in order. An empty list still means "guard disabled".
+TEST_F(Ros2BackendTest, ToleranceNamesOtherThanTheArmsInOrderAreRefused) {
+  auto node = std::make_shared<rclcpp::Node>("backend_tol_names");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  std::vector<control_msgs::msg::JointTolerance> tol(kArmJoints.size());
+  for (size_t i = 0; i < tol.size(); ++i) {
+    tol[i].name = kArmJoints[kArmJoints.size() - 1 - i]; // reversed
+    tol[i].position = 0.1 * static_cast<double>(i + 1);
+  }
+  auto path = one_point_goal(1.0);
+  path.path_tolerance = tol;
+  EXPECT_FALSE(send(node, path));
+  auto goal = one_point_goal(1.0);
+  goal.goal_tolerance = tol;
+  EXPECT_FALSE(send(node, goal));
+  EXPECT_FALSE(sup.got_goal);
+
+  for (size_t i = 0; i < tol.size(); ++i)
+    tol[i].name = kArmJoints[i];
+  auto short_tol = one_point_goal(1.0);
+  short_tol.path_tolerance.assign(tol.begin(), tol.end() - 1); // in order, six
+  EXPECT_FALSE(send(node, short_tol));
+  EXPECT_FALSE(sup.got_goal);
+  auto ok = one_point_goal(1.0);
+  ok.path_tolerance = tol;
+  ok.goal_tolerance = tol;
+  EXPECT_TRUE(send(node, ok));
+  ASSERT_TRUE(sup.got_goal);
+  EXPECT_DOUBLE_EQ(sup.last_goal.path_tolerance[0], 0.1);
+  EXPECT_DOUBLE_EQ(sup.last_goal.goal_tolerance[6], 0.7);
+}
+
 TEST_F(Ros2BackendTest, ABadSpeedScaleIsRefusedBeforeTheSink) {
   auto node = std::make_shared<rclcpp::Node>("backend_speed_bad");
-  kinova_gen3_ros2::Ros2Backend backend(node);
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
   for (double bad : {0.0, -1.0, 1.5, std::nan("")}) {
@@ -66,10 +142,138 @@ TEST_F(Ros2BackendTest, ABadSpeedScaleIsRefusedBeforeTheSink) {
 
 TEST_F(Ros2BackendTest, AValidSpeedScaleReachesTheSink) {
   auto node = std::make_shared<rclcpp::Node>("backend_speed_ok");
-  kinova_gen3_ros2::Ros2Backend backend(node);
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
   FakeSupervisor sup(backend);
   backend.set_command_sink(&sup);
   EXPECT_TRUE(send(node, 0.5));
   EXPECT_TRUE(sup.got_goal);
   EXPECT_DOUBLE_EQ(sup.last_goal.speed_scale, 0.5);
+}
+
+// While a contact stop is latched the driver refuses goals with no message;
+// the node refuses first so the reason reaches its log.
+TEST_F(Ros2BackendTest, AGoalWhileContactLatchedIsRefusedBeforeTheSink) {
+  auto node = std::make_shared<rclcpp::Node>("backend_contact_latched");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  sup.contact.enabled = true;
+  sup.contact.status.phase = kinova::ContactPhase::kLatched;
+  EXPECT_FALSE(send(node, 1.0));
+  EXPECT_FALSE(sup.got_goal);
+  sup.contact.status.phase = kinova::ContactPhase::kArmed;
+  EXPECT_TRUE(send(node, 1.0));
+}
+
+// Gains on a POSITION goal cannot act; refused before the sink, with the
+// reason in the node log (the driver would refuse it silently).
+TEST_F(Ros2BackendTest, GainsOnAPositionGoalAreRefusedBeforeTheSink) {
+  auto node = std::make_shared<rclcpp::Node>("backend_gains_bad");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  auto goal = one_point_goal(1.0);
+  goal.control_mode = 0;
+  goal.gains.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_STIFF;
+
+  auto client =
+      rclcpp_action::create_client<Action>(node, "execute_joint_trajectory");
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(node);
+  ASSERT_TRUE(client->wait_for_action_server(5s));
+  auto fut = client->async_send_goal(goal);
+  ASSERT_EQ(ex.spin_until_future_complete(fut, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_EQ(fut.get(), nullptr);
+  EXPECT_FALSE(sup.got_goal);
+}
+
+// /set_gains: local validation refuses what cannot be mapped; everything else
+// is relayed to the CommandSink (the Arbiter, in bringup) and the sink's
+// verdict comes back verbatim.
+TEST_F(Ros2BackendTest, SetGainsMapsAndRelaysTheSinkVerdict) {
+  using Srv = rammp_arm_interfaces::srv::SetGains;
+  auto node = std::make_shared<rclcpp::Node>("backend_set_gains");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  FakeSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+
+  auto client = node->create_client<Srv>("set_gains");
+  rclcpp::executors::SingleThreadedExecutor ex;
+  ex.add_node(node);
+  ASSERT_TRUE(client->wait_for_service(5s));
+
+  auto req = std::make_shared<Srv::Request>();
+  req->spec.profile = rammp_arm_interfaces::msg::ImpedanceGains::PROFILE_SOFT;
+  req->token.fill(0);
+  req->token[0] = 0xEE;
+  auto fut = client->async_send_request(req);
+  ASSERT_EQ(ex.spin_until_future_complete(fut, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_TRUE(fut.get()->accepted);
+  ASSERT_TRUE(sup.got_gains);
+  EXPECT_EQ(sup.last_gains.spec.profile,
+            kinova::interface::GainsProfile::kSoft);
+  EXPECT_EQ(sup.last_gains.token[0], 0xEE); // the capability survives the hop
+
+  // An unknown profile byte never reaches the sink as "session default".
+  sup.got_gains = false;
+  auto bad = std::make_shared<Srv::Request>();
+  bad->spec.profile = 9;
+  auto fut2 = client->async_send_request(bad);
+  ASSERT_EQ(ex.spin_until_future_complete(fut2, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_FALSE(fut2.get()->accepted);
+  EXPECT_FALSE(sup.got_gains);
+
+  // The sink's refusal is relayed with its message.
+  sup.gains_result = {false, "refused by fake"};
+  auto fut3 = client->async_send_request(req);
+  ASSERT_EQ(ex.spin_until_future_complete(fut3, 5s),
+            rclcpp::FutureReturnCode::SUCCESS);
+  // get() once: an rclcpp client future's shared state is CONSUMED by get(),
+  // and a second call throws std::future_error (no associated state).
+  const auto resp3 = fut3.get();
+  EXPECT_FALSE(resp3->accepted);
+  EXPECT_EQ(resp3->message, "refused by fake");
+}
+
+// The names come from the model; a list that is not seven arm joints plus the
+// gripper joint is a wiring bug, refused at construction rather than published.
+TEST_F(Ros2BackendTest, AWrongNumberOfJointNamesIsRefused) {
+  auto node = std::make_shared<rclcpp::Node>("backend_names_bad");
+  EXPECT_THROW((void)kinova_gen3_ros2::Ros2Backend(
+                   node, std::vector<std::string>{"arm_joint_1"}),
+               std::invalid_argument);
+}
+
+// settle() runs on the Supervisor's sampler thread, which has no handler: a
+// terminal transition rclcpp_action refuses must be logged, never thrown (#7).
+// In the field the trigger is a cancel racing the completion; here the context
+// is shut down under an executing goal, which makes the transition fail
+// deterministically.
+namespace {
+struct HoldingSupervisor : FakeSupervisor {
+  using FakeSupervisor::FakeSupervisor;
+  std::optional<kinova::interface::GoalId> accepted;
+  void
+  on_trajectory_accepted(const kinova::interface::GoalId &id,
+                         const kinova::interface::TrajectoryGoal &) override {
+    accepted = id; // keep the goal executing; the test settles it
+  }
+};
+} // namespace
+
+TEST_F(Ros2BackendTest, ARefusedTerminalTransitionDoesNotThrow) {
+  auto node = std::make_shared<rclcpp::Node>("backend_settle_refused");
+  kinova_gen3_ros2::Ros2Backend backend(node, kJointNames);
+  HoldingSupervisor sup(backend);
+  backend.set_command_sink(&sup);
+  ASSERT_TRUE(send(node, 0.5));
+  ASSERT_TRUE(sup.accepted);
+  rclcpp::shutdown();
+  kinova::interface::TrajectoryResult r;
+  r.error_code = kinova::interface::result_code::kSuccessful;
+  r.final_error = kinova::JointVec::Zero();
+  EXPECT_NO_THROW(backend.settle(*sup.accepted, r));
 }

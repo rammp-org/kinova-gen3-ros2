@@ -5,9 +5,10 @@ inputs and the outputs — and asserts the behaviour, rather than printing value
 human to eyeball.
 
 ```bash
-# 1. start the node yourself, with the mode you want to test
-ros2 run kinova_gen3_ros2 kinova_gen3_node --sim --urdf models/gen3_7dof_2f85.urdf \
-  --ros-args -p arbitration_mode:=enforced
+# 1. start the node and its model yourself, with the mode you want to test
+ros2 launch kinova_gen3_description bringup.launch.py sim:=true \
+  mount_file:=src/kinova_gen3_ros2/kinova_gen3_description/test/mounts/level.yaml \
+  arbitration_mode:=enforced
 
 # 2. attach
 python3 run_conformance.py                 # everything
@@ -36,17 +37,20 @@ exercises the setpoint path, the admission check and the deadline refresh while
 commanding the arm exactly where it already is.
 
 The runner restores state on exit whatever happens: closes any session, releases
-ownership, clears the e-stop.
+ownership, and releases the e-stop it raised under the default `conformance`
+source. A check interrupted between its own engage and release under another source
+(`conformance-web`, `conformance-mib`) leaves the arm stopped; send `NOT_ENGAGED`
+under that source to release it.
 
 ## What it covers
 
-| section       |                                                                                                                                                                                                                              |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `state`       | `/joint_states` names, `/ee_state` plausibility, both from one pump tick, `/control_status` and `/stream_status` latched and self-consistent, `/diagnostics` carrying all three REP 107 tasks                                |
-| `arbitration` | e-stop engage/clear, the staleness **asymmetry** (stale clear refused, stale engage honoured, unstamped accepted), acquire, seizure bumping `generation`, release with the wrong token refused, operator revoke              |
-| `streaming`   | `/list_controllers` availability, unavailable and unknown controllers refused, `timeout_s<=0` refused, open/close, setpoints refreshing the deadline, expiry once they stop, wrong-channel setpoints counted but not applied |
-| `motion`      | **an e-stop settling an in-flight goal `-9`**, and under `enforced`: an untokened goal refused, a tokened one completing, and **cancel actually cancelling**                                                                 |
-| `gripper`     | `/gripper_state` plausible, the actuated joint in `/joint_states` within its URDF limits and **no mimics published**, an untokened setpoint counted as rejected, a tokened one moving the gripper                            |
+| section       |                                                                                                                                                                                                                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state`       | `/joint_states` names, `/ee_state` plausibility, both from one pump tick, `/control_status` and `/stream_status` latched and self-consistent, `/diagnostics` carrying all three REP 107 tasks                                                                                                      |
+| `arbitration` | e-stop engage and release by the engaging source, **another source's heartbeat not releasing**, a latched MIB's clear attempts holding the stop until its own `NOT_ENGAGED`, a stale engage honoured, acquire, seizure bumping `generation`, release with the wrong token refused, operator revoke |
+| `streaming`   | `/list_controllers` availability, unavailable and unknown controllers refused, `timeout_s<=0` refused, open/close, setpoints refreshing the deadline, expiry once they stop, wrong-channel setpoints counted but not applied                                                                       |
+| `motion`      | **an e-stop settling an in-flight goal `-9`**, and under `enforced`: an untokened goal refused, a tokened one completing, and **cancel actually cancelling**                                                                                                                                       |
+| `gripper`     | `/gripper_state` plausible, the actuated joint in `/joint_states` within its URDF limits and **no mimics published**, an untokened setpoint counted as rejected, a tokened one moving the gripper                                                                                                  |
 
 Those last two had never been exercised end to end. The cancel one guards a specific
 trap: a ROS action cancel carries no payload, so the driver replays the goal's stored

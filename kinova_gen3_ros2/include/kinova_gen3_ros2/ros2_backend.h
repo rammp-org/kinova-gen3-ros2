@@ -1,8 +1,11 @@
 // kinova_gen3_ros2/include/kinova_gen3_ros2/ros2_backend.h
 #pragma once
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include <atomic>
@@ -10,6 +13,7 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "rammp_arm_interfaces/msg/ee_state.hpp"
 #include "rammp_arm_interfaces/action/execute_joint_trajectory.hpp"
+#include "rammp_arm_interfaces/srv/set_gains.hpp"
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "kinova_lowlevel/interface/ports.h"
 namespace kinova_gen3_ros2 {
@@ -20,7 +24,13 @@ public:
   using Action = rammp_arm_interfaces::action::ExecuteJointTrajectory;
   using GoalHandle = rclcpp_action::ServerGoalHandle<Action>;
 
-  explicit Ros2Backend(rclcpp::Node::SharedPtr node);
+  // joint_names: the model's seven arm joints in chain order, then the gripper
+  // joint -- joint_state_names() in robot_description.h. They are what
+  // /joint_states carries, and robot_state_publisher matches them BY NAME, so
+  // they come from the model rather than from this file. Throws
+  // std::invalid_argument unless there are exactly kNumJoints + 1.
+  Ros2Backend(rclcpp::Node::SharedPtr node,
+              std::vector<std::string> joint_names);
   void set_command_sink(kinova::interface::CommandSink *sink) { sink_ = sink; }
   // Null until bringup wires it -- and null is a real configuration, not an
   // omission: a robot with no gripper publishes seven joints exactly as before
@@ -38,18 +48,30 @@ public:
   void publish_state(const kinova::interface::ArmState &) override;
 
 private:
+  using SetGains = rammp_arm_interfaces::srv::SetGains;
+
   rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID &,
                                           std::shared_ptr<const Action::Goal>);
   rclcpp_action::CancelResponse handle_cancel(std::shared_ptr<GoalHandle>);
   void handle_accepted(std::shared_ptr<GoalHandle>);
+  // /set_gains: re-point the SESSION DEFAULT compliance. Goes through the
+  // same CommandSink the goals do, so under kEnforced the Arbiter gates it on
+  // the token exactly like every other command.
+  void on_set_gains(const std::shared_ptr<SetGains::Request>,
+                    std::shared_ptr<SetGains::Response>);
 
   rclcpp::Node::SharedPtr node_;
   rclcpp_action::Server<Action>::SharedPtr server_;
+  rclcpp::Service<SetGains>::SharedPtr set_gains_srv_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_pub_;
   // /ee_state: the Cartesian sibling of /joint_states. Core hands us ee_pose
   // and ee_twist on every ArmState and we used to drop both, so a client
   // streaming EE poses had no way to read where the tool actually was.
   rclcpp::Publisher<rammp_arm_interfaces::msg::EeState>::SharedPtr ee_pub_;
+  // Topic decimation (state_publish_divisor): publish every Nth pump tick.
+  // publish_state runs on the pump thread only, so plain ints suffice.
+  int state_divisor_ = 2;
+  int state_tick_ = 0;
 
   // REP 107 hardware health. ArmState carries the arm's fault flag and we
   // dropped that too -- the arm could be faulted with nothing on the ROS
@@ -60,8 +82,14 @@ private:
   std::atomic<bool> fault_{false};
   std::atomic<double> arm_stamp_s_{0.0};
   std::atomic<bool> ever_published_{false};
+  // steady_clock ticks of the last publish_state, for staleness.
+  std::atomic<std::chrono::steady_clock::rep> last_publish_ns_{0};
+  // Feedback older than this reads STALE: 100 publishes at the pump's 100 Hz.
+  static constexpr double kArmStaleAfterS = 1.0;
   kinova::interface::CommandSink *sink_ = nullptr;
   kinova::interface::GripperSink *gripper_ = nullptr;
+  std::vector<std::string> arm_joint_names_; // kNumJoints, chain order
+  std::string gripper_joint_name_;
   std::mutex m_;
   // The goal's token, kept so cancel can replay it. A ROS action cancel carries
   // no payload (action_msgs/CancelGoal is one GoalInfo), so without this a

@@ -15,7 +15,7 @@ def check_joint_states(ctx):
     js = ctx.latest("joint_states", timeout=6.0, fresh=True)
     if js is None:
         return Result("", FAIL, "nothing on /joint_states (QoS is best-effort)")
-    expected = [f"joint_{i}" for i in range(1, 8)]
+    expected = [f"arm_joint_{i}" for i in range(1, 8)]
     if list(js.name[:7]) != expected:
         return Result(
             "",

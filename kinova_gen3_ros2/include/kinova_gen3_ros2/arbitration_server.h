@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
@@ -31,8 +32,7 @@ public:
 
   ArbitrationServer(rclcpp::Node::SharedPtr node,
                     kinova::interface::ArbitrationSink &arb,
-                    const std::string &hardware_id,
-                    double estop_clear_max_age_s);
+                    const std::string &hardware_id);
 
   // Publish only if the arbiter's status differs from what was last sent.
   // Called by every mutating handler (so ownership changes are immediate) and
@@ -53,7 +53,6 @@ private:
 
   rclcpp::Node::SharedPtr node_;
   kinova::interface::ArbitrationSink &arb_;
-  double estop_clear_max_age_s_;
 
   rclcpp::Service<AcquireControl>::SharedPtr acquire_srv_;
   rclcpp::Service<ReleaseControl>::SharedPtr release_srv_;
@@ -66,8 +65,12 @@ private:
 
   std::mutex m_;
   kinova::interface::Token
-      retained_token_{}; // the token we minted; see on_release
+      retained_token_{}; // the token granted; see on_release
   bool have_retained_ = false;
   std::optional<ControlStatus> last_published_;
+  // Sources whose newest state is ENGAGED. The arm is stopped while this is
+  // non-empty. Touched only by on_estop, which runs alone in estop_group_, so
+  // it needs no lock.
+  std::set<std::string> engaged_sources_;
 };
 } // namespace kinova_gen3_ros2

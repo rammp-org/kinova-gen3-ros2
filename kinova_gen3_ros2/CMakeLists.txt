@@ -13,6 +13,8 @@ find_package(rammp_curobo_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(urdf REQUIRED)
 
 add_library(message_mapping src/message_mapping.cpp)
 target_include_directories(message_mapping PUBLIC
@@ -48,6 +50,14 @@ ament_target_dependencies(ros2_backend rclcpp rclcpp_action rammp_arm_interfaces
   geometry_msgs diagnostic_msgs diagnostic_updater)
 target_link_libraries(ros2_backend message_mapping kinova_lowlevel::kinova_lowlevel)
 
+# Reads the latched model arm_state_publisher renders, and derives the
+# /joint_states names from it, at startup before the RT loop; then watches for
+# a different model, off the RT path.
+add_library(robot_description src/robot_description.cpp)
+target_include_directories(robot_description PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(robot_description rclcpp std_msgs urdf)
+
 # The ROS face of core's ArbitrationSink: ownership services, /estop, /control_status
 # and the REP 107 /diagnostics contribution. Holds only an ArbitrationSink&.
 add_library(arbitration_server src/arbitration_server.cpp)
@@ -62,7 +72,9 @@ add_library(stream_server src/stream_server.cpp)
 target_include_directories(stream_server PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 ament_target_dependencies(stream_server rclcpp rammp_arm_interfaces geometry_msgs std_msgs)
-target_link_libraries(stream_server kinova_lowlevel::kinova_lowlevel)
+# message_mapping: the ImpedanceGains conversion and its rejection text are the
+# action tier's seam too, so the streaming tier shares one copy.
+target_link_libraries(stream_server message_mapping kinova_lowlevel::kinova_lowlevel)
 
 # The ROS face of core's GripperSink: /setpoint/gripper in, /gripper_state out, plus the
 # REP 107 /diagnostics contribution. Holds only a GripperSink&.
@@ -73,11 +85,40 @@ ament_target_dependencies(gripper_server
   rclcpp rammp_arm_interfaces diagnostic_msgs diagnostic_updater)
 target_link_libraries(gripper_server message_mapping kinova_lowlevel::kinova_lowlevel)
 
+# The ROS face of core's ArmLink: /clear_faults and the "Arm link" /diagnostics
+# entry. Holds only an ArmLink&.
+add_library(link_server src/link_server.cpp)
+target_include_directories(link_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(link_server
+  rclcpp std_srvs diagnostic_msgs diagnostic_updater)
+target_link_libraries(link_server kinova_lowlevel::kinova_lowlevel)
+
+# The ROS face of core's contact detector: /set_contact_thresholds, the
+# "Contact detection" /diagnostics entry and the opt-in
+# /contact_monitor/residual debug topic, plus the read-only startup
+# parameters. Holds only a CommandSink&.
+add_library(contact_server src/contact_server.cpp src/contact_params.cpp)
+target_include_directories(contact_server PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(contact_server
+  rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
+target_link_libraries(contact_server kinova_lowlevel::kinova_lowlevel)
+
+# The global_speed_scale parameter (driver #114) and its "Speed scale"
+# /diagnostics entry. Holds only a CommandSink&.
+add_library(speed_scale_param src/speed_scale_param.cpp)
+target_include_directories(speed_scale_param PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ament_target_dependencies(speed_scale_param rclcpp diagnostic_msgs diagnostic_updater)
+target_link_libraries(speed_scale_param kinova_lowlevel::kinova_lowlevel)
+
 add_executable(kinova_gen3_node src/bringup_node.cpp)
 ament_target_dependencies(kinova_gen3_node rclcpp rclcpp_action rammp_arm_interfaces geometry_msgs)
 target_link_libraries(kinova_gen3_node
-  ros2_backend planned_move_servers goal_router curobo_plan_client message_mapping
-  arbitration_server stream_server gripper_server kinova_lowlevel::kinova_lowlevel)
+  ros2_backend robot_description planned_move_servers goal_router curobo_plan_client
+  message_mapping arbitration_server stream_server gripper_server link_server
+  contact_server speed_scale_param kinova_lowlevel::kinova_lowlevel)
 option(KINOVA_ENABLE_KORTEX "Link the real KortexTransport path" OFF)
 if(NOT KINOVA_ENABLE_KORTEX)
   target_compile_definitions(kinova_gen3_node PRIVATE KINOVA_NO_KORTEX)
@@ -110,6 +151,25 @@ if(BUILD_TESTING)
   target_link_libraries(gripper_server_test gripper_server ros2_backend)
   ament_target_dependencies(gripper_server_test
     rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(link_server_test test/link_server_test.cpp)
+  target_link_libraries(link_server_test link_server)
+  ament_target_dependencies(link_server_test
+    rclcpp std_srvs diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(contact_server_test test/contact_server_test.cpp)
+  target_include_directories(contact_server_test PRIVATE test)
+  target_link_libraries(contact_server_test contact_server)
+  ament_target_dependencies(contact_server_test
+    rclcpp rammp_arm_interfaces sensor_msgs diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(speed_scale_param_test test/speed_scale_param_test.cpp)
+  target_link_libraries(speed_scale_param_test speed_scale_param)
+  ament_target_dependencies(speed_scale_param_test rclcpp diagnostic_msgs diagnostic_updater)
+
+  ament_add_gtest(contact_params_test test/contact_params_test.cpp)
+  target_link_libraries(contact_params_test contact_server)
+  ament_target_dependencies(contact_params_test rclcpp)
 
   ament_add_gtest(ros2_backend_test test/ros2_backend_test.cpp)
   target_include_directories(ros2_backend_test PRIVATE test)
@@ -153,6 +213,17 @@ if(BUILD_TESTING)
     planned_move_servers goal_router curobo_plan_client message_mapping)
   ament_target_dependencies(goto_preset_integration_test
     rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
+
+  # GoToEEPoses and GoToJointConfigs: legs chained, blended, executed once.
+  ament_add_gtest(goto_many_integration_test test/goto_many_integration_test.cpp)
+  target_include_directories(goto_many_integration_test PRIVATE test)
+  target_link_libraries(goto_many_integration_test
+    planned_move_servers goal_router curobo_plan_client message_mapping)
+  ament_target_dependencies(goto_many_integration_test
+    rclcpp rclcpp_action rammp_arm_interfaces rammp_curobo_interfaces geometry_msgs)
+  ament_add_gtest(robot_description_test test/robot_description_test.cpp)
+  target_link_libraries(robot_description_test robot_description)
+  ament_target_dependencies(robot_description_test rclcpp std_msgs)
 endif()
 
 ament_package()

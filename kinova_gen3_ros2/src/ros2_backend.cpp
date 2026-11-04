@@ -2,6 +2,7 @@
 #include "kinova_gen3_ros2/ros2_backend.h"
 #include <functional>
 #include <limits>
+#include <stdexcept>
 #include "kinova_lowlevel/joint_types.h"
 #include "kinova_gen3_ros2/message_mapping.h"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -10,18 +11,38 @@ using namespace kinova::interface;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
-Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node) : node_(node) {
+Ros2Backend::Ros2Backend(rclcpp::Node::SharedPtr node,
+                         std::vector<std::string> joint_names)
+    : node_(node) {
+  if (joint_names.size() != static_cast<size_t>(kinova::kNumJoints) + 1)
+    throw std::invalid_argument(
+        "Ros2Backend: need " + std::to_string(kinova::kNumJoints) +
+        " arm joint names then the gripper joint, got " +
+        std::to_string(joint_names.size()));
+  gripper_joint_name_ = joint_names.back();
+  joint_names.pop_back();
+  arm_joint_names_ = std::move(joint_names);
   server_ = rclcpp_action::create_server<Action>(
       node_, "execute_joint_trajectory",
       std::bind(&Ros2Backend::handle_goal, this, _1, _2),
       std::bind(&Ros2Backend::handle_cancel, this, _1),
       std::bind(&Ros2Backend::handle_accepted, this, _1));
+  set_gains_srv_ = node_->create_service<SetGains>(
+      "set_gains", std::bind(&Ros2Backend::on_set_gains, this, _1, _2));
   state_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
       "joint_states", rclcpp::SensorDataQoS());
   // Same QoS as /joint_states: it is the same data at the same rate from the
   // same pump tick, so a subscriber matching one matches the other.
   ee_pub_ = node_->create_publisher<rammp_arm_interfaces::msg::EeState>(
       "ee_state", rclcpp::SensorDataQoS());
+  // Publish every Nth pump tick. Tasks consume /joint_states and /ee_state at
+  // tens of Hz; serializing them at the full pump rate buys nothing. 2 halves
+  // the 100 Hz pump to 50 Hz. Diagnostics still refresh every tick -- only the
+  // topic publishes are decimated.
+  state_divisor_ =
+      static_cast<int>(node_->declare_parameter("state_publish_divisor", 2));
+  if (state_divisor_ < 1)
+    state_divisor_ = 1;
 
   updater_ = std::make_unique<diagnostic_updater::Updater>(node_);
   updater_->setHardwareID("kinova_gen3");
@@ -50,9 +71,26 @@ Ros2Backend::handle_goal(const rclcpp_action::GoalUUID &,
       return rclcpp_action::GoalResponse::REJECT;
     }
   }
+  // Positions and tolerances are mapped by index, so a goal naming its joints
+  // in any other order would drive the wrong ones (#11).
+  if (auto why = goal_joint_names_rejection(*goal, arm_joint_names_)) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
   // The driver's Supervisor refuses a bad speed_scale silently; refuse it here
   // instead so the reason reaches the node log, as for the GoTo* actions.
   if (auto why = speed_scale_rejection(goal->speed_scale)) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  // Same reason as speed_scale: the driver refuses these too, but its
+  // GoalResponse carries no message, so the reason is produced here.
+  if (auto why = mode_gains_rejection(goal->control_mode, goal->gains)) {
+    RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  // A contact stop: the driver refuses too, with no message.
+  if (auto why = contact_rejection(sink_->on_query_contact())) {
     RCLCPP_WARN(node_->get_logger(), "rejecting goal: %s", why->c_str());
     return rclcpp_action::GoalResponse::REJECT;
   }
@@ -94,6 +132,35 @@ void Ros2Backend::handle_accepted(std::shared_ptr<GoalHandle> gh) {
   sink_->on_trajectory_accepted(id, tg);
 }
 
+void Ros2Backend::on_set_gains(const std::shared_ptr<SetGains::Request> req,
+                               std::shared_ptr<SetGains::Response> resp) {
+  if (!sink_) {
+    resp->accepted = false;
+    resp->message = "no command sink wired";
+    return;
+  }
+  // Local checks first (unknown profile byte, custom out of bounds), so an
+  // unmappable spec never reaches core looking like a session default. "1" =
+  // impedance: set_gains is impedance vocabulary by nature, so every profile
+  // is admissible here; the driver itself refuses PROFILE_SESSION_DEFAULT
+  // ("the default cannot point at itself") with its own message.
+  if (auto why = mode_gains_rejection(1, req->spec)) {
+    resp->accepted = false;
+    resp->message = *why;
+    RCLCPP_WARN(node_->get_logger(), "set_gains refused: %s", why->c_str());
+    return;
+  }
+  GainsRequest r;
+  r.spec = to_impedance_gains(req->spec);
+  r.token = req->token; // uint8[16] IS interface::Token
+  const GainsResult res = sink_->on_set_gains(r);
+  resp->accepted = res.accepted;
+  resp->message = res.message;
+  if (!res.accepted)
+    RCLCPP_WARN(node_->get_logger(), "set_gains refused: %s",
+                res.message.c_str());
+}
+
 void Ros2Backend::publish_feedback(const GoalId &id,
                                    const TrajectoryFeedback &fb) {
   std::shared_ptr<GoalHandle> gh;
@@ -119,20 +186,43 @@ void Ros2Backend::settle(const GoalId &id, const TrajectoryResult &r) {
     handles_.erase(it);
   }
   auto msg = std::make_shared<Action::Result>(to_result_msg(r));
-  if (gh->is_canceling())
-    gh->canceled(msg);
-  else if (r.error_code == result_code::kSuccessful)
-    gh->succeed(msg);
-  else
-    gh->abort(msg);
+  // rclcpp_action throws if the goal has already left the state this
+  // transition expects, and is_canceling() can flip between the check and the
+  // call because handle_cancel ACCEPTs from an executor thread. settle() runs
+  // on Supervisor::sampler_loop, which has no handler, so an escaping
+  // exception terminates the node with the arm powered and mid-trajectory.
+  // Losing a terminal transition is bad; losing the process is worse.
+  try {
+    if (gh->is_canceling())
+      gh->canceled(msg);
+    else if (r.error_code == result_code::kSuccessful)
+      gh->succeed(msg);
+    else
+      gh->abort(msg);
+  } catch (const std::exception &e) {
+    RCLCPP_WARN(node_->get_logger(),
+                "goal terminal transition raced a cancel and was dropped: %s",
+                e.what());
+  }
 }
 
-// v1 free-running JointState stream (from the supervisor pump thread, ~100 Hz).
+// v1 free-running JointState stream (from the supervisor pump thread, ~100 Hz,
+// decimated to the topics by state_publish_divisor).
 void Ros2Backend::publish_state(const ArmState &s) {
+  // Health first, every tick: diagnostics freshness must not depend on the
+  // topic rate. Then the decimation gate -- pump thread only, no atomicity
+  // needed on the counter.
+  fault_.store(s.fault);
+  arm_stamp_s_.store(s.stamp_s);
+  ever_published_.store(true);
+  last_publish_ns_.store(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  if (state_tick_++ % state_divisor_ != 0)
+    return;
+
   sensor_msgs::msg::JointState msg;
   msg.header.stamp = node_->now();
-  msg.name = {"joint_1", "joint_2", "joint_3", "joint_4",
-              "joint_5", "joint_6", "joint_7"};
+  msg.name = arm_joint_names_;
   msg.position.resize(kinova::kNumJoints);
   msg.velocity.resize(kinova::kNumJoints);
   msg.effort.resize(kinova::kNumJoints);
@@ -160,7 +250,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
     // conformance suite's same-pump-tick invariant covers joint_states and
     // ee_state, not this column.
     const auto g = gripper_->on_query_gripper();
-    msg.name.push_back("robotiq_85_left_knuckle_joint");
+    msg.name.push_back(gripper_joint_name_);
     msg.position.push_back(gripper_to_knuckle_rad(g.position));
     // NaN, never 0: sensor_msgs' convention for "no measurement". Zero would be
     // indistinguishable from "not moving" / "no load". Core has no gripper
@@ -174,6 +264,7 @@ void Ros2Backend::publish_state(const ArmState &s) {
 
   rammp_arm_interfaces::msg::EeState ee;
   ee.header.stamp = msg.header.stamp; // same tick as the joint state above
+  ee.header.frame_id = "arm_mount";   // the model's root, which FK is in
   ee.pose.position.x = s.ee_pose.p.x();
   ee.pose.position.y = s.ee_pose.p.y();
   ee.pose.position.z = s.ee_pose.p.z();
@@ -187,11 +278,13 @@ void Ros2Backend::publish_state(const ArmState &s) {
   ee.twist.angular.x = s.ee_twist[3];
   ee.twist.angular.y = s.ee_twist[4];
   ee.twist.angular.z = s.ee_twist[5];
+  ee.wrench.force.x = s.ee_wrench[0]; // same [linear; angular] packing
+  ee.wrench.force.y = s.ee_wrench[1];
+  ee.wrench.force.z = s.ee_wrench[2];
+  ee.wrench.torque.x = s.ee_wrench[3];
+  ee.wrench.torque.y = s.ee_wrench[4];
+  ee.wrench.torque.z = s.ee_wrench[5];
   ee_pub_->publish(ee);
-
-  fault_.store(s.fault);
-  arm_stamp_s_.store(s.stamp_s);
-  ever_published_.store(true);
 }
 
 void Ros2Backend::diagnostics(
@@ -199,11 +292,22 @@ void Ros2Backend::diagnostics(
   using diagnostic_msgs::msg::DiagnosticStatus;
   const bool ever = ever_published_.load();
   const bool fault = fault_.load();
+  const double age_s =
+      std::chrono::duration<double>(
+          std::chrono::steady_clock::now().time_since_epoch() -
+          std::chrono::steady_clock::duration(last_publish_ns_.load()))
+          .count();
   // STALE rather than OK when nothing has arrived: an arm we have never heard
   // from is not a healthy arm, and reporting OK for it is the failure mode REP
   // 107's levels exist to avoid.
   if (!ever)
     stat.summary(DiagnosticStatus::STALE, "no feedback from the arm yet");
+  // The driver stops publishing while it reconnects (see "Arm link"); the last
+  // state before the outage must not keep reading as a healthy arm.
+  else if (age_s > kArmStaleAfterS)
+    stat.summary(DiagnosticStatus::STALE,
+                 "no feedback from the arm for " +
+                     std::to_string(static_cast<int>(age_s)) + " s");
   else if (fault)
     stat.summary(DiagnosticStatus::ERROR, "arm reports a fault");
   else
@@ -211,5 +315,6 @@ void Ros2Backend::diagnostics(
   stat.add("fault", fault);
   stat.add("driver_uptime_s", arm_stamp_s_.load());
   stat.add("feedback_received", ever);
+  stat.add("feedback_age_s", ever ? age_s : -1.0);
 }
 } // namespace kinova_gen3_ros2

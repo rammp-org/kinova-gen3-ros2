@@ -45,8 +45,8 @@ pose (the client seeds the trajectory from this, so it must be correct).
 ```sh
 # terminal A:
 cd ~/ros2_ws && source install/setup.bash
-ros2 run kinova_gen3_ros2 kinova_gen3_node --ip 192.168.1.10 \
-  --urdf src/kinova-gen3-driver/models/gen3_7dof_2f85.urdf
+ros2 launch kinova_gen3_description bringup.launch.py sim:=false ip:=192.168.1.10 \
+  mount_file:=<robot>/mount.yaml
 # expect: "kinova_gen3_node up (real); action: /execute_joint_trajectory"
 
 # terminal B (source ~/ros2_ws/install/setup.bash first) — note: /joint_states is best-effort QoS:
@@ -83,11 +83,59 @@ Because the feedback's `actual` field is the driver's live measured q, the
 `measured_j6` stream IS the confirmation of real motion (no separate query needed).
 Cross-check the final `measured_j6` ≈ start+0.10.
 
-## 4. Record the run
+## 4. After a contact stop
+
+The node starts with `contact_detection: enforce, default θ = [...] N·m, ceiling [...]`
+in its log. Any other mode also logs a WARN. Check that line before moving the arm.
+
+A contact stop looks like this: the arm goes limp and stays where it is pushed. From
+position mode it can first droop for about 160 ms while the actuators switch to torque
+mode (driver#92); after that there is no drift. The goal settles `error_code=-11` (`halted: unexpected contact`), and
+`Contact detection` on `/diagnostics` reads ERROR
+`stopped on contact: joint N, |r| = x N·m > θ = y N·m at the trip (profile now P); call /clear_faults`.
+Goals, stream opens and gripper setpoints are refused until it is cleared.
+
+1. **Make it safe first.** The arm is floating, not holding. Do not lean on it, and
+   keep your hand on the e-stop. Whatever the gripper holds stays held.
+1. **Find out why.** Read the trip record in the `Contact detection` diagnostics:
+   `ros2 topic echo /diagnostics | grep -A 40 'Contact detection'` (Ctrl-C after one)
+   and look at `last_trip_joint`, `last_trip_residual_nm` and
+   `last_trip_thresholds_nm` (`last_trip_q_rad` and `last_trip_qd_rad_s` are the pose
+   and velocity at the trip). A real contact (a person, the
+   table, the plate) means the motion or the scene is wrong. A trip with nothing
+   touching means the threshold is too low for that motion or payload: note the joint,
+   the `r` and the motion for tuning, and do not just raise the threshold and rerun.
+1. **Clear it with nothing touching the arm.** Then
+   `ros2 service call /clear_faults std_srvs/srv/Trigger`. Expect
+   `success: true, message: 'contact stop cleared'` (or
+   `contact stop cleared; running` if the arm had also faulted). The arm then holds at
+   its pose in position mode. It does not resume the goal. If something still presses
+   on it, it trips again within ~0.2 s.
+1. **Record it** with the run (section 5): time, motion and speed, profile,
+   `last_trip_joint`, `last_trip_residual_nm` against `last_trip_thresholds_nm`, and
+   whether the contact was real.
+
+For a motion that is meant to touch something (the bite transfer, scooping) the client
+switches to a looser profile first:
+`ros2 service call /set_contact_thresholds rammp_arm_interfaces/srv/SetContactThresholds "{profile: 2, token: [...]}"`
+(2 = loose; with `arbitration_mode:=enforced` the token is required). Measuring the
+false-positive floor uses `contact_detection:=observe`, which reports would-be trips
+in `Contact detection` (`would_trips`) and never stops the arm, so keep the e-stop in
+hand. To plot `r` while tuning, start the node with `contact_debug_topic:=true` and watch
+`/contact_monitor/residual` (`sensor_msgs/JointState`, `effort` = `r` in N·m) in
+PlotJuggler or Foxglove. Never run attended motion with `contact_detection:=off` unless that is the
+deliberate point of the session.
+
+## 5. Record the run
 
 Append below: date, exact command, observed motion (measured joint delta),
 result code, and any `faults`/`dropped`/`majflt` reported by the node's telemetry
 drain. Stop on anything unexpected — e-stop, then investigate.
+
+After an e-stop or fault the node keeps running and the `Arm link` diagnostics task
+reads `faulted`. Fix the cause, release the e-stop, then
+`ros2 service call /clear_faults std_srvs/srv/Trigger`; the arm holds where it is. See
+[troubleshooting](troubleshooting.mdx) for each reason.
 
 ### Runs
 
@@ -174,6 +222,9 @@ drain. Stop on anything unexpected — e-stop, then investigate.
   stopped, so it is independent of finding 1 — confirmed from `docker inspect` timestamps
   against the teleop log. A KORTEX device error should be handled and surfaced on
   `/diagnostics`, not abort the process.
+
+  Fixed by driver #96 / this repo's #63: the node now reports `faulted` on the `Arm link`
+  diagnostics task and waits for `/clear_faults`; it was validated on the arm 2026-10-29.
 
   Process note: the first container was run with `--rm`, which destroyed the logs of an
   earlier exit and cost a diagnosis. The crash above was only readable because the second

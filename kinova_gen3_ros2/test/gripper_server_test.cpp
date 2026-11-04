@@ -1,6 +1,8 @@
 #include <cmath>
 #include <functional>
 #include <stdexcept>
+#include <string>
+#include <vector>
 #include <gtest/gtest.h>
 #include "rclcpp/rclcpp.hpp"
 #include "kinova_gen3_ros2/gripper_server.h"
@@ -10,9 +12,16 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "fake_contact_sink.h"
 #include "fake_gripper_sink.h"
 
 using namespace std::chrono_literals;
+
+static const std::vector<std::string> kJointNames = {
+    "arm_joint_1", "arm_joint_2",
+    "arm_joint_3", "arm_joint_4",
+    "arm_joint_5", "arm_joint_6",
+    "arm_joint_7", "arm_robotiq_85_left_knuckle_joint"};
 
 class GripperServerTest : public ::testing::Test {
 protected:
@@ -55,6 +64,37 @@ TEST_F(GripperServerTest, ASetpointReachesTheSinkWithAllThreeFields) {
   EXPECT_FLOAT_EQ(sink.setpoints.back().command.speed, 0.4f);
   EXPECT_FLOAT_EQ(sink.setpoints.back().command.force, 0.2f);
   EXPECT_EQ(sink.setpoints.back().token[0], 3);
+}
+
+// While a contact stop is latched, nothing moves until a clear: new gripper
+// setpoints are refused here (and logged), not forwarded.
+TEST_F(GripperServerTest, ASetpointWhileContactLatchedIsRefused) {
+  FakeGripperSink sink;
+  FakeContactSink contact;
+  contact.state.status.phase = kinova::ContactPhase::kLatched;
+  kinova_gen3_ros2::GripperServer server(node_, sink, /*expect_gripper=*/true,
+                                         &contact);
+  auto pub =
+      node_->create_publisher<rammp_arm_interfaces::msg::GripperSetpoint>(
+          "/setpoint/gripper", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort());
+  spin_for(200ms);
+  rammp_arm_interfaces::msg::GripperSetpoint m;
+  m.position = 0.6f;
+  for (int i = 0; i < 10; ++i) {
+    pub->publish(m);
+    spin_for(20ms);
+  }
+  EXPECT_EQ(sink.count(), 0u);
+
+  {
+    std::lock_guard<std::mutex> l(contact.m);
+    contact.state.status.phase = kinova::ContactPhase::kArmed;
+  }
+  for (int i = 0; i < 20 && sink.count() == 0; ++i) {
+    pub->publish(m);
+    spin_for(20ms);
+  }
+  EXPECT_GE(sink.count(), 1u);
 }
 
 TEST_F(GripperServerTest, PublishStateReportsWhatTheSinkSays) {
@@ -148,7 +188,8 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
   FakeGripperSink sink;
   sink.state.position = 0.5f;
   sink.state.present = false;
-  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_);
+  auto backend =
+      std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_, kJointNames);
   backend->set_gripper_sink(&sink);
 
   sensor_msgs::msg::JointState got;
@@ -169,7 +210,9 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
 
   ASSERT_TRUE(seen);
   ASSERT_EQ(got.name.size(), 8u);
-  EXPECT_EQ(got.name[7], "robotiq_85_left_knuckle_joint");
+  EXPECT_EQ(got.name[0], "arm_joint_1"); // from the model, not hard-coded
+  EXPECT_EQ(got.name[6], "arm_joint_7");
+  EXPECT_EQ(got.name[7], "arm_robotiq_85_left_knuckle_joint");
   EXPECT_DOUBLE_EQ(got.position[7], 0.4);   // 0.5 * 0.8
   EXPECT_TRUE(std::isnan(got.velocity[7])); // core removed the field entirely
   EXPECT_TRUE(std::isnan(got.effort[7]));   // 0..1 fraction, not N*m
@@ -177,7 +220,8 @@ TEST_F(GripperServerTest, KnuckleJointIsPublishedEvenWhenAbsent) {
 
 // Without a sink wired, the message is exactly what it was before this tier.
 TEST_F(GripperServerTest, NoGripperSinkMeansSevenJointsAsBefore) {
-  auto backend = std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_);
+  auto backend =
+      std::make_shared<kinova_gen3_ros2::Ros2Backend>(node_, kJointNames);
   sensor_msgs::msg::JointState got;
   bool seen = false;
   auto sub = node_->create_subscription<sensor_msgs::msg::JointState>(

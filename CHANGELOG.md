@@ -60,6 +60,10 @@
   stopped. Every other `/estop` publisher must move to the new fields (the web app's
   button, the capability engine's `fake_driver.py`, the release-check harness,
   rammp-rtps's `EStopBroadcast`). Needs interfaces with #30.
+- **`/estop` is subscribed best-effort**, not reliable. The firmware e-stop nodes
+  (the joystick and the MIB) publish best-effort, which a reliable subscription
+  never matches. A best-effort subscription still matches reliable publishers such
+  as `ros2 topic pub`.
 - **`estop_clear_max_age_s` is removed**, with the launch argument of the same name.
   Staleness no longer decides a release and the stamp is never read. An old params
   file that still sets it loads; the key is ignored.

@@ -52,9 +52,13 @@ ArbitrationServer::ArbitrationServer(rclcpp::Node::SharedPtr node,
   // VOLATILE, deliberately. A transient_local SUBSCRIPTION is incompatible with
   // a volatile publisher -- which is what `ros2 topic pub` and rqt produce --
   // so requesting durability here would make an operator's e-stop silently fail
-  // to connect. Leading '/' keeps the topic global rather than node-namespaced.
+  // to connect. BEST_EFFORT for the same reason: the firmware e-stop nodes (the
+  // joystick, the MIB) publish best-effort, which a reliable subscription never
+  // matches, and a best-effort subscription still matches reliable publishers.
+  // Each source resends every period, so a lost sample costs one period. Leading
+  // '/' keeps the topic global rather than node-namespaced.
   estop_sub_ = node_->create_subscription<EStop>(
-      "/estop", rclcpp::QoS(10).reliable(),
+      "/estop", rclcpp::QoS(10).best_effort(),
       std::bind(&ArbitrationServer::on_estop, this, _1), opts);
 
   status_timer_ = node_->create_wall_timer(

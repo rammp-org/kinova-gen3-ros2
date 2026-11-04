@@ -205,8 +205,9 @@ class Ctx:
         pub = self.n.create_publisher(
             EStop,
             "/estop",
+            # Best-effort, as the firmware e-stop nodes publish.
             QoSProfile(
-                reliability=ReliabilityPolicy.RELIABLE,
+                reliability=ReliabilityPolicy.BEST_EFFORT,
                 history=HistoryPolicy.KEEP_LAST,
                 depth=10,
             ),

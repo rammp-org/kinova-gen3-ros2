@@ -80,13 +80,14 @@ protected:
     return fut.get();
   }
 
-  // Publishes on /estop and spins until ArbitrationServer has had a chance to
-  // handle it. A non-empty clear_target makes it a clear attempt.
+  // Publishes on /estop best-effort, as the firmware e-stop nodes do, and spins
+  // until ArbitrationServer has had a chance to handle it. A non-empty
+  // clear_target makes it a clear attempt.
   void publish_estop(uint8_t state, const std::string &src,
                      const std::string &clear_target = "",
                      std::optional<rclcpp::Time> stamp = std::nullopt) {
     auto pub =
-        node_->create_publisher<EStop>("/estop", rclcpp::QoS(10).reliable());
+        node_->create_publisher<EStop>("/estop", rclcpp::QoS(10).best_effort());
     EStop m;
     m.header.stamp = stamp ? *stamp : node_->now();
     m.state = state;

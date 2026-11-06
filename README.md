@@ -390,6 +390,9 @@ declares its arm mount in `mount.yaml`: `robot: <name>` and `rpy_deg: [r, p, y]`
 orientation of `arm_base_link` in `arm_mount`, in degrees, fixed-axis X-Y-Z as URDF's
 `<origin rpy>` (R = Rz(y)·Ry(p)·Rx(r)). Containers see it at `/config/robot/mount.yaml`;
 `deploy/compose.yaml` mounts it from `KINOVA_MOUNT_FILE`.
+An optional `wrist: sensor_puck` says Kinova's sensor puck (KR44492) sits between the
+flange and the gripper: the model gains `arm_sensor_puck_link`, and the gripper and
+`arm_tool_frame` move 12.7 mm (0.5 in) further out. Without the key there is no puck.
 `mount_file` has **no default**. A default would silently render a level arm on a
 tilted one, and gravity compensation would then be wrong by the tilt.
 
@@ -400,7 +403,7 @@ ros2 launch kinova_gen3_description description.launch.py mount_file:=<robot>/mo
 ```
 
 The first line the description logs is the active robot:
-`embodiment: flatbot (mount rpy_deg [0.0, 30.0, 0.0])`.
+`embodiment: flatbot (mount rpy_deg [0.0, 30.0, 0.0], wrist sensor_puck)`.
 
 ### One model, rendered at launch
 
@@ -433,7 +436,10 @@ file.
   because the chair owns `base_link` (REP-105).
 
 - `arm_tool_frame` sits 0.120 m along `arm_end_effector_link`'s +Z. That is cuRobo
-  v0.7.8's `tool_frame`, where every `PlanToPose` goal is positioned.
+  v0.7.8's `tool_frame`, where every `PlanToPose` goal is positioned. With the sensor
+  puck it is 0.1327 m: the puck moves the gripper 12.7 mm out, and the tool frame with it.
+  The puck is massless in the model (0.238 kg), and the wrist camera bolted to it is not
+  in the model at all: its frame comes from the robot's calibrated transforms.
 
 - The model has 13 DOF. The driver reduces it to the seven arm joints itself,
   locking the gripper at q = 0, which keeps the gripper's mass at the wrist.

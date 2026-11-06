@@ -28,6 +28,9 @@ import xml.etree.ElementTree as ET
 import yaml
 
 MOUNT_KEYS = {"robot", "rpy_deg"}
+# Optional. wrist: what sits between the flange and the gripper; absent = nothing.
+OPTIONAL_KEYS = {"wrist"}
+WRISTS = ["sensor_puck"]
 
 
 def load_mount(path):
@@ -36,7 +39,7 @@ def load_mount(path):
         mount = yaml.safe_load(f)
     if not isinstance(mount, dict):
         raise ValueError(f"{path}: expected a mapping with keys {sorted(MOUNT_KEYS)}")
-    unknown = set(mount) - MOUNT_KEYS
+    unknown = set(mount) - MOUNT_KEYS - OPTIONAL_KEYS
     missing = MOUNT_KEYS - set(mount)
     if unknown or missing:
         raise ValueError(
@@ -52,6 +55,10 @@ def load_mount(path):
         )
     ):
         raise ValueError(f"{path}: rpy_deg must be three finite numbers, got {rpy!r}")
+    if "wrist" in mount and mount["wrist"] not in WRISTS:
+        raise ValueError(
+            f"{path}: wrist must be one of {WRISTS}, got {mount['wrist']!r}"
+        )
     robot = mount["robot"]
     if not isinstance(robot, str) or not robot.strip():
         raise ValueError(f"{path}: robot must be a non-empty name, got {robot!r}")
@@ -70,7 +77,8 @@ def load_mount(path):
 def embodiment_line(mount):
     """The first thing the description logs, so the active robot is never a guess."""
     r, p, y = (float(v) for v in mount["rpy_deg"])
-    return f"embodiment: {mount['robot']} (mount rpy_deg [{r}, {p}, {y}])"
+    wrist = f", wrist {mount['wrist']}" if "wrist" in mount else ""
+    return f"embodiment: {mount['robot']} (mount rpy_deg [{r}, {p}, {y}]{wrist})"
 
 
 def render(mount_file):

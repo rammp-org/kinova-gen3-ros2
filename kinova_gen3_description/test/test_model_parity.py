@@ -28,6 +28,7 @@ from kinova_gen3_render import embodiment_line, load_mount, render
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEVEL = os.path.join(HERE, "mounts", "level.yaml")
 TILTED = os.path.join(HERE, "mounts", "tilted.yaml")
+PUCK = os.path.join(HERE, "mounts", "puck.yaml")
 OLD = os.environ["KINOVA_OLD_URDF"]
 OLD_EE, NEW_EE = "gen3_end_effector_link", "arm_end_effector_link"
 OLD_ARM = [f"gen3_joint_{i}" for i in range(1, 8)]
@@ -49,6 +50,8 @@ CUROBO_BRACELET_TO_EE = pin.SE3(
     np.array([0.0, 0.0, -0.0615250000000001]),
 )
 CUROBO_EE_TO_TOOL = pin.SE3(np.eye(3), np.array([0.0, 0.0, 0.120]))
+# Kinova's sensor puck (KR44492) moves the gripper 0.5 in along the flange's +Z.
+PUCK_SHIFT = pin.SE3(np.eye(3), np.array([0.0, 0.0, 0.0127]))
 
 
 def _model(mount_file):
@@ -94,6 +97,11 @@ def level():
 @pytest.fixture(scope="module")
 def tilted():
     return _model(TILTED)
+
+
+@pytest.fixture(scope="module")
+def puck():
+    return _model(PUCK)
 
 
 @pytest.fixture(scope="module")
@@ -236,6 +244,43 @@ def test_tool_frame_matches_curobo(level):
     assert np.allclose(ours.rotation, theirs.rotation, atol=1e-9)
 
 
+def test_without_a_wrist_key_there_is_no_puck(level):
+    assert not level.existFrame("arm_sensor_puck_link")
+
+
+def test_the_puck_leaves_the_arm_up_to_the_flange_unchanged(level, puck):
+    assert puck.nv == level.nv == 13
+    for a in _arm_configs(50):
+        pl = _placement(level, _set_arm(level, a, ARM), NEW_EE)
+        pp = _placement(puck, _set_arm(puck, a, ARM), NEW_EE)
+        assert np.allclose(pp.homogeneous, pl.homogeneous, atol=1e-12)
+
+
+def test_the_puck_moves_the_gripper_and_tool_frame_forward(level, puck):
+    """Seen from the flange, every frame beyond it (the gripper's and arm_tool_frame)
+    is where it was without the puck, 12.7 mm further along the flange's +Z."""
+    ql, qp = pin.neutral(level), pin.neutral(puck)
+    beyond = [
+        f.name
+        for f in level.frames
+        if f.name.startswith("arm_robotiq_") or f.name == "arm_tool_frame"
+    ]
+    assert "arm_tool_frame" in beyond and "arm_robotiq_85_base_link" in beyond
+    for name in beyond:
+        want = (
+            PUCK_SHIFT
+            * _placement(level, ql, NEW_EE).inverse()
+            * _placement(level, ql, name)
+        )
+        got = _placement(puck, qp, NEW_EE).inverse() * _placement(puck, qp, name)
+        assert np.allclose(got.homogeneous, want.homogeneous, atol=1e-12), name
+    tool = _placement(puck, qp, NEW_EE).inverse() * _placement(
+        puck, qp, "arm_tool_frame"
+    )
+    assert np.allclose(tool.translation, [0.0, 0.0, 0.1327], atol=1e-12)
+    assert puck.existFrame("arm_sensor_puck_link")
+
+
 def test_tilted_mount_leans_arm_base_forward(tilted):
     """+30 deg about Y: arm_base_link's +Z points along (0.5, 0, 0.866) in arm_mount."""
     z = _placement(tilted, pin.neutral(tilted), "arm_base_link").rotation[:, 2]
@@ -257,6 +302,10 @@ def test_embodiment_line_names_the_robot_and_the_rotation():
         embodiment_line(load_mount(TILTED))
         == "embodiment: test_tilted (mount rpy_deg [0.0, 30.0, 0.0])"
     )
+    assert (
+        embodiment_line(load_mount(PUCK))
+        == "embodiment: test_puck (mount rpy_deg [0.0, 0.0, 0.0], wrist sensor_puck)"
+    )
 
 
 @pytest.mark.parametrize(
@@ -270,6 +319,10 @@ def test_embodiment_line_names_the_robot_and_the_rotation():
         ("- 1\n- 2\n", "expected a mapping"),
         ("robot: ''\nrpy_deg: [0, 30, 0]\n", "robot must be a non-empty name"),
         ("robot: 3\nrpy_deg: [0, 30, 0]\n", "robot must be a non-empty name"),
+        (
+            "robot: x\nrpy_deg: [0, 30, 0]\nwrist: puck\n",
+            "wrist must be one of ['sensor_puck'], got 'puck'",
+        ),
     ],
 )
 def test_a_bad_mount_file_is_refused_by_name(tmp_path, body, why):

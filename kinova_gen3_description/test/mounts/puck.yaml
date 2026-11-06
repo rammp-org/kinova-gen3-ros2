@@ -1,0 +1,4 @@
+# Test fixture: a level arm with the sensor puck between the wrist and the gripper.
+robot: test_puck
+rpy_deg: [0.0, 0.0, 0.0]
+wrist: sensor_puck

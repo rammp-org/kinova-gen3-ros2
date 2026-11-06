@@ -30,6 +30,9 @@
   <!-- rpy_deg: orientation of arm_base_link in arm_mount, in degrees. -->
   <xacro:property name="mount" value="${xacro.load_yaml('$(arg mount_file)')}"/>
   <xacro:property name="mount_rpy" value="${mount['rpy_deg']}"/>
+  <!-- wrist (optional): what sits between the flange and the gripper. The only one is
+       sensor_puck; kinova_gen3_render.py refuses anything else. -->
+  <xacro:property name="puck" value="${mount.get('wrist') == 'sensor_puck'}"/>
 
   <link name="arm_mount"/>
 
@@ -50,14 +53,51 @@
             rpy="${radians(mount_rpy[0])} ${radians(mount_rpy[1])} ${radians(mount_rpy[2])}"/>
   </xacro:load_arm>
 
+  <!-- Kinova's sensor puck (KR44492, Sensor Puck Interconnect Integration): a 0.5 in
+       insert between the flange and the gripper that carries the wrist camera's
+       downlink through the arm. It moves the gripper, and arm_tool_frame with it,
+       12.7 mm along the flange's +Z. The geometry is the puck's ring and the tab the
+       camera bolts to (CAD KR44400, tab on the flange's +Y, above the gripper at
+       Kinova's Home). The camera itself is not here: its frame is the robot's
+       calibrated transform (rammp-deployments transforms/cameras.yaml), and
+       nothing in a URDF should compete with it. Massless, like the omitted wrist
+       camera test_known_wrist_mass_delta pins: the puck is 0.238 kg. -->
+  <xacro:if value="${puck}">
+    <link name="${prefix}sensor_puck_link">
+      <visual>
+        <origin xyz="0 0 0.00635" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.048" length="0.0127"/></geometry>
+      </visual>
+      <visual>
+        <origin xyz="0 0.0615 0.00635" rpy="0 0 0"/>
+        <geometry><box size="0.087 0.033 0.0127"/></geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.00635" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.048" length="0.0127"/></geometry>
+      </collision>
+      <collision>
+        <origin xyz="0 0.0615 0.00635" rpy="0 0 0"/>
+        <geometry><box size="0.087 0.033 0.0127"/></geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}sensor_puck_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="${prefix}end_effector_link"/>
+      <child link="${prefix}sensor_puck_link"/>
+    </joint>
+  </xacro:if>
+
   <!-- cuRobo positions every PlanToPose goal at tool_frame. Same transform as
        tool_frame_joint in cuRobo v0.7.8's bundled kinova_gen3_7dof.urdf
        (src/curobo/content/assets/robot/kinova/kinova_gen3_7dof.urdf), whose
        end_effector_link sits where upstream's does. Upstream kortex_description has
-       no tool frame. test_tool_frame_matches_curobo pins it. -->
+       no tool frame. test_tool_frame_matches_curobo pins it; with the sensor puck it
+       is 12.7 mm further out, with the gripper (test_the_puck_moves_...). -->
   <link name="${prefix}tool_frame"/>
   <joint name="${prefix}tool_frame_joint" type="fixed">
-    <origin xyz="0 0 0.120" rpy="0 0 0"/>
+    <xacro:unless value="${puck}"><origin xyz="0 0 0.120" rpy="0 0 0"/></xacro:unless>
+    <xacro:if value="${puck}"><origin xyz="0 0 0.1327" rpy="0 0 0"/></xacro:if>
     <parent link="${prefix}end_effector_link"/>
     <child link="${prefix}tool_frame"/>
   </joint>
@@ -66,8 +106,9 @@
        macro lacks, so this half emits geometry only. -->
   <xacro:if value="${'$(arg gripper)' == 'robotiq_2f_85'}">
     <xacro:robotiq_gripper name="RobotiqGripper" prefix="${prefix}"
-        parent="${prefix}end_effector_link" include_ros2_control="false">
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+        parent="${prefix}${'sensor_puck_link' if puck else 'end_effector_link'}"
+        include_ros2_control="false">
+      <origin xyz="0 0 ${0.0127 if puck else 0}" rpy="0 0 0"/>
     </xacro:robotiq_gripper>
   </xacro:if>
 

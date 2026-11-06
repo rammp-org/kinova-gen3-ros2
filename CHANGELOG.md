@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `mount.yaml` takes an optional `wrist: sensor_puck`, for Kinova's sensor puck
+  (KR44492) between the flange and the gripper. The model gains `arm_sensor_puck_link`,
+  and the gripper and `arm_tool_frame` move 12.7 mm further out (`arm_tool_frame` at
+  0.1327 m). A mount without the key renders exactly as before.
+  *Do:* add the key to the `mount.yaml` of every robot with a puck, and re-check
+  anything tuned against `arm_tool_frame` there: it is now 12.7 mm further out.
+
 ## 2.0.0 — 2026-11-04
 
 A major release. The arm is described in its own mounted frame (`arm_mount`, every

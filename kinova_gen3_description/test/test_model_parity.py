@@ -50,8 +50,8 @@ CUROBO_BRACELET_TO_EE = pin.SE3(
     np.array([0.0, 0.0, -0.0615250000000001]),
 )
 CUROBO_EE_TO_TOOL = pin.SE3(np.eye(3), np.array([0.0, 0.0, 0.120]))
-# Kinova's sensor puck (KR44492) moves the gripper 0.5 in along the flange's +Z.
-PUCK_SHIFT = pin.SE3(np.eye(3), np.array([0.0, 0.0, 0.0127]))
+# Kinova's sensor puck (KR44492) moves the gripper 14 mm along the flange's +Z.
+PUCK_SHIFT = pin.SE3(np.eye(3), np.array([0.0, 0.0, 0.014]))
 
 
 def _model(mount_file):
@@ -258,7 +258,7 @@ def test_the_puck_leaves_the_arm_up_to_the_flange_unchanged(level, puck):
 
 def test_the_puck_moves_the_gripper_and_tool_frame_forward(level, puck):
     """Seen from the flange, every frame beyond it (the gripper's and arm_tool_frame)
-    is where it was without the puck, 12.7 mm further along the flange's +Z."""
+    is where it was without the puck, 14 mm further along the flange's +Z."""
     ql, qp = pin.neutral(level), pin.neutral(puck)
     beyond = [
         f.name
@@ -277,7 +277,7 @@ def test_the_puck_moves_the_gripper_and_tool_frame_forward(level, puck):
     tool = _placement(puck, qp, NEW_EE).inverse() * _placement(
         puck, qp, "arm_tool_frame"
     )
-    assert np.allclose(tool.translation, [0.0, 0.0, 0.1327], atol=1e-12)
+    assert np.allclose(tool.translation, [0.0, 0.0, 0.134], atol=1e-12)
     assert puck.existFrame("arm_sensor_puck_link")
 
 

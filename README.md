@@ -392,7 +392,7 @@ orientation of `arm_base_link` in `arm_mount`, in degrees, fixed-axis X-Y-Z as U
 `deploy/compose.yaml` mounts it from `KINOVA_MOUNT_FILE`.
 An optional `wrist: sensor_puck` says Kinova's sensor puck (KR44492) sits between the
 flange and the gripper: the model gains `arm_sensor_puck_link`, and the gripper and
-`arm_tool_frame` move 12.7 mm (0.5 in) further out. Without the key there is no puck.
+`arm_tool_frame` move 14 mm further out. Without the key there is no puck.
 `mount_file` has **no default**. A default would silently render a level arm on a
 tilted one, and gravity compensation would then be wrong by the tilt.
 
@@ -437,7 +437,7 @@ file.
 
 - `arm_tool_frame` sits 0.120 m along `arm_end_effector_link`'s +Z. That is cuRobo
   v0.7.8's `tool_frame`, where every `PlanToPose` goal is positioned. With the sensor
-  puck it is 0.1327 m: the puck moves the gripper 12.7 mm out, and the tool frame with it.
+  puck it is 0.134 m: the puck moves the gripper 14 mm out, and the tool frame with it.
   The puck is massless in the model (0.238 kg), and the wrist camera bolted to it is not
   in the model at all: its frame comes from the robot's calibrated transforms.
 

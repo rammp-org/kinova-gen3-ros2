@@ -296,6 +296,11 @@ why. It needs no token. The link state, its reason and the fault and reconnect c
 are on `/diagnostics` (`Arm link`). Details: [docs/interface.md](docs/interface.md),
 [docs/troubleshooting.mdx](docs/troubleshooting.mdx).
 
+Arbitration is untouched by a fault, a link loss and the clear: the owner keeps the arm,
+its token stays valid and `generation` does not change. Only `/release_control`,
+`/revoke_control`, an `/acquire_control` seize and a ROS `/estop` change ownership. A
+hardware e-stop is an arm fault, so it leaves ownership alone.
+
 ### Streaming
 
 Teleop and reactive control drive the arm through a **session**: you name a

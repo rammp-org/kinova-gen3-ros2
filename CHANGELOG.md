@@ -5,8 +5,8 @@
 ## 2.1.0 — 2026-11-16
 
 A minor release. The model can carry Kinova's sensor puck between the flange and the
-gripper (opt-in per robot), and the image builds on `rammp-base:2.1.0-jp6`. Same
-interface contract (rammp-interfaces-ros2 2.0.0) and same driver and RAMMP-CuRobo
+gripper (opt-in per robot), and the image builds on `rammp-base:2.2.0-jp6`, which
+carries rammp-interfaces-ros2 2.1.0 (additive only). Same driver and RAMMP-CuRobo
 pins as 2.0.0.
 
 A robot whose `mount.yaml` sets `wrist: sensor_puck` (flatbot and gen_1_5 in
@@ -20,8 +20,10 @@ key and `arm_state_publisher` fails at launch. Its planner data must use the sam
   0.134 m). A mount without the key renders exactly as before.
   *Do:* add the key to the `mount.yaml` of every robot with a puck, and re-check
   anything tuned against `arm_tool_frame` there: it is now 14 mm further out.
-- The image builds `FROM rammp-base:2.1.0-jp6` (was `2.0.0-jp6`). Same interface
-  contract (rammp-interfaces-ros2 2.0.0). The base's Cyclone config no longer lists
+- The image builds `FROM rammp-base:2.2.0-jp6` (was `2.0.0-jp6`), which carries
+  rammp-interfaces-ros2 2.1.0. That release only adds: `ExecuteAction`'s goal appends
+  `token`, plus three new orchestrator and UI-bridge types, none of which this node
+  uses. Clients on 2.0.0 interfaces are unaffected. The base's Cyclone config no longer lists
   `<NetworkInterface autodetermine="true"/>`, which was already Cyclone's default, so
   a deployment can pin the arm's NIC by appending a one-element file to
   `CYCLONEDDS_URI` (rammp-org/rammp-deployments#136). With `ROS_LOCALHOST_ONLY=1` the

@@ -42,8 +42,8 @@ repositories:
     url: https://github.com/rammp-org/RAMMP-CuRobo.git
     # v2.0.0: plans in arm_mount with arm_ joint names (#38) and carries the
     # Blend action GoToEEPoses / GoToJointConfigs compile against (#48). Goes
-    # together with rammp-interfaces-ros2 v2.0.0, which arrives via the
-    # rammp-base 2.1.0-jp6 image -- see the Dockerfile FROM.
+    # together with rammp-interfaces-ros2 v2.1.0, which arrives via the
+    # rammp-base 2.2.0-jp6 image -- see the Dockerfile FROM.
     version: v2.0.0
     # Only rammp_curobo_interfaces is a build dep (dependency-free IDL, no GPU stack).
     # Builds must scope colcon with --packages-up-to kinova_gen3_ros2 so the GPU

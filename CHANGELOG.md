@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 2.1.0 — 2026-11-16
+
+A minor release. The model can carry Kinova's sensor puck between the flange and the
+gripper (opt-in per robot), and the image builds on `rammp-base:2.2.0-jp6`, which
+carries rammp-interfaces-ros2 2.1.0 (additive only). Same driver and RAMMP-CuRobo
+pins as 2.0.0.
+
+A robot whose `mount.yaml` sets `wrist: sensor_puck` (flatbot and gen_1_5 in
+rammp-deployments since its #149) needs this release: 2.0.0's renderer rejects the
+key and `arm_state_publisher` fails at launch. Its planner data must use the same
+14 mm (rammp-deployments#149).
+
 - `mount.yaml` takes an optional `wrist: sensor_puck`, for Kinova's sensor puck
   (KR44492) between the flange and the gripper. The model gains `arm_sensor_puck_link`,
   and the gripper and `arm_tool_frame` move 14 mm further out (`arm_tool_frame` at

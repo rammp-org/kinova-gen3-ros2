@@ -40,13 +40,13 @@ direction. Start the model first, then the driver:
 ```sh
 docker run --rm -d --name arm_state_publisher --network host --ipc host \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -v "$PWD/robot:/config/robot:ro" \
-  ghcr.io/rammp-org/kinova-gen3-ros2:2.0.0 \
+  ghcr.io/rammp-org/kinova-gen3-ros2:2.1.0 \
   ros2 launch kinova_gen3_description description.launch.py \
   mount_file:=/config/robot/mount.yaml
 
 docker run --rm -it --network host --ipc host \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  ghcr.io/rammp-org/kinova-gen3-ros2:2.0.0
+  ghcr.io/rammp-org/kinova-gen3-ros2:2.1.0
 ```
 
 You should see:
@@ -165,7 +165,7 @@ Save this as `compose.yaml`:
 ```yaml
 services:
   kinova_gen3_driver:
-    image: ghcr.io/rammp-org/kinova-gen3-ros2:2.0.0
+    image: ghcr.io/rammp-org/kinova-gen3-ros2:2.1.0
     network_mode: host
     ipc: host                      # DDS shared-memory transport
     cap_add: [SYS_NICE]            # permits sched_setscheduler...
@@ -181,7 +181,7 @@ services:
   # The arm's model and TF. The driver reads /arm/robot_description at startup and
   # exits without it.
   arm_state_publisher:
-    image: ghcr.io/rammp-org/kinova-gen3-ros2:2.0.0
+    image: ghcr.io/rammp-org/kinova-gen3-ros2:2.1.0
     network_mode: host
     ipc: host
     environment:
@@ -238,7 +238,7 @@ rosdep update --rosdistro humble
 mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
 git clone https://github.com/rammp-org/kinova-gen3-ros2 src/kinova_gen3_ros2
 vcs import src < src/kinova_gen3_ros2/kinova_gen3.repos
-git clone --branch v2.0.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
+git clone --branch v2.1.0 https://github.com/rammp-org/rammp-interfaces-ros2 src/rammp-interfaces-ros2
 ```
 
 `kinova_gen3.repos` brings in the core driver and cuRobo's message definitions. It
